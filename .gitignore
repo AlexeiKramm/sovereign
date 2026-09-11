@@ -6,10 +6,14 @@ local.properties
 *.aab
 *.keystore
 !debug.keystore
+captures/
+.externalNativeBuild
+.cxx
 
 # IDE
 .idea/
 *.iml
+.DS_Store
 
 # Model artifacts (downloaded, not source)
 models/
