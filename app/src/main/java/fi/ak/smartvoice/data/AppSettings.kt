@@ -1,6 +1,7 @@
 package fi.ak.smartvoice.data
 
 import android.content.Context
+import androidx.core.content.edit
 
 /**
  * The one place the app's settings are read and written.
@@ -19,17 +20,17 @@ class AppSettings(context: Context) {
 
     var serverUrl: String
         get() = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL).orEmpty()
-        set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
+        set(value) = prefs.edit { putString(KEY_SERVER_URL, value) }
 
     /** v1 ships cleanup on: it is the feature the server tier exists for. */
     var cleanupEnabled: Boolean
         get() = prefs.getBoolean(KEY_CLEANUP, true)
-        set(value) = prefs.edit().putBoolean(KEY_CLEANUP, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_CLEANUP, value) }
 
     /** "auto" or an ISO-639-1 code. Auto is right until language detection proves otherwise. */
     var language: String
         get() = prefs.getString(KEY_LANGUAGE, LANGUAGE_AUTO).orEmpty()
-        set(value) = prefs.edit().putString(KEY_LANGUAGE, value).apply()
+        set(value) = prefs.edit { putString(KEY_LANGUAGE, value) }
 
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"
