@@ -2,6 +2,7 @@ package fi.ak.smartvoice.net
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -15,6 +16,19 @@ class StackHttpException(
 
 /** No response at all: the tier is unreachable rather than returning an error. */
 class StackUnreachableException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * The server answered 200 with a body this client cannot read.
+ *
+ * Carries the raw payload, because this is the one error class that cannot be diagnosed from the
+ * exception alone. The first instance of it was real: the frozen contract's example shows integer
+ * milliseconds (`"stt": 1800`) while the server emits fractions (`665.6670000000133`), and the only
+ * way to see that from the phone was to read the body.
+ */
+class StackResponseParseException(
+    val rawBody: String,
+    cause: Throwable,
+) : Exception("Server response could not be parsed: ${cause.message}", cause)
 
 /**
  * Thin client for `local-voice-stack`. Two calls only in v1: a version probe and a transcribe.
@@ -39,7 +53,7 @@ class TranscribeClient(private val baseUrl: String) {
     suspend fun meta(): MetaResponse = withContext(Dispatchers.IO) {
         val (status, body) = call("GET", "$root/v1/meta", contentType = null, body = null)
         if (status !in 200..299) throw errorFor(status, body)
-        StackJson.decodeFromString(MetaResponse.serializer(), body)
+        parse(body)
     }
 
     /** Returns the parsed response and the wall-clock round trip in milliseconds. */
@@ -57,7 +71,13 @@ class TranscribeClient(private val baseUrl: String) {
         val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
 
         if (status !in 200..299) throw errorFor(status, body)
-        StackJson.decodeFromString(TranscribeResponse.serializer(), body) to elapsedMs
+        parse<TranscribeResponse>(body) to elapsedMs
+    }
+
+    private inline fun <reified T> parse(body: String): T = try {
+        StackJson.decodeFromString<T>(body)
+    } catch (e: SerializationException) {
+        throw StackResponseParseException(body, e)
     }
 
     private fun call(
@@ -100,7 +120,7 @@ class TranscribeClient(private val baseUrl: String) {
 
     private fun errorFor(status: Int, body: String): StackHttpException {
         val envelope = runCatching {
-            StackJson.decodeFromString(ApiErrorEnvelope.serializer(), body)
+            StackJson.decodeFromString<ApiErrorEnvelope>(body)
         }.getOrNull()
 
         val code = envelope?.error?.code
@@ -117,8 +137,6 @@ class TranscribeClient(private val baseUrl: String) {
         const val CLEANUP_OFF = "off"
 
         private const val CONNECT_TIMEOUT_MS = 5_000
-        // Generous on purpose: the server's own target is up to ~30 s for a 5-minute clip with
-        // cleanup on, so a timeout here should mean "the server is not there", not "it is thinking".
         private const val READ_TIMEOUT_MS = 120_000
     }
 }

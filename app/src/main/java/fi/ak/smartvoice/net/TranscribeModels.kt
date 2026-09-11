@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlin.math.roundToLong
 
 /**
  * DTOs for the frozen transport contract in `local-voice-stack/docs/CONTRACT.md` (v1).
@@ -15,10 +16,17 @@ import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class LatencyMs(
-    val stt: Long = 0,
-    val cleanup: Long? = null,
-    val total: Long = 0,
-)
+    // Doubles on purpose: the frozen contract's example shows integers (`"stt": 1800`), but the
+    // server emits fractional milliseconds (`665.6670000000133`). Double parses both, so the
+    // client stays correct whichever way the server reports it.
+    val stt: Double = 0.0,
+    val cleanup: Double? = null,
+    val total: Double = 0.0,
+) {
+    fun sttMs(): Long = stt.roundToLong()
+    fun cleanupMs(): Long? = cleanup?.roundToLong()
+    fun totalMs(): Long = total.roundToLong()
+}
 
 @Serializable
 data class Correction(val from: String, val to: String)

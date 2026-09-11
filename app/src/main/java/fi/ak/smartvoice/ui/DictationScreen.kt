@@ -185,9 +185,9 @@ private fun ResultCard(result: TranscribeResponse, roundTripMs: Long) {
             )
             result.latencyMs?.let { l ->
                 Text(
-                    "server latency — stt ${l.stt} ms" +
-                        (l.cleanup?.let { " · cleanup $it ms" } ?: " · cleanup not run") +
-                        " · total ${l.total} ms",
+                    "server latency — stt ${l.sttMs()} ms" +
+                        (l.cleanupMs()?.let { " · cleanup $it ms" } ?: " · cleanup not run") +
+                        " · total ${l.totalMs()} ms",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

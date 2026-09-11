@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import fi.ak.smartvoice.audio.WavRecorder
 import fi.ak.smartvoice.net.EXPECTED_CONTRACT_VERSION
 import fi.ak.smartvoice.net.StackHttpException
+import fi.ak.smartvoice.net.StackResponseParseException
 import fi.ak.smartvoice.net.StackUnreachableException
 import fi.ak.smartvoice.net.TranscribeClient
 import fi.ak.smartvoice.net.TranscribeResponse
@@ -121,6 +122,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 _state.value = DictationUiState.Failed(e.code, "${e.message} (HTTP ${e.status})")
             } catch (e: StackUnreachableException) {
                 _state.value = DictationUiState.Failed("unreachable", e.message ?: "Server unreachable")
+            } catch (e: StackResponseParseException) {
+                // Show the payload: a parse failure is diagnosed from the body, not the exception.
+                _state.value = DictationUiState.Failed(
+                    "response_unreadable",
+                    (e.message ?: "Unparseable response") + "\n\nRaw response:\n" + e.rawBody.take(600),
+                )
             } catch (t: Throwable) {
                 _state.value = DictationUiState.Failed(
                     "client_error",
