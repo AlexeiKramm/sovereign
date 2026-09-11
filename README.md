@@ -17,6 +17,7 @@ made, `docs/contract.md` for the interface with the server.
 | `STATUS.md` | What is true right now? | Must be current. Single screen. |
 | `DECISIONS.md` | Why is it this way, and what did we reject? | Append-only. Never edited, only superseded. |
 | `docs/contract.md` | How do the app and the server talk, and where are the gaps? | Updated whenever either side changes an interface. |
+| `docs/prior-art.md` | What other projects and the research line actually do, with numbers. | Append as new evidence arrives; never rewritten. |
 | `README.md` | This file. Orientation only. | Rarely. |
 
 Three rules that keep these documents honest:
