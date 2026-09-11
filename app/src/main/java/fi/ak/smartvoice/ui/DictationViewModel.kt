@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fi.ak.smartvoice.audio.WavRecorder
+import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.net.EXPECTED_CONTRACT_VERSION
 import fi.ak.smartvoice.net.StackHttpException
 import fi.ak.smartvoice.net.StackResponseParseException
@@ -46,11 +47,11 @@ sealed interface ServerStatus {
 
 class DictationViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val prefs = application.getSharedPreferences(PREFS, Application.MODE_PRIVATE)
+    private val settings = AppSettings(application)
     private val recorder = WavRecorder()
     private var ticker: Job? = null
 
-    private val _serverUrl = MutableStateFlow(prefs.getString(KEY_SERVER_URL, DEFAULT_URL).orEmpty())
+    private val _serverUrl = MutableStateFlow(settings.serverUrl)
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
     private val _serverStatus = MutableStateFlow<ServerStatus>(ServerStatus.Unknown)
@@ -61,7 +62,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun onServerUrlChange(value: String) {
         _serverUrl.value = value
-        prefs.edit().putString(KEY_SERVER_URL, value).apply()
+        settings.serverUrl = value
         _serverStatus.value = ServerStatus.Unknown
     }
 
@@ -157,11 +158,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     companion object {
-        private const val PREFS = "smart_voice"
-        private const val KEY_SERVER_URL = "server_url"
         private const val TICK_MS = 200L
-
-        /** Placeholder only — the real address is the home PC's LAN/Tailscale IP and port. */
-        const val DEFAULT_URL = "http://192.0.2.100:8000"
     }
 }

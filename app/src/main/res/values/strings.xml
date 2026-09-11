@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">Smart Voice</string>
     <string name="ime_name">Smart Voice (dictation)</string>
-    <string name="ime_status_ready">chunk 1 — mic key commits a fixed string; real dictation is chunk 2</string>
+    <string name="ime_status_ready">tap 🎤 and speak, tap ■ to send</string>
 </resources>
