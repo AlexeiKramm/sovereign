@@ -1,0 +1,22 @@
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# IDE
+.idea/
+*.iml
+
+# Model artifacts (downloaded, not source)
+models/
+*.onnx
+*.gguf
+*.tflite
+*.bin
+
+# Local config
+.env
