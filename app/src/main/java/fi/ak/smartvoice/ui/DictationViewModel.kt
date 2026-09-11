@@ -117,7 +117,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
         viewModelScope.launch {
             try {
-                val (response, roundTripMs) = client().transcribe(wav)
+                // Same settings the dictation panel uses, so both surfaces send the same thing.
+                val (response, roundTripMs) = client().transcribe(
+                    wav = wav,
+                    cleanup = settings.cleanupRequestValue,
+                    language = settings.language,
+                )
                 _state.value = DictationUiState.Done(response, roundTripMs)
             } catch (e: StackHttpException) {
                 _state.value = DictationUiState.Failed(e.code, "${e.message} (HTTP ${e.status})")

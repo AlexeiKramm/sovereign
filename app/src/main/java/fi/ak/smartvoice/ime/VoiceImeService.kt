@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
-import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import androidx.core.content.ContextCompat
@@ -12,11 +11,11 @@ import fi.ak.smartvoice.MainActivity
 import fi.ak.smartvoice.R
 import fi.ak.smartvoice.audio.WavRecorder
 import fi.ak.smartvoice.data.AppSettings
-import fi.ak.smartvoice.net.Correction
 import fi.ak.smartvoice.net.StackHttpException
 import fi.ak.smartvoice.net.StackResponseParseException
 import fi.ak.smartvoice.net.StackUnreachableException
 import fi.ak.smartvoice.net.TranscribeClient
+import fi.ak.smartvoice.net.TranscribeResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,25 +29,26 @@ import kotlinx.coroutines.withContext
 /**
  * v1's deliverable: dictation that lands at the cursor in someone else's app.
  *
- * Push-to-talk, one utterance at a time: tap the mic, speak, tap again. The whole utterance goes to
- * the server in one request with `cleanup: "full"`, and the returned (already cleaned) text is
+ * The panel (see [VoicePanelView]) works like a system keyboard's voice mode rather than being a
+ * keyboard itself: switch to it, dictate, switch back to type. Push-to-talk, one utterance at a
+ * time, one request with the currently selected `cleanup` and `language`, and the returned text
  * committed once — nothing is inserted raw and then rewritten, which is the v1 rule from D-021.
  *
  * Why the permission works here at all: an `InputMethodService` cannot request `RECORD_AUDIO` (no
  * Activity, no dialog) but the grant belongs to the package, so once [MainActivity] has it, this
  * service — same package, same process — can record.
  *
- * States are all on the status line, and none of them is silent: listening with elapsed seconds,
- * transcribing, committed, or a failure with the contract's own error code. A mic key that does
- * nothing is the worst possible outcome, so every path writes something the user can read.
+ * Every state writes to the status line, including the values actually requested: listening with
+ * elapsed seconds, transcribing, committed with the stt / cleanup / total split, or a failure
+ * carrying the contract's own error code. A key that does nothing silently is the worst outcome.
  */
-class VoiceImeService : InputMethodService() {
+class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var settings: AppSettings
     private lateinit var recorder: WavRecorder
 
-    private var keyboard: KeyboardView? = null
+    private var panel: VoicePanelView? = null
     private var ticker: Job? = null
     private var inFlight: Job? = null
 
@@ -65,8 +65,9 @@ class VoiceImeService : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
-        val view = KeyboardView(this) { action -> onKey(action) }
-        keyboard = view
+        val view = VoicePanelView(this, this)
+        panel = view
+        syncPanelSettings()
         view.setStatus(idleStatus())
         return view.root
     }
@@ -75,7 +76,8 @@ class VoiceImeService : InputMethodService() {
         super.onStartInputView(info, restarting)
         // A new field means a clean slate; an utterance started in the previous field is abandoned.
         abandonCapture()
-        keyboard?.setStatus(idleStatus())
+        syncPanelSettings()
+        panel?.setStatus(idleStatus())
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -83,109 +85,146 @@ class VoiceImeService : InputMethodService() {
         super.onFinishInputView(finishingInput)
     }
 
-    private fun onKey(action: KeyboardAction) {
-        when (action) {
-            KeyboardAction.Mic -> onMicKey()
-            KeyboardAction.Space -> currentInputConnection?.commitText(" ", 1)
-            KeyboardAction.Backspace -> currentInputConnection?.deleteSurroundingText(1, 0)
-            KeyboardAction.Enter -> sendEnter()
-            KeyboardAction.Settings -> openSettings()
-        }
+    // ------------------------------------------------------------------ panel controls
+
+    override fun onToggleCleanup() {
+        settings.cleanupEnabled = !settings.cleanupEnabled
+        syncPanelSettings()
+        panel?.setStatus(
+            if (settings.cleanupEnabled) {
+                "cleanup on — the server will clean and punctuate the transcript"
+            } else {
+                "cleanup off — you will get the raw transcript (faster, no LLM)"
+            },
+        )
     }
 
-    private fun onMicKey() {
+    override fun onCycleLanguage() {
+        val cycle = AppSettings.LANGUAGE_CYCLE
+        val next = cycle[(cycle.indexOf(settings.language).takeIf { it >= 0 } ?: 0).let { (it + 1) % cycle.size }]
+        settings.language = next
+        syncPanelSettings()
+        panel?.setStatus(
+            if (next == AppSettings.LANGUAGE_AUTO) {
+                "language: auto — the server detects it per utterance"
+            } else {
+                "language: ${next.uppercase()} — pinned for the next utterance"
+            },
+        )
+    }
+
+    override fun onSettings() {
+        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    private fun syncPanelSettings() {
+        panel?.setCleanup(settings.cleanupEnabled)
+        panel?.setLanguage(settings.language)
+    }
+
+    // ------------------------------------------------------------------ dictation
+
+    override fun onMic() {
         when {
             recorder.isRecording -> stopAndTranscribe()
-            inFlight?.isActive == true -> keyboard?.setStatus("still working on the last utterance…")
+            inFlight?.isActive == true -> panel?.setStatus("still working on the last utterance…")
             else -> startCapture()
         }
     }
 
+    override fun onCancel() {
+        abandonCapture()
+        panel?.setStatus("cancelled — nothing was sent")
+    }
+
     private fun startCapture() {
         if (!hasMicrophonePermission()) {
-            keyboard?.setStatus(
-                "microphone permission not granted — tap ⚙ to open Smart Voice, allow the mic, " +
-                    "then switch back here",
+            panel?.setStatus(
+                "microphone permission not granted — tap ⚙ and allow the mic in Smart Voice",
             )
             return
         }
 
         runCatching { recorder.start() }
             .onSuccess {
-                keyboard?.setMicLabel("■ stop & send")
-                keyboard?.setStatus("listening… 0.0 s — tap ■ to stop")
+                panel?.setListening(true)
+                panel?.setStatus(listeningStatus(0.0))
                 ticker = scope.launch {
                     while (isActive) {
                         delay(TICK_MS)
-                        keyboard?.setStatus("listening… %.1f s — tap ■ to stop".format(recorder.capturedSeconds))
+                        panel?.setStatus(listeningStatus(recorder.capturedSeconds))
                     }
                 }
             }
             .onFailure {
-                keyboard?.setStatus("could not start recording: ${it.message ?: "AudioRecord failed"}")
+                panel?.setStatus("could not start recording: ${it.message ?: "AudioRecord failed"}")
             }
     }
+
+    private fun listeningStatus(seconds: Double): String = "listening… %.1f s · %s · %s".format(
+        seconds,
+        "cleanup ${if (settings.cleanupEnabled) "full" else "off"}",
+        "lang ${settings.language}",
+    )
 
     private fun stopAndTranscribe() {
         ticker?.cancel()
         ticker = null
-        keyboard?.setMicLabel("🎤 dictate")
+        panel?.setListening(false)
+
+        val cleanup = settings.cleanupRequestValue
+        val language = settings.language
 
         inFlight = scope.launch {
-            // Stopping the recorder joins its capture thread, so it does not belong on the main thread.
+            // Stopping joins the capture thread, so it does not belong on the main thread.
             val wav = withContext(Dispatchers.IO) { recorder.stop() }
             if (wav == null) {
-                keyboard?.setStatus("nothing was captured — no audio sent")
+                panel?.setStatus("nothing was captured — no audio sent")
                 return@launch
             }
 
             val seconds = (wav.size - 44).toDouble() / (WavRecorder.SAMPLE_RATE * 2)
-            keyboard?.setStatus("transcribing %.1f s of audio…".format(seconds))
+            panel?.setStatus("transcribing %.1f s · cleanup $cleanup · lang $language…".format(seconds))
 
             try {
-                val (result, roundTripMs) = TranscribeClient(settings.serverUrl).transcribe(wav)
-                commit(result.text, result.latencyMs?.sttMs(), result.latencyMs?.cleanupMs(), result.latencyMs?.totalMs(), roundTripMs, result.cleanupUnavailable, result.corrections)
+                val (result, roundTripMs) = TranscribeClient(settings.serverUrl)
+                    .transcribe(wav, cleanup = cleanup, language = language)
+                commit(result, roundTripMs)
             } catch (e: StackHttpException) {
-                keyboard?.setStatus("server said ${e.code} (HTTP ${e.status}) — ${e.message}")
+                panel?.setStatus("server said ${e.code} (HTTP ${e.status}) — ${e.message}")
             } catch (e: StackUnreachableException) {
-                keyboard?.setStatus("cannot reach the server at ${settings.serverUrl} — check the URL in Smart Voice")
+                panel?.setStatus("cannot reach ${settings.serverUrl} — check the URL in ⚙ settings")
             } catch (e: StackResponseParseException) {
-                keyboard?.setStatus("server response could not be read — ${e.message}")
+                panel?.setStatus("server response could not be read — ${e.message}")
             } catch (t: Throwable) {
-                keyboard?.setStatus("failed: ${t.message ?: t::class.java.simpleName}")
+                panel?.setStatus("failed: ${t.message ?: t::class.java.simpleName}")
             }
         }
     }
 
-    private fun commit(
-        text: String,
-        sttMs: Long?,
-        cleanupMs: Long?,
-        totalMs: Long?,
-        roundTripMs: Long,
-        cleanupUnavailable: Boolean,
-        corrections: List<Correction>,
-    ) {
+    private fun commit(result: TranscribeResponse, roundTripMs: Long) {
         val connection = currentInputConnection
         if (connection == null) {
-            keyboard?.setStatus("no text field is focused — nothing committed")
+            panel?.setStatus("no text field is focused — nothing committed")
             return
         }
-        if (text.isBlank()) {
-            keyboard?.setStatus("server returned empty text — nothing committed")
+        if (result.text.isBlank()) {
+            panel?.setStatus("server returned empty text — nothing committed")
             return
         }
 
-        connection.commitText(text, 1)
-        keyboard?.setStatus(
+        connection.commitText(result.text, 1)
+
+        panel?.setStatus(
             buildString {
-                append("committed · stt ${sttMs ?: "?"} ms")
-                append(cleanupMs?.let { " · cleanup $it ms" } ?: " · cleanup not run")
-                append(totalMs?.let { " · total $it ms" } ?: "")
+                append("committed · stt ${result.latencyMs?.sttMs() ?: "?"} ms")
+                append(result.latencyMs?.cleanupMs()?.let { " · cleanup $it ms" } ?: " · cleanup not run")
+                append(result.latencyMs?.let { " · total ${it.totalMs()} ms" } ?: "")
                 append(" · round trip $roundTripMs ms")
-                if (corrections.isNotEmpty()) append(" · ${corrections.size} correction(s)")
+                append(" · ${result.detectedLanguage ?: "?"}")
+                if (result.corrections.isNotEmpty()) append(" · ${result.corrections.size} correction(s)")
                 // Degraded success is a normal state per the contract, and the user must see it.
-                if (cleanupUnavailable) append(" · cleanup was unavailable")
+                if (result.cleanupUnavailable) append(" · cleanup was unavailable")
             },
         )
     }
@@ -194,22 +233,7 @@ class VoiceImeService : InputMethodService() {
         ticker?.cancel()
         ticker = null
         if (recorder.isRecording) recorder.cancel()
-        keyboard?.setMicLabel("🎤 dictate")
-    }
-
-    private fun sendEnter() {
-        val connection = currentInputConnection ?: return
-        val actionId = currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: 0
-        if (actionId != 0 && actionId != EditorInfo.IME_ACTION_NONE) {
-            connection.performEditorAction(actionId)
-        } else {
-            connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-            connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-        }
-    }
-
-    private fun openSettings() {
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        panel?.setListening(false)
     }
 
     private fun hasMicrophonePermission(): Boolean =
