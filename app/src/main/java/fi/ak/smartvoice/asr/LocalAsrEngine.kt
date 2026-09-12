@@ -265,8 +265,16 @@ class LocalAsrEngine(
 
         private const val FEATURE_DIM = 80
 
-        /** D-032's pause: how much silence after speech ends a cleanup unit. Start value. */
-        const val PAUSE_SILENCE_SECONDS = 2.4f
+        /**
+         * D-032's pause: how much silence after speech ends a cleanup unit.
+         *
+         * The runtime's own default is 2.4 s, and a device run on 2026-09-12 where deliberate pauses
+         * produced no boundary at all says that is longer than a dictation pause — or that this
+         * artifact's endpoint detection does not fire. Lowered to 1.2 s as the first tuned value;
+         * `UnitBoundary`'s stability fallback covers the second possibility, and its counters say
+         * which one is happening.
+         */
+        const val PAUSE_SILENCE_SECONDS = 1.2f
 
         /** Silence with nothing decoded — an utterance that never started. */
         const val EMPTY_SILENCE_SECONDS = 1.4f

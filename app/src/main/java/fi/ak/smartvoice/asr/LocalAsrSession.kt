@@ -52,6 +52,22 @@ class LocalAsrSession(
     var unitCount: Int = 0
         private set
 
+    /**
+     * The pause detector (D-032). Its counters are surfaced because "no text appeared at my pauses"
+     * has two very different causes — a pause shorter than the threshold, or an artifact whose
+     * endpoint detection does not fire — and the user is the one holding the evidence.
+     */
+    private val boundary = UnitBoundary()
+
+    /**
+     * The boundary's counters, published for the UI thread after every frame. The worker owns the
+     * real state; this is the read-only copy the status line shows, and it is what turns "no text
+     * appeared at my pauses" into either "the model never said endpoint" or "nothing was cut yet".
+     */
+    @Volatile
+    var boundaryState: BoundaryState = BoundaryState(0, 0, 0.0, 0.0)
+        private set
+
     /** Frames the queue could not take because the engine is behind. Reported, never ignored. */
     var droppedFrames: Int = 0
         private set
@@ -65,6 +81,8 @@ class LocalAsrSession(
         droppedFrames = 0
         utterance.clear()
         unitCount = 0
+        boundary.reset()
+        boundaryState = boundary.snapshot()
     }
 
     /** Loads the model if needed and starts the drain loop. */
@@ -80,17 +98,19 @@ class LocalAsrSession(
         feedJob = scope.launch(dispatcher) {
             engine.startSession(language)
             for (frames in queue) {
-                val text = engine.accept(frames)
-                if (text != null) {
-                    onPartialWords(text.count { it == ' ' } + if (text.isBlank()) 0 else 1)
+                val text = engine.accept(frames).orEmpty()
+                if (text.isNotBlank()) {
+                    onPartialWords(text.count { it == ' ' } + 1)
                 }
-                // The pause boundary (D-032): the model's own endpoint rules say the speaker paused,
-                // so this segment's text is final. Emit it, then start a new segment.
-                if (engine.isEndpoint()) {
+                // The pause boundary (D-032). Two signals: the recogniser's own endpoint detector,
+                // and text stability as the fallback — see UnitBoundary for why both exist.
+                if (boundary.onFrame(frames.size, text, engine.isEndpoint())) {
                     val unit = engine.result()
                     engine.resetSegment()
+                    boundary.markCut()
                     emitUnit(unit)
                 }
+                boundaryState = boundary.snapshot()
             }
         }
         return availability

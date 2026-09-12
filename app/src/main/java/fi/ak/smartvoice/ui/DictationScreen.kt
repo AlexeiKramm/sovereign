@@ -86,8 +86,8 @@ fun DictationScreen(
     ) {
         Text("Smart Voice", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Permissions and settings the keyboard cannot handle itself, and a diagnostics run " +
-                "through whichever tier is selected.",
+            "build %s — permissions and settings the keyboard cannot handle itself, and a diagnostics " +
+                "run through whichever tier is selected.".format(buildVersion(context)),
             style = MaterialTheme.typography.bodySmall,
         )
 
@@ -561,6 +561,17 @@ private fun ServerSection(
         )
     }
 }
+
+@Composable
+/**
+ * The build name, read from the package manager rather than `BuildConfig` (this project disables it),
+ * and shown because APKs are installed by hand here: "which build is on the phone?" has to be
+ * answerable without adb. One round trip was already spent on that question.
+ */
+private fun buildVersion(context: android.content.Context): String =
+    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+        .getOrNull()
+        ?: "unknown"
 
 @Composable
 private fun RecordButton(micGranted: Boolean, onClick: () -> Unit) {

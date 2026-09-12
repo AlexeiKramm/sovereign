@@ -315,7 +315,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             val whole = localSession.finish()
             val tailMs = SystemClock.elapsedRealtime() - stoppedAt
 
-            reportLocal(choice, audioSeconds, tailMs, whole)
+            reportLocal(audioSeconds, tailMs, whole)
         }
     }
 
@@ -345,7 +345,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * revised (D-021). What is left to report is the tail — the flush plus the last unit — and the
      * numbers that make the run honest.
      */
-    private fun reportLocal(choice: EngineChoice, audioSeconds: Double, tailMs: Long, whole: String) {
+    private fun reportLocal(audioSeconds: Double, tailMs: Long, whole: String) {
         if (whole.isBlank()) {
             val pinned = settings.language
             panel?.setStatus(
@@ -359,16 +359,26 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             return
         }
 
+        val boundary = localSession.boundaryState
         val note = buildString {
-            append(choice.note)
-            append(" · ${localSession.unitCount} pause-delimited unit(s)")
+            append("committed · local · %.1f s audio · tail %d ms".format(audioSeconds, tailMs))
+            append(" · ${localSession.unitCount} unit(s)")
+            if (boundary.cuts == 0) {
+                // The whole utterance was one unit. Say which signals were tried and what to change,
+                // because "no boundary fired" and "your pauses are too short" look identical otherwise.
+                append(" · NO pause boundary fired (model 0, text-stability 0): the whole utterance " +
+                    "was a single unit. Pause ~1.5 s between thoughts, and if this repeats, the " +
+                    "boundary signal itself is the bug.")
+            } else {
+                append(" · pauses: ${boundary.cutsByModel} by the model, ${boundary.cutsByTextStability} by text stability")
+            }
             if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
             if (localSession.droppedFrames > 0) {
                 append(" · ${localSession.droppedFrames} audio frame(s) dropped (engine behind)")
             }
             commitNote?.let { append(" · $it") }
         }
-        panel?.setStatus("committed · local · %.1f s audio · tail %d ms · %s".format(audioSeconds, tailMs, note))
+        panel?.setStatus(note)
     }
 
     // ------------------------------------------------------------------ server tier
@@ -465,7 +475,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // unit becomes final, and nothing is rewritten (D-021). Both numbers are here because they
             // say different things: the engine is keeping up, and text is actually arriving.
             if (partialWords > 0) append(" · ~$partialWords word(s) so far")
-            if (unitsCommitted > 0) append(" · $unitsCommitted unit(s) at the cursor")
+            val boundary = localSession.boundaryState
+            append(" · ${boundary.cuts} pause(s) → $unitsCommitted at cursor")
+            if (boundary.cuts == 0 && boundary.stableFor >= 1.0) {
+                // The number that makes a silent failure diagnosable: if this climbs and no unit is
+                // cut, the boundary signal is not working, not the user's pausing.
+                append(" · steady %.1f s".format(boundary.stableFor))
+            }
             commitNote?.let { append(" · $it") }
         } else {
             append(" · cleanup ${if (settings.cleanupEnabled) "full" else "off"}")
