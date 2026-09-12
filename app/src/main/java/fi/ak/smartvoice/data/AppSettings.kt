@@ -3,6 +3,7 @@ package fi.ak.smartvoice.data
 import android.content.Context
 import androidx.core.content.edit
 import fi.ak.smartvoice.asr.ListenerTimings
+import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.engine.EnginePreference
 
@@ -79,6 +80,9 @@ class AppSettings(context: Context) {
     var cleanupModelId: String
         get() = prefs.getString(KEY_CLEANUP_MODEL, null) ?: CleanupModels.DEFAULT.repository
         set(value) = prefs.edit { putString(KEY_CLEANUP_MODEL, value) }
+
+    val cleanupModel: CleanupModel
+        get() = CleanupModels.byRepository(cleanupModelId)
 
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"

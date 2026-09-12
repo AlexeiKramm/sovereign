@@ -24,10 +24,13 @@ import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPipeline
 import fi.ak.smartvoice.cleanup.CleanupPrompt
+import fi.ak.smartvoice.cleanup.CleanupModel
+import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
+import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.asr.LocalAsrSession
 import fi.ak.smartvoice.audio.WavRecorder
 import fi.ak.smartvoice.data.AppSettings
@@ -248,7 +251,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     /** The engine for the model the settings currently select, rebuilt only when that model changes. */
     private fun engineForUtterance(): GenieXCleanupEngine {
-        val wanted = CleanupModels.byRepository(settings.cleanupModelId)
+        val wanted = settings.cleanupModel
         cleanupEngine?.let { existing ->
             if (existing.uses(wanted)) return existing
             existing.unload()
@@ -308,6 +311,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         syncPanelSettings()
         render(idleState())
         prefetchLocalModel()
+        if (settings.cleanupEnabled) prefetchCleanupModel()
     }
 
     /**
@@ -443,10 +447,34 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private fun syncPanelSettings() {
         val choice = currentChoice()
+        cleanupEngine?.let { existing ->
+            if (!existing.uses(settings.cleanupModel)) {
+                existing.unload()
+                cleanupEngine = null
+            }
+        }
         panel?.setCleanupLabel(cleanupChipLabel(choice))
         panel?.setLanguage(settings.language)
         // The diagnostics travelled with the chip, so a settings change has to repaint them too.
         if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
+        if (settings.cleanupEnabled && choice.engine == Engine.LOCAL) {
+            checkCleanupModelAvailability()
+        }
+    }
+
+    private fun checkCleanupModelAvailability() {
+        scope.launch {
+            val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
+            val note = if (paths == null) {
+                "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
+            } else null
+            if (cleanupLoadNote != note && (note != null || cleanupLoadNote?.contains("no cleanup model") == true)) {
+                cleanupLoadNote = note
+                val choice = currentChoice()
+                panel?.setCleanupLabel(cleanupChipLabel(choice))
+                if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
+            }
+        }
     }
 
     /**
@@ -459,7 +487,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val profileName = profileStore.activeProfile().name
         return when (choice.engine) {
             Engine.LOCAL -> when {
-                cleanupEngine?.isLoaded == true -> "\u2728 $profileName"
+                cleanupEngine?.isLoaded == true && cleanupEngine?.uses(settings.cleanupModel) == true -> "\u2728 $profileName"
                 cleanupLoadNote != null -> "\u26A0\uFE0F $profileName"
                 else -> "\u23F3 $profileName"
             }
@@ -470,9 +498,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         Engine.LOCAL -> when {
             !settings.cleanupEnabled ->
                 "cleanup off — units reach the cursor as the recogniser heard them"
-            cleanupEngine?.isLoaded == true -> "cleanup on — Gemma 4 E2B on the Hexagon NPU"
             cleanupLoadNote != null ->
-                "cleanup load FAILED — $cleanupLoadNote; units are the recogniser's own text"
+                "cleanup unavailable — $cleanupLoadNote; units are the recogniser's own text"
+            cleanupEngine?.isLoaded == true && cleanupEngine?.uses(settings.cleanupModel) == true ->
+                "cleanup on — ${settings.cleanupModel.label} on the Hexagon NPU"
             else -> "cleanup model still loading — the first units are the recogniser's own text"
         }
         Engine.REMOTE -> if (settings.cleanupEnabled) "cleanup full (server)" else "cleanup off (server)"
@@ -649,8 +678,21 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      */
     private fun prefetchCleanupModel() {
         if (!settings.cleanupEnabled) return
+        cleanupEngine?.let { existing ->
+            if (!existing.uses(settings.cleanupModel)) {
+                existing.unload()
+                cleanupEngine = null
+            }
+        }
         if (cleanupEngine?.isLoaded == true) return
         scope.launch {
+            val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
+            if (paths == null) {
+                cleanupLoadNote = "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
+                syncPanelSettings()
+                if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
+                return@launch
+            }
             withContext(cleanupDispatcher) { loadCleanupModel() }
             // The chip has to say what happened: "on — loading" that never resolves is how a failed load
             // looked like a stuck setting (reported 2026-09-12, D-037).
@@ -664,6 +706,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * only; the utterance's own units degrade to raw text through [onLocalUnit]'s test.
      */
     private suspend fun loadCleanupModel(): Boolean {
+        val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
+        if (paths == null) {
+            cleanupLoadNote = "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
+            return false
+        }
         val result = runCatching { engineForUtterance().load() }
             .getOrElse { Result.failure(it) }
         return result.fold(
@@ -731,7 +778,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     append(" · last pass %.0f ms prompt + %.0f ms decode".format(pass.promptTimeMs, pass.decodeTimeMs))
                 }
             } else if (settings.cleanupEnabled) {
-                append(" · cleanup was on but never became ready — this text is the recogniser's own")
+                if (cleanupLoadNote != null) {
+                    append(" · $cleanupLoadNote")
+                } else {
+                    append(" · cleanup was on but never became ready — this text is the recogniser's own")
+                }
             }
             cleanupLoadNote?.let { append(" · $it") }
             if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
@@ -740,13 +791,35 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             }
             commitNote?.let { append(" · $it") }
         }
+
+        // Record usage stats for local dictation (Bug 2 fix)
+        val diff = if (cleanupEngaged) {
+            WordDiffCalculator.calculate(rawText = whole, cleanedText = committedText.toString())
+        } else {
+            WordDiffCalculator.verbatim(whole)
+        }
+        usageStatsStore.record(
+            durationSeconds = audioSeconds,
+            rawWords = diff.rawWords,
+            cleanedWords = diff.wordsCleaned,
+            engine = Engine.LOCAL.label,
+            deliveredWords = diff.deliveredWords,
+            wordsRemoved = diff.wordsRemoved,
+            wordsChanged = diff.wordsChanged,
+            wordsAdded = diff.wordsAdded,
+        )
+
         // The report is diagnostics, so it belongs in the details; the headline says what arrived.
         render(
             panelState.copy(
                 headline = buildString {
                     append("Done — %.1f s, %d unit(s)".format(audioSeconds, localSession.unitCount))
                     if (settings.cleanupEnabled) {
-                        append(if (cleanupEngaged) " · cleaned" else " · not cleaned (model was loading)")
+                        append(
+                            if (cleanupEngaged) " · cleaned"
+                            else if (cleanupLoadNote?.contains("no cleanup model") == true) " · not cleaned (no model downloaded)"
+                            else " · not cleaned (model was loading)"
+                        )
                     }
                 },
                 details = note,
@@ -884,6 +957,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     choice.engine != Engine.LOCAL -> null
                     !settings.cleanupEnabled -> null
                     cleanupEngaged -> null
+                    cleanupLoadNote != null -> cleanupLoadNote
                     else -> "cleanup starts when the model is ready"
                 },
             ),
@@ -924,6 +998,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 if (cleanupEngaged) {
                     // The queue depth is D-021's own gate, visible: if it climbs, cleanup is not keeping up.
                     append(" · cleaning${if (cleanupPipeline.queued > 0) " (${cleanupPipeline.queued} queued)" else ""}")
+                } else if (cleanupLoadNote != null) {
+                    append(" · $cleanupLoadNote")
                 } else {
                     // Live, not a decision frozen at the start: it flips as soon as the model is ready.
                     append(" · cleanup still loading — this text is the recogniser's own")
@@ -970,12 +1046,17 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val before = connection.getTextBeforeCursor(1, 0)
         val textToCommit = if (PanelText.shouldPrependSpace(before?.firstOrNull())) " $body" else body
         connection.commitText(textToCommit, 1)
-        val wordCount = outcome.text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+        val diff = WordDiffCalculator.verbatim(outcome.text)
+        val correctionsCount = outcome.response?.corrections?.size ?: 0
         usageStatsStore.record(
             durationSeconds = outcome.audioSeconds,
-            rawWords = wordCount,
-            cleanedWords = wordCount,
+            rawWords = diff.rawWords,
+            cleanedWords = correctionsCount,
             engine = outcome.engine.label,
+            deliveredWords = diff.deliveredWords,
+            wordsRemoved = 0,
+            wordsChanged = correctionsCount,
+            wordsAdded = 0,
         )
 
         // Headline for the person, numbers for the details (D-041): the server's latency breakdown and

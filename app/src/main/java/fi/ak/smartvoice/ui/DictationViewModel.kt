@@ -24,6 +24,8 @@ import fi.ak.smartvoice.cleanup.PullProgress
 import fi.ak.smartvoice.cleanup.SdkState
 import com.geniex.sdk.ModelManagerWrapper
 import fi.ak.smartvoice.data.AppSettings
+import fi.ak.smartvoice.data.UsageStatsStore
+import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.EnginePreference
@@ -768,6 +770,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             val stoppedAt = SystemClock.elapsedRealtime()
             val text = localSession.finish()
             val tailMs = SystemClock.elapsedRealtime() - stoppedAt
+
+            val diff = WordDiffCalculator.verbatim(text)
+            UsageStatsStore(app).record(
+                durationSeconds = audioSeconds,
+                rawWords = diff.rawWords,
+                cleanedWords = 0,
+                engine = Engine.LOCAL.label,
+                deliveredWords = diff.deliveredWords,
+                wordsRemoved = 0,
+                wordsChanged = 0,
+                wordsAdded = 0,
+            )
+
             _state.value = DictationUiState.Done(
                 DictationOutcome(
                     text = text,
@@ -802,6 +817,20 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     cleanup = settings.cleanupRequestValue,
                     language = settings.language,
                 )
+
+                val diff = WordDiffCalculator.verbatim(response.text)
+                val correctionsCount = response.corrections.size
+                UsageStatsStore(app).record(
+                    durationSeconds = audioSeconds,
+                    rawWords = diff.rawWords,
+                    cleanedWords = correctionsCount,
+                    engine = Engine.REMOTE.label,
+                    deliveredWords = diff.deliveredWords,
+                    wordsRemoved = 0,
+                    wordsChanged = correctionsCount,
+                    wordsAdded = 0,
+                )
+
                 _state.value = DictationUiState.Done(
                     DictationOutcome(
                         text = response.text,

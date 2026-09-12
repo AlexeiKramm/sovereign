@@ -151,15 +151,15 @@ fun StatsScreen(modifier: Modifier = Modifier) {
                 ) {
                     StatMetricCard(
                         modifier = Modifier.weight(1f),
-                        title = "Words Transcribed",
+                        title = "Words Spoken",
                         value = "${stats.totalRawWords}",
                         subtitle = "raw ASR output",
                     )
                     StatMetricCard(
                         modifier = Modifier.weight(1f),
                         title = "Words Cleaned",
-                        value = "${stats.totalCleanedWords}",
-                        subtitle = formatWordDelta(stats.totalRawWords, stats.totalCleanedWords),
+                        value = "${stats.totalWordsCleaned}",
+                        subtitle = if (stats.totalWordsRemoved > 0 || stats.totalWordsChanged > 0) "${stats.totalWordsRemoved} removed • ${stats.totalWordsChanged} fixed" else if (stats.totalWordsCleaned > 0) "${stats.totalWordsCleaned} modified" else "no edits required",
                     )
                 }
             }
@@ -172,15 +172,14 @@ fun StatsScreen(modifier: Modifier = Modifier) {
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Voice Cleanup Efficiency",
+                        text = "Voice Cleanup Impact",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    val diff = stats.totalCleanedWords - stats.totalRawWords
                     val ratioText = if (stats.totalRawWords > 0) {
-                        val pct = ((stats.totalCleanedWords.toDouble() / stats.totalRawWords) * 100).toInt()
-                        "$pct% of raw word volume preserved after filler removal & punctuation."
+                        val pct = ((stats.totalWordsCleaned.toDouble() / stats.totalRawWords) * 100).toInt()
+                        "$pct% of spoken words modified by cleanup (${stats.totalWordsRemoved} fillers removed, ${stats.totalWordsChanged} grammar/word fixes, ${stats.totalWordsAdded} words inserted)."
                     } else {
                         "Start dictating to see cleanup metrics."
                     }
@@ -278,8 +277,22 @@ private fun UtteranceRecordItem(record: UtteranceRecord) {
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
+                val detailsText = if (record.wordsCleaned > 0) {
+                    val breakdown = buildList {
+                        if (record.wordsRemoved > 0) add("${record.wordsRemoved} removed")
+                        if (record.wordsChanged > 0) add("${record.wordsChanged} fixed")
+                        if (record.wordsAdded > 0) add("${record.wordsAdded} added")
+                    }.joinToString(", ")
+                    if (breakdown.isNotEmpty()) {
+                        "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned ($breakdown)"
+                    } else {
+                        "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned"
+                    }
+                } else {
+                    "${record.rawWords} words spoken  •  verbatim"
+                }
                 Text(
-                    text = "${record.rawWords} raw words -> ${record.cleanedWords} cleaned words",
+                    text = detailsText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

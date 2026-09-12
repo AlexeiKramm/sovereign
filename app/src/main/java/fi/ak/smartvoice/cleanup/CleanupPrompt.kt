@@ -49,11 +49,11 @@ object CleanupPrompt {
      * rule that only forbids gets read as "add nothing". Both directions are stated now.
      */
     const val FRAGMENT_RULE =
-        "The segment may be a continuation or a fragment of a longer sentence. If it is clearly a " +
+        "If it is a complete sentence, punctuate it as one, final mark included. " +
+            "The segment may be a continuation or a fragment of a longer sentence. If it is clearly a " +
             "continuation, clean only what is there: do not capitalise its first word as if it started " +
-            "a sentence, and do not add a final mark. If it is a complete sentence, punctuate it as one, " +
-            "final mark included. The context is for understanding only — never repeat it, and never " +
-            "clean it again."
+            "a sentence, and do not add a final mark. The context is for understanding only — never " +
+            "repeat it, and never clean it again."
 
     /**
      * Which editing rules a pass runs under. The differences are only the editing rules; the safety core
@@ -74,9 +74,9 @@ object CleanupPrompt {
         STANDARD(
             label = "standard — drops fillers, punctuates",
             rules = "Remove filler words, hesitations, stutters and accidentally doubled words " +
-                "(\"tuota\", \"niinku\", \"tota\", \"um\", \"uh\", \"you know\"). Then punctuate what is " +
-                "left, including a final mark on a complete sentence. Do not change the speaker's " +
-                "wording otherwise: no synonyms, no rephrasing, no summarising.",
+                "(\"tuota\", \"niinku\", \"tota\", \"um\", \"uh\", \"you know\"). Then restore natural " +
+                "punctuation (commas, colons, em dashes, semicolons, and ending marks on complete sentences). " +
+                "Do not change the speaker's wording otherwise: no synonyms, no rephrasing, no summarising.",
         ),
 
         /**

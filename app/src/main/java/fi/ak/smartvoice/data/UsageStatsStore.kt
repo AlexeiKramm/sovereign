@@ -1,4 +1,4 @@
-﻿package fi.ak.smartvoice.data
+package fi.ak.smartvoice.data
 
 import android.content.Context
 import kotlinx.serialization.Serializable
@@ -14,7 +14,14 @@ data class UtteranceRecord(
     val rawWords: Int,
     val cleanedWords: Int,
     val engine: String,
-)
+    val deliveredWords: Int = cleanedWords,
+    val wordsRemoved: Int = 0,
+    val wordsChanged: Int = 0,
+    val wordsAdded: Int = 0,
+) {
+    val wordsCleaned: Int
+        get() = if (cleanedWords > 0) cleanedWords else (wordsRemoved + wordsChanged)
+}
 
 @Serializable
 data class UsageStatsData(
@@ -23,10 +30,20 @@ data class UsageStatsData(
     val totalCleanedWords: Int = 0,
     val totalUtterances: Int = 0,
     val recentRecords: List<UtteranceRecord> = emptyList(),
+    val totalDeliveredWords: Int = 0,
+    val totalWordsRemoved: Int = 0,
+    val totalWordsChanged: Int = 0,
+    val totalWordsAdded: Int = 0,
 ) {
+    val totalWordsCleaned: Int
+        get() = totalCleanedWords
+
     /** Approximate minutes saved typing assuming 40 WPM average typing speed. */
     val typingMinutesSaved: Double
-        get() = (totalCleanedWords.toDouble() / 40.0)
+        get() {
+            val words = if (totalDeliveredWords > 0) totalDeliveredWords else totalCleanedWords
+            return (words.toDouble() / 40.0)
+        }
 
     val editWordDelta: Int
         get() = totalCleanedWords - totalRawWords
@@ -48,7 +65,16 @@ class UsageStatsStore(private val filesDir: File) {
     }
 
     @Synchronized
-    fun record(durationSeconds: Double, rawWords: Int, cleanedWords: Int, engine: String) {
+    fun record(
+        durationSeconds: Double,
+        rawWords: Int,
+        cleanedWords: Int,
+        engine: String,
+        deliveredWords: Int = cleanedWords,
+        wordsRemoved: Int = 0,
+        wordsChanged: Int = 0,
+        wordsAdded: Int = 0,
+    ) {
         val current = load()
         val newRecord = UtteranceRecord(
             id = System.currentTimeMillis().toString(),
@@ -57,6 +83,10 @@ class UsageStatsStore(private val filesDir: File) {
             rawWords = rawWords,
             cleanedWords = cleanedWords,
             engine = engine,
+            deliveredWords = deliveredWords,
+            wordsRemoved = wordsRemoved,
+            wordsChanged = wordsChanged,
+            wordsAdded = wordsAdded,
         )
         val updated = current.copy(
             totalAudioSeconds = current.totalAudioSeconds + durationSeconds,
@@ -64,6 +94,10 @@ class UsageStatsStore(private val filesDir: File) {
             totalCleanedWords = current.totalCleanedWords + cleanedWords,
             totalUtterances = current.totalUtterances + 1,
             recentRecords = (listOf(newRecord) + current.recentRecords).take(50),
+            totalDeliveredWords = current.totalDeliveredWords + deliveredWords,
+            totalWordsRemoved = current.totalWordsRemoved + wordsRemoved,
+            totalWordsChanged = current.totalWordsChanged + wordsChanged,
+            totalWordsAdded = current.totalWordsAdded + wordsAdded,
         )
         try {
             file.writeText(json.encodeToString(updated))

@@ -46,16 +46,39 @@ class DataStoresTest {
         assertEquals(0, initial.totalUtterances)
         assertEquals(0.0, initial.totalAudioSeconds, 0.001)
 
-        store.record(durationSeconds = 12.5, rawWords = 25, cleanedWords = 22, engine = "local")
-        store.record(durationSeconds = 8.0, rawWords = 15, cleanedWords = 18, engine = "server")
+        store.record(
+            durationSeconds = 12.5,
+            rawWords = 25,
+            cleanedWords = 3,
+            engine = "local",
+            deliveredWords = 23,
+            wordsRemoved = 2,
+            wordsChanged = 1,
+            wordsAdded = 0,
+        )
+        store.record(
+            durationSeconds = 8.0,
+            rawWords = 15,
+            cleanedWords = 2,
+            engine = "server",
+            deliveredWords = 17,
+            wordsRemoved = 0,
+            wordsChanged = 2,
+            wordsAdded = 2,
+        )
 
         val updated = store.load()
         assertEquals(2, updated.totalUtterances)
         assertEquals(20.5, updated.totalAudioSeconds, 0.001)
         assertEquals(40, updated.totalRawWords)
-        assertEquals(40, updated.totalCleanedWords)
+        assertEquals(5, updated.totalCleanedWords)
+        assertEquals(5, updated.totalWordsCleaned)
+        assertEquals(40, updated.totalDeliveredWords)
+        assertEquals(2, updated.totalWordsRemoved)
+        assertEquals(3, updated.totalWordsChanged)
+        assertEquals(2, updated.totalWordsAdded)
         assertEquals(2, updated.recentRecords.size)
-        assertEquals(1.0, updated.typingMinutesSaved, 0.001) // 40 words / 40 WPM = 1 min
+        assertEquals(1.0, updated.typingMinutesSaved, 0.001) // 40 delivered words / 40 WPM = 1 min
     }
 
     @Test
