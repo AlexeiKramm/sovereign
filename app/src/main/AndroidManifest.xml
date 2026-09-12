@@ -29,6 +29,13 @@
             </intent-filter>
         </activity>
 
+        <!-- SPIKE ONLY (branch spike/geniex-npu, D-029): the NPU probe screen. Delete with the
+             spike — if the NPU wins, the real cleanup tier replaces it. -->
+        <activity
+            android:name=".spike.NpuProbeActivity"
+            android:exported="false"
+            android:label="NPU probe (spike)" />
+
         <!-- The keyboard. Same package, same process as MainActivity, which is why the mic
              permission granted there is usable here. -->
         <service

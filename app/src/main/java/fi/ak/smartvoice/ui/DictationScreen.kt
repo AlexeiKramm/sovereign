@@ -156,6 +156,15 @@ fun DictationScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+
+        // SPIKE ONLY (branch spike/geniex-npu, D-029): opens the NPU probe. Delete with the spike.
+        TextButton(
+            onClick = {
+                context.startActivity(
+                    android.content.Intent(context, fi.ak.smartvoice.spike.NpuProbeActivity::class.java),
+                )
+            },
+        ) { Text("NPU probe (spike, D-029)") }
     }
 }
 

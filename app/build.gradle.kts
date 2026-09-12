@@ -11,8 +11,8 @@ android {
         applicationId = "fi.ak.smartvoice"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0-spike-npu"
 
         // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
         // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the
@@ -43,6 +43,24 @@ android {
     packaging {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
+      }
+      // SPIKE ONLY (D-029): GenieX bundles the whole QNN stack for several chipset generations —
+      // 198 MB of the AAR's 215 MB of arm64 libs. The NPU experiment uses its `llama_cpp` runtime
+      // (GGUF on Hexagon), which does not touch the qairt libraries, so they are stripped to keep
+      // the spike APK installable. If the SDK refuses to initialise without them, the fix is to
+      // delete this block and accept a ~280 MB APK — not to keep guessing at which libs matter.
+      jniLibs {
+        excludes += listOf(
+          "**/libQnn*.so",
+          "**/libhta_*.so",
+          "**/libgeniex_plugin_qairt.so",
+          "**/libgeniex-proc*.so",
+          "**/libgeniex_vlm.so",
+          "**/libPlatformValidatorShared.so",
+          "**/libcalculator*.so",
+          "**/libCalculator_skel.so",
+          "**/*.cat",
+        )
       }
     }
 }
@@ -114,4 +132,8 @@ dependencies {
   // v2 local tier: the on-device streaming ASR runtime (D-020, D-026). Not a Maven coordinate —
   // see tools/fetch_sherpa_aar.sh, which pins the same version as the catalog entry above.
   implementation(files(sherpaOnnxAar))
+
+  // SPIKE ONLY (branch spike/geniex-npu, D-029): the NPU experiment. GenieX on Maven Central for
+  // the Hexagon NPU. Not decided for chunk 5 — the spike decides that.
+  implementation("com.qualcomm.qti:geniex-android:0.4.0")
 }
