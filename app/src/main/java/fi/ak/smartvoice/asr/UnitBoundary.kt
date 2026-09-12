@@ -6,10 +6,13 @@ package fi.ak.smartvoice.asr
  *
  * 1. **The recogniser's own endpoint detector** — a measured pause, and the preferred signal. It costs
  *    nothing (chunk 3 was going to read it anyway) and it works at the audio level.
- * 2. **Text stability** — the fallback, for the case where the artifact's endpoint detection does not
- *    fire at all. A device run on 2026-09-12 produced *no* boundary through deliberate pauses, and from
- *    inside the app "the pause was too short" and "the detector never fires" are indistinguishable: the
- *    counters below are what make the next report say which it was.
+ * 2. **Quiet audio *and* stable text** — the fallback, for the case where the artifact's endpoint
+ *    detection does not fire at all. **Both**, because text stability alone is not a silence detector: a
+ *    recogniser that lags behind its input stops producing text while the speaker is still talking, and
+ *    cutting there chops a sentence in half mid-word — exactly the bug reported from the phone on
+ *    2026-09-12 ("even if I'm talking, sometimes the segment just gets chopped"). The audio level
+ *    ([AudioLevel]) is what distinguishes a pause from a slow decoder; the text says there is something to
+ *    cut, the audio says the speaker actually stopped.
  *
  * [silenceFor] is tracked separately from the cut timer and is *not* reset by a cut, because it answers a
  * different question: a cut means "speech was heard recently", the silence timer means "the speaker has
@@ -22,7 +25,7 @@ package fi.ak.smartvoice.asr
  */
 class UnitBoundary(
     /** How long the recogniser's text must be unchanged before text stability closes a unit. */
-    stableSeconds: Double = ListenerTimings.DEFAULT_UNIT_STABLE_SECONDS,
+    stableSeconds: Double = ListenerTimings.DEFAULT_FALLBACK_QUIET_SECONDS,
     private val sampleRate: Int = SAMPLE_RATE,
 ) {
 
@@ -41,6 +44,14 @@ class UnitBoundary(
     /** Seconds since the last *new* speech text. Counts from the words, and a cut does not reset it. */
     val silenceFor: Double get() = if (lastSpeechAt > 0.0) audioSeconds - lastSpeechAt else 0.0
 
+    /**
+     * How long the audio had been quiet when the last unit was cut. The number that attributes a cut: a
+     * cut with ~0 s of quiet while the text was stale is a stalled decoder, not a pause.
+     */
+    @Volatile
+    var quietAtLastCut: Double = 0.0
+        private set
+
     /** True once anything has actually been recognised: silence before speech must not stop a recording. */
     val hasSpeech: Boolean get() = lastSpeechAt > 0.0
 
@@ -58,7 +69,13 @@ class UnitBoundary(
      * One frame of audio. Returns true when this frame closes a unit — the caller then reads the
      * segment's text, resets the recogniser's stream and calls [markCut].
      */
-    fun onFrame(sampleCount: Int, text: String, recogniserSaysEndpoint: Boolean): Boolean {
+    fun onFrame(
+        sampleCount: Int,
+        text: String,
+        recogniserSaysEndpoint: Boolean,
+        /** How long the *audio* has been quiet — from [AudioLevel], not inferred from the text. */
+        audioQuietSeconds: Double,
+    ): Boolean {
         if (sampleCount > 0) audioSeconds += sampleCount.toDouble() / sampleRate
 
         // Only *new speech* moves the clocks. A blank result — before speech, or in the moment after a
@@ -73,11 +90,14 @@ class UnitBoundary(
 
         if (recogniserSaysEndpoint) {
             cutsByModel++
+            quietAtLastCut = audioQuietSeconds
             return true
         }
-        // Only text can be cut: silence before the speaker starts must not emit an empty unit.
-        if (speech.isNotEmpty() && stableFor >= stabilitySeconds) {
+        // Only text can be cut: silence before the speaker starts must not emit an empty unit. And the
+        // audio must actually be quiet — a stalled decoder is not a pause (see the class comment).
+        if (speech.isNotEmpty() && stableFor >= stabilitySeconds && audioQuietSeconds >= stabilitySeconds) {
             cutsByTextStability++
+            quietAtLastCut = audioQuietSeconds
             return true
         }
         return false
@@ -90,11 +110,14 @@ class UnitBoundary(
     }
 
     /** A consistent reading for the UI thread, which must not poke at the worker's fields. */
-    fun snapshot(): BoundaryState = BoundaryState(
+    fun snapshot(audioQuietFor: Double, heardAudio: Boolean): BoundaryState = BoundaryState(
         cutsByModel = cutsByModel,
         cutsByTextStability = cutsByTextStability,
         stableFor = stableFor,
         silenceFor = silenceFor,
+        quietFor = audioQuietFor,
+        heardAudio = heardAudio,
+        quietAtLastCut = quietAtLastCut,
         hasSpeech = hasSpeech,
         seconds = seconds,
     )
@@ -107,10 +130,11 @@ class UnitBoundary(
         lastSpeech = ""
         cutsByModel = 0
         cutsByTextStability = 0
+        quietAtLastCut = 0.0
     }
 
-    /** Applies the stability threshold, which the settings can change between utterances. */
-    fun configureStability(seconds: Double) {
+    /** Applies the fallback threshold, which the settings can change between utterances. */
+    fun configureFallback(seconds: Double) {
         stabilitySeconds = seconds
     }
 
@@ -123,8 +147,15 @@ class UnitBoundary(
 data class BoundaryState(
     val cutsByModel: Int,
     val cutsByTextStability: Int,
+    /** Text unchanged for this long. */
     val stableFor: Double,
+    /** No *new* speech text for this long — a fact about the recogniser's output. */
     val silenceFor: Double,
+    /** The **audio** has been quiet for this long — a fact about the room (D-038). */
+    val quietFor: Double,
+    val heardAudio: Boolean,
+    /** Audio quiet at the moment the last unit was cut: the number that attributes a cut. */
+    val quietAtLastCut: Double,
     val hasSpeech: Boolean,
     val seconds: Double,
 ) {

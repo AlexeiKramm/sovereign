@@ -568,7 +568,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     "was a single unit. Pause ~1.5 s between thoughts, and if this repeats, the " +
                     "boundary signal itself is the bug.")
             } else {
-                append(" · pauses: ${boundary.cutsByModel} by the model, ${boundary.cutsByTextStability} by text stability")
+                append(
+                    " · pauses: ${boundary.cutsByModel} by the model, ${boundary.cutsByTextStability} by the fallback",
+                )
+                if (boundary.cuts > 0) {
+                    append(" · last cut at %.1f s of quiet audio".format(boundary.quietAtLastCut))
+                }
             append(" · settings: pause %.2f s, stop after %.2f s".format(
                 settings.pauseSilenceSeconds, settings.stopAfterSilenceSeconds,
             ))
@@ -667,8 +672,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                         // enough *and* has actually said something. Silence before speech must never end
                         // a recording the user has not spoken into yet, and the local tier is where this
                         // applies — the server tier has no streaming signal to judge it from.
-                        if (choice.engine == Engine.LOCAL && stopAfterSeconds > 0f && state.hasSpeech &&
-                            state.silenceFor >= stopAfterSeconds
+                        // D-038: the auto-stop reads the *audio* being quiet, not the recogniser's output
+                        // going quiet. A slow decoder must not be able to end a recording mid-sentence, and
+                        // `heardAudio` keeps silence in an unspoken-into recording from stopping it.
+                        if (choice.engine == Engine.LOCAL && stopAfterSeconds > 0f && state.heardAudio &&
+                            state.quietFor >= stopAfterSeconds
                         ) {
                             stoppedBySilence = true
                             stopAndTranscribe()
@@ -718,9 +726,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             }
             // The auto-stop gets a countdown, because a recording that ends by itself must never be a
             // mystery: the number is the setting minus the silence measured so far.
-            if (stopAfterSeconds > 0f && boundary.hasSpeech) {
-                append(" · stops in %.1f s".format((stopAfterSeconds - boundary.silenceFor).coerceAtLeast(0.0)))
+            if (stopAfterSeconds > 0f && boundary.heardAudio) {
+                append(" · stops in %.1f s".format((stopAfterSeconds - boundary.quietFor).coerceAtLeast(0.0)))
             }
+            // The audio fact, live: with the text one, these two numbers are what attribute a cut to a pause
+            // rather than to a decoder that is behind (D-038).
+            if (boundary.quietFor >= 0.5) append(" · quiet %.1f s".format(boundary.quietFor))
             if (settings.cleanupEnabled) {
                 if (cleanupEngaged) {
                     // The queue depth is D-021's own gate, visible: if it climbs, cleanup is not keeping up.

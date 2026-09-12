@@ -66,7 +66,7 @@ class AppSettings(context: Context) {
 
     /** What the ASR session needs for one utterance. */
     fun listenerTimings(): ListenerTimings = ListenerTimings(
-        unitStableSeconds = stableSilenceSeconds.toDouble(),
+        fallbackQuietSeconds = stableSilenceSeconds.toDouble(),
         stopAfterSilenceSeconds = stopAfterSilenceSeconds.toDouble(),
     )
 

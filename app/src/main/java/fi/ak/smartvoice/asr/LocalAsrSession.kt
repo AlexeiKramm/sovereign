@@ -66,12 +66,18 @@ class LocalAsrSession(
     private val boundary = UnitBoundary()
 
     /**
+     * The audio-level measurement (D-038). It is what separates "the speaker paused" from "the recogniser
+     * is behind": text that stops growing means either, and only the audio can tell them apart.
+     */
+    private val audioLevel = AudioLevel()
+
+    /**
      * The boundary's counters, published for the UI thread after every frame. The worker owns the
      * real state; this is the read-only copy the status line shows, and it is what turns "no text
      * appeared at my pauses" into either "the model never said endpoint" or "nothing was cut yet".
      */
     @Volatile
-    var boundaryState: BoundaryState = boundary.snapshot()
+    var boundaryState: BoundaryState = boundary.snapshot(audioQuietFor = 0.0, heardAudio = false)
         private set
 
     /** Frames the queue could not take because the engine is behind. Reported, never ignored. */
@@ -88,8 +94,9 @@ class LocalAsrSession(
         utterance.clear()
         unitCount = 0
         boundary.reset()
-        boundary.configureStability(timings().unitStableSeconds)
-        boundaryState = boundary.snapshot()
+        audioLevel.reset()
+        boundary.configureFallback(timings().fallbackQuietSeconds)
+        boundaryState = boundary.snapshot(audioLevel.quietFor, audioLevel.heardSpeech)
     }
 
     /** The timings this utterance is running with, for the status line and the report. */
@@ -116,13 +123,14 @@ class LocalAsrSession(
                 }
                 // The pause boundary (D-032). Two signals: the recogniser's own endpoint detector,
                 // and text stability as the fallback — see UnitBoundary for why both exist.
-                if (boundary.onFrame(frames.size, text, engine.isEndpoint())) {
+                val quietFor = audioLevel.onFrame(frames)
+                if (boundary.onFrame(frames.size, text, engine.isEndpoint(), quietFor)) {
                     val unit = engine.result()
                     engine.resetSegment()
                     boundary.markCut()
                     emitUnit(unit)
                 }
-                boundaryState = boundary.snapshot()
+                boundaryState = boundary.snapshot(quietFor, audioLevel.heardSpeech)
             }
         }
         return availability

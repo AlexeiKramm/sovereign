@@ -10,13 +10,16 @@ package fi.ak.smartvoice.asr
  * are just "how long is a pause".
  */
 data class ListenerTimings(
-    /** Text unchanged for this long closes a cleanup unit, when the recogniser's own endpoint is quiet. */
-    val unitStableSeconds: Double = DEFAULT_UNIT_STABLE_SECONDS,
+    /**
+     * Audio quiet **and** text unchanged for this long closes a cleanup unit, when the recogniser's own
+     * endpoint detector says nothing. Both conditions, because neither alone is a pause (D-038).
+     */
+    val fallbackQuietSeconds: Double = DEFAULT_FALLBACK_QUIET_SECONDS,
     /** Silence after speech this long ends the recording. 0 disables the auto-stop entirely. */
     val stopAfterSilenceSeconds: Double = DEFAULT_STOP_AFTER_SILENCE_SECONDS,
 ) {
     companion object {
-        const val DEFAULT_UNIT_STABLE_SECONDS = 3.0
+        const val DEFAULT_FALLBACK_QUIET_SECONDS = 3.0
         const val DEFAULT_STOP_AFTER_SILENCE_SECONDS = 6.0
 
         /**

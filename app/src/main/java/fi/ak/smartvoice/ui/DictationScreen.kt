@@ -341,8 +341,15 @@ private fun TimingSection(
 ) {
     Text("Listener timings", style = MaterialTheme.typography.titleMedium)
     Text(
-        "Seconds, decimals welcome — a tunable number should not be limited to a few choices. Measured " +
-            "from the audio and from the recogniser's text, not from a fixed timer.",
+        "Seconds, decimals welcome — a tunable number should not be limited to a few choices. All three " +
+            "are measured, not on a fixed timer.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Text(
+        "The recogniser ends a unit when it hears silence (the first field). The fallback is for when it " +
+            "says nothing at all: it ends a unit once the audio has been quiet *and* the text has stopped " +
+            "changing for that long — both, so a recogniser that is merely slow cannot chop a sentence. " +
+            "The third field ends the recording after that much quiet; 0 means never.",
         style = MaterialTheme.typography.bodySmall,
     )
 
@@ -353,8 +360,8 @@ private fun TimingSection(
         onChange = onPause,
     )
     TimingField(
-        label = "Fallback: text steady for (s)",
-        hint = "used only when the recogniser reports no endpoint of its own",
+        label = "Fallback: quiet audio for (s)",
+        hint = "only when the recogniser reports no endpoint of its own; needs quiet audio too",
         field = stable,
         onChange = onStable,
     )
