@@ -14,6 +14,7 @@ evidence; `STATUS.md` is what is true now, `PLAN.md` is intent, `DECISIONS.md` i
 
 | File | Answers | Goes stale? |
 |---|---|---|
+| `HANDOFF.md` | Where does a new session start, and what is the first job? | Rewritten at the end of each working session. |
 | `PLAN.md` | What are we building, how does it work, in what order? | Yes — intent drifts. Re-read before each chunk. |
 | `STATUS.md` | What is true right now? | Must be current. Single screen. |
 | `DECISIONS.md` | Why is it this way, and what did we reject? | Append-only. Never edited, only superseded. |
