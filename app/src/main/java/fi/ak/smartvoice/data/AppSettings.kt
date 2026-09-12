@@ -66,7 +66,9 @@ class AppSettings(context: Context) {
 
     /** What the ASR session needs for one utterance. */
     fun listenerTimings(): ListenerTimings = ListenerTimings(
-        fallbackQuietSeconds = stableSilenceSeconds.toDouble(),
+        // Floored on the way in: `0` legitimately means "never stop" for the auto-stop, and would mean
+        // "cut at once" for the two boundary rules. A field that accepts both must not trust the typo.
+        fallbackQuietSeconds = maxOf(MIN_BOUNDARY_SECONDS, stableSilenceSeconds).toDouble(),
         stopAfterSilenceSeconds = stopAfterSilenceSeconds.toDouble(),
     )
 
@@ -110,7 +112,10 @@ class AppSettings(context: Context) {
         const val DEFAULT_STABLE_SILENCE_S = 3.0f
         const val DEFAULT_STOP_AFTER_SILENCE_S = 6.0f
 
-        /** What the text fields accept: seconds, up to a minute, never negative. */
+        /** What the text fields accept: seconds, at most a minute, and no negatives. */
         const val MAX_TIMING_SECONDS = 60f
+
+        /** The smallest value that still means "a pause of some length" for the two boundary rules. */
+        const val MIN_BOUNDARY_SECONDS = 0.2f
     }
 }

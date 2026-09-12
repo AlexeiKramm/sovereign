@@ -346,7 +346,8 @@ private fun TimingSection(
         style = MaterialTheme.typography.bodySmall,
     )
     Text(
-        "The recogniser ends a unit when it hears silence (the first field). The fallback is for when it " +
+        "The recogniser ends a unit when it hears silence (the first field) — and that is now the only " +
+            "rule that can cut: nothing else ends a unit early, at any length of speech. The fallback is for when it " +
             "says nothing at all: it ends a unit once the audio has been quiet *and* the text has stopped " +
             "changing for that long — both, so a recogniser that is merely slow cannot chop a sentence. " +
             "The third field ends the recording after that much quiet; 0 means never.",
@@ -355,7 +356,7 @@ private fun TimingSection(
 
     TimingField(
         label = "Pause that ends a unit (s)",
-        hint = "the recogniser's own rule; changing it rebuilds the model on the next load",
+        hint = "the recogniser's own rule, and the only one — changing it rebuilds the model; 0.2 min",
         field = pause,
         onChange = onPause,
     )

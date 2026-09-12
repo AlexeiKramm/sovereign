@@ -125,37 +125,17 @@ class LocalAsrEngine(
                     // artifacts also leaves it empty. Setting it is for the QNN provider only.
                     modelType = "",
                 ),
-                // The endpoint detector is now load-bearing twice over, and it is why D-032 needs no
-                // new dependency: it *is* "the text up to a VAD silence". [isEndpoint] marks the pause
-                // that ends a cleanup unit, and the same signal is what chunk 3 will read for
-                // stop-on-silence.
+                // The endpoint detector is load-bearing twice over, and it is why D-032 needs no new
+                // dependency: it *is* "the text up to a VAD silence". [isEndpoint] marks the pause that
+                // ends a cleanup unit, and the same signal is what the auto-stop reads as a second
+                // opinion behind the audio level.
                 //
-                // The numbers are the runtime's own defaults, read out of the artifact's constant pool
-                // on 2026-09-12 and written here so that D-032's "first values, tuned on the device"
-                // is one edit rather than a library default nobody can see:
-                //   rule1 — speech has been decoded, then this much silence → the thought boundary.
-                //   rule2 — nothing decoded yet, this much silence → an empty utterance.
-                //   rule3 — past this length, rule2's silence also ends the segment: D-032's safety
-                //           valve, and note it still needs a pause, so genuinely unbroken speech stays
-                //           one unit and is cleaned once at stop (the cost D-032 accepted).
+                // Exactly one rule may fire: the configured pause. [EndpointRules] holds the semantics and
+                // the reason they are spelled out in one place — the must_contain_nonsilence flag reads
+                // backwards, and a second rule with a smaller threshold wins over the setting silently
+                // (D-039: rule2 at a hardcoded 1.4 s meant no setting could raise the boundary).
                 enableEndpoint = true,
-                endpointConfig = EndpointConfig(
-                    rule1 = EndpointRule(
-                        mustContainNonSilence = true,
-                        minTrailingSilence = pauseSilenceSeconds,
-                        minUtteranceLength = 0f,
-                    ),
-                    rule2 = EndpointRule(
-                        mustContainNonSilence = false,
-                        minTrailingSilence = EMPTY_SILENCE_SECONDS,
-                        minUtteranceLength = 0f,
-                    ),
-                    rule3 = EndpointRule(
-                        mustContainNonSilence = false,
-                        minTrailingSilence = 0f,
-                        minUtteranceLength = SAFETY_VALVE_SECONDS,
-                    ),
-                ),
+                endpointConfig = EndpointRules.forPause(pauseSilenceSeconds).toSherpaConfig(),
             )
             val created = OnlineRecognizer(assetManager = null, config = config)
             recognizer = created
@@ -288,20 +268,29 @@ class LocalAsrEngine(
         /**
          * D-032's pause: how much silence after speech ends a cleanup unit.
          *
-         * The runtime's own default is 2.4 s; 1.2 s is the tuned starting point, and it is a setting
-         * (`AppSettings.pauseSilenceMs`) rather than a constant because this is a number a person tunes
-         * by speaking. `UnitBoundary`'s stability fallback covers artifacts whose endpoint detection
-         * does not fire at all, and its counters say which signal is doing the cutting.
+         * A setting (`AppSettings.pauseSilenceSeconds`) rather than a constant, because this is a number a
+         * person tunes by speaking; this default only matters to a caller that does not pass one. It is the
+         * same value as the app's own default, and the boundary it produces is the only one
+         * ([EndpointRules]) — `UnitBoundary`'s audio-and-text fallback then covers artifacts whose endpoint
+         * detection never fires at all.
          */
-        const val DEFAULT_PAUSE_SILENCE_SECONDS = 1.2f
-
-        /** Silence with nothing decoded — an utterance that never started. */
-        const val EMPTY_SILENCE_SECONDS = 1.4f
-
-        /** Past this much speech, a pause also ends the segment: D-032's safety valve. */
-        const val SAFETY_VALVE_SECONDS = 20.0f
+        const val DEFAULT_PAUSE_SILENCE_SECONDS = 2.0f
 
         /** See [finish]: a boundary, not a budget. */
         private const val MAX_FLUSH_DECODES = 512
     }
 }
+
+/** The pure rule set, as the library wants it. The translation is mechanical on purpose: all of the
+ *  meaning lives in [EndpointRules], where it is tested. */
+private fun EndpointRuleSet.toSherpaConfig(): EndpointConfig = EndpointConfig(
+    rule1 = rule1.toSherpaRule(),
+    rule2 = rule2.toSherpaRule(),
+    rule3 = rule3.toSherpaRule(),
+)
+
+private fun EndpointRuleSpec.toSherpaRule(): EndpointRule = EndpointRule(
+    mustContainNonSilence = mustContainNonSilence,
+    minTrailingSilence = minTrailingSilence,
+    minUtteranceLength = minUtteranceLength,
+)
