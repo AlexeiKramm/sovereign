@@ -67,6 +67,18 @@ class UtteranceCleanupStateTest {
     }
 
     @Test
+    fun `seeding starts from text that is already on screen`() {
+        // Cleanup can engage mid-utterance, once the model finishes loading; the units that went out raw
+        // before that are still the context for the first cleaned one (D-037).
+        val state = UtteranceCleanupState()
+        state.seed("text already committed at the cursor")
+        assertEquals("text already committed at the cursor", state.carriedTail)
+        assertEquals("seeding is not a unit", 0, state.units)
+        state.onPass(cleaned("next unit", "Next unit."))
+        assertEquals("text already committed at the cursor Next unit.", state.carriedTail)
+    }
+
+    @Test
     fun `reset clears the tail and the counters for the next utterance`() {
         val state = UtteranceCleanupState()
         state.onPass(cleaned("first", "First."))

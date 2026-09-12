@@ -33,6 +33,17 @@ class UtteranceCleanupState {
     /** The cleaned text so far: the context the next unit's pass is given (D-032 rule 5). */
     val carriedTail: String get() = committed.toString()
 
+    /**
+     * Starts from text that is already committed — units that went to the cursor before the cleanup stage
+     * engaged, at the start of an utterance or while the model was still loading. Seeding it keeps the
+     * model's context equal to what the user can see, which is rule 1 of this class applied to a partially
+     * cleaned utterance.
+     */
+    fun seed(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isNotEmpty()) committed.append(trimmed)
+    }
+
     fun onPass(pass: CleanupPass): CleanupCommit {
         val text = if (pass.cleaned) pass.text else pass.unit
         units++

@@ -44,28 +44,30 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putString(KEY_ENGINE, value.storedValue) }
 
     /**
-     * The listener's timings (D-035). Settings rather than constants because these are the numbers a
-     * person tunes by using the thing, and on this project every adjustment otherwise costs an APK
-     * build, a hand-install and a pasted report.
+     * The listener's timings (D-035, corrected by D-037). Settings rather than constants because these are
+     * the numbers a person tunes by *using* the thing.
+     *
+     * Stored and edited as **seconds, as text**: a tunable value must not be limited to a handful of chips,
+     * `2.5` is a legitimate answer, and `0` on the auto-stop means "never stop — I will close it myself".
      */
-    var pauseSilenceMs: Int
-        get() = prefs.getInt(KEY_PAUSE_SILENCE_MS, DEFAULT_PAUSE_SILENCE_MS)
-        set(value) = prefs.edit { putInt(KEY_PAUSE_SILENCE_MS, value) }
+    var pauseSilenceSeconds: Float
+        get() = prefs.getFloat(KEY_PAUSE_SILENCE_S, DEFAULT_PAUSE_SILENCE_S)
+        set(value) = prefs.edit { putFloat(KEY_PAUSE_SILENCE_S, value) }
 
     /** Text-stability fallback for the unit boundary. Only used when the recogniser says nothing. */
-    var stableSilenceMs: Int
-        get() = prefs.getInt(KEY_STABLE_SILENCE_MS, DEFAULT_STABLE_SILENCE_MS)
-        set(value) = prefs.edit { putInt(KEY_STABLE_SILENCE_MS, value) }
+    var stableSilenceSeconds: Float
+        get() = prefs.getFloat(KEY_STABLE_SILENCE_S, DEFAULT_STABLE_SILENCE_S)
+        set(value) = prefs.edit { putFloat(KEY_STABLE_SILENCE_S, value) }
 
-    /** Silence after speech that ends the recording. 0 means it never stops on its own. */
-    var stopAfterSilenceMs: Int
-        get() = prefs.getInt(KEY_STOP_AFTER_SILENCE_MS, DEFAULT_STOP_AFTER_SILENCE_MS)
-        set(value) = prefs.edit { putInt(KEY_STOP_AFTER_SILENCE_MS, value) }
+    /** Silence after speech that ends the recording. **0 means it never stops on its own.** */
+    var stopAfterSilenceSeconds: Float
+        get() = prefs.getFloat(KEY_STOP_AFTER_SILENCE_S, DEFAULT_STOP_AFTER_SILENCE_S)
+        set(value) = prefs.edit { putFloat(KEY_STOP_AFTER_SILENCE_S, value) }
 
     /** What the ASR session needs for one utterance. */
     fun listenerTimings(): ListenerTimings = ListenerTimings(
-        unitStableSeconds = stableSilenceMs / 1000.0,
-        stopAfterSilenceSeconds = stopAfterSilenceMs / 1000.0,
+        unitStableSeconds = stableSilenceSeconds.toDouble(),
+        stopAfterSilenceSeconds = stopAfterSilenceSeconds.toDouble(),
     )
 
     /**
@@ -94,23 +96,21 @@ class AppSettings(context: Context) {
         private const val KEY_LANGUAGE = "language"
         private const val KEY_ENGINE = "engine_preference"
         private const val KEY_CLEANUP_MODEL = "cleanup_model_id"
-        private const val KEY_PAUSE_SILENCE_MS = "pause_silence_ms"
-        private const val KEY_STABLE_SILENCE_MS = "stable_silence_ms"
-        private const val KEY_STOP_AFTER_SILENCE_MS = "stop_after_silence_ms"
+        // Seconds-valued keys, deliberately new names: the earlier millisecond keys hold Ints, and
+        // reading one of those back as a Float throws. The old keys are simply abandoned.
+        private const val KEY_PAUSE_SILENCE_S = "pause_silence_s"
+        private const val KEY_STABLE_SILENCE_S = "stable_silence_s"
+        private const val KEY_STOP_AFTER_SILENCE_S = "stop_after_silence_s"
 
-        /** The tuned starting point: the runtime's default was 2.4 s, which read as "never" in practice. */
-        const val DEFAULT_PAUSE_SILENCE_MS = 1200
+        /**
+         * Raised from the first tuned values (1.2 s / 1.8 s / 3.0 s) after real use: they read as far too
+         * eager — a breath ended a unit, and a thought pause ended the recording (D-037).
+         */
+        const val DEFAULT_PAUSE_SILENCE_S = 2.0f
+        const val DEFAULT_STABLE_SILENCE_S = 3.0f
+        const val DEFAULT_STOP_AFTER_SILENCE_S = 6.0f
 
-        const val DEFAULT_STABLE_SILENCE_MS = 1800
-
-        const val DEFAULT_STOP_AFTER_SILENCE_MS = 3000
-
-        /** Offered by the settings screen, shortest first. */
-        val PAUSE_SILENCE_CHOICES_MS = listOf(800, 1200, 1600, 2400, 4000)
-
-        val STABLE_SILENCE_CHOICES_MS = listOf(1200, 1800, 3000)
-
-        /** 0 is "off": the recording ends when the user says so. */
-        val STOP_AFTER_SILENCE_CHOICES_MS = listOf(0, 2000, 3000, 5000)
+        /** What the text fields accept: seconds, up to a minute, never negative. */
+        const val MAX_TIMING_SECONDS = 60f
     }
 }

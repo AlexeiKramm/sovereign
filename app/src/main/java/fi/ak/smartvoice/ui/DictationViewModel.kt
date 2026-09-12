@@ -15,6 +15,7 @@ import fi.ak.smartvoice.cleanup.CachedModel
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.asr.ListenerTimings
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.FileBytes
@@ -95,6 +96,13 @@ data class CleanupCase(
 )
 
 /**
+ * A timing field on the settings screen: the text as typed, and whether it currently parses to a usable
+ * number. `invalid` is what lets the screen say "that is not a number of seconds" instead of silently
+ * keeping the old value.
+ */
+data class TimingField(val text: String, val seconds: Float?, val invalid: Boolean)
+
+/**
  * State of the **cleanup** model, which GenieX's own model manager owns (D-030) — a deliberately
  * separate download path from the ASR model above, because the SDK knows which files its runtime
  * needs for a given GGUF and we do not.
@@ -132,7 +140,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
      */
     private val localEngine = LocalAsrEngine(
         modelDirectory = modelDirectory,
-        pauseSilenceSeconds = settings.pauseSilenceMs / 1000f,
+        pauseSilenceSeconds = settings.pauseSilenceSeconds,
     )
     private val localSession = LocalAsrSession(
         engine = localEngine,
@@ -160,14 +168,14 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _enginePreference = MutableStateFlow(settings.enginePreference)
     val enginePreference: StateFlow<EnginePreference> = _enginePreference.asStateFlow()
 
-    private val _pauseSilenceMs = MutableStateFlow(settings.pauseSilenceMs)
-    val pauseSilenceMs: StateFlow<Int> = _pauseSilenceMs.asStateFlow()
+    private val _pauseField = MutableStateFlow(field(settings.pauseSilenceSeconds))
+    val pauseField: StateFlow<TimingField> = _pauseField.asStateFlow()
 
-    private val _stableSilenceMs = MutableStateFlow(settings.stableSilenceMs)
-    val stableSilenceMs: StateFlow<Int> = _stableSilenceMs.asStateFlow()
+    private val _stableField = MutableStateFlow(field(settings.stableSilenceSeconds))
+    val stableField: StateFlow<TimingField> = _stableField.asStateFlow()
 
-    private val _stopAfterSilenceMs = MutableStateFlow(settings.stopAfterSilenceMs)
-    val stopAfterSilenceMs: StateFlow<Int> = _stopAfterSilenceMs.asStateFlow()
+    private val _stopField = MutableStateFlow(field(settings.stopAfterSilenceSeconds))
+    val stopField: StateFlow<TimingField> = _stopField.asStateFlow()
 
     /** What a timing change actually did, said out loud — notably that one of them rebuilds the model. */
     private val _timingNote = MutableStateFlow<String?>(null)
@@ -241,32 +249,47 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _enginePreference.value = preference
     }
 
+    private fun field(seconds: Float) = TimingField(
+        text = ListenerTimings.formatSeconds(seconds),
+        seconds = seconds,
+        invalid = false,
+    )
+
     /**
-     * The unit pause lives in the recogniser's own config, so changing it rebuilds the recogniser: one
-     * cold load, paid on the next utterance. The screen says so rather than letting the next dictation
-     * look mysteriously slow (D-035).
+     * A timing is applied as it is typed, but **only when the text is a usable number**: while the user is
+     * on the way to `2.5` — `2`, then `2.` — the stored value must not lurch, and an unparseable entry
+     * leaves the previous value in force while the field says so.
+     *
+     * The unit pause lives in the recogniser's own config, so changing it rebuilds the recogniser: one cold
+     * load, paid on the next load, which the status line reports (D-035).
      */
-    fun onPauseSilenceChange(milliseconds: Int) {
-        settings.pauseSilenceMs = milliseconds
-        _pauseSilenceMs.value = milliseconds
-        localEngine.applyPauseSilence(milliseconds / 1000f)
+    fun onPauseFieldChange(text: String) {
+        val parsed = ListenerTimings.parseSeconds(text, AppSettings.MAX_TIMING_SECONDS)
+        _pauseField.value = TimingField(text, parsed, parsed == null)
+        if (parsed == null) return
+        settings.pauseSilenceSeconds = parsed
+        localEngine.applyPauseSilence(parsed)
         _loadProbe.value = null
-        _timingNote.value = "applied — the recogniser rebuilds on the next load (1912 ms measured)"
+        _timingNote.value = "unit pause %.2f s — the recogniser rebuilds on the next load".format(parsed)
     }
 
-    fun onStableSilenceChange(milliseconds: Int) {
-        settings.stableSilenceMs = milliseconds
-        _stableSilenceMs.value = milliseconds
-        _timingNote.value = "applied from the next utterance — no rebuild needed"
+    fun onStableFieldChange(text: String) {
+        val parsed = ListenerTimings.parseSeconds(text, AppSettings.MAX_TIMING_SECONDS)
+        _stableField.value = TimingField(text, parsed, parsed == null)
+        if (parsed == null) return
+        settings.stableSilenceSeconds = parsed
+        _timingNote.value = "fallback %.2f s — applies from the next utterance, no rebuild".format(parsed)
     }
 
-    fun onStopAfterSilenceChange(milliseconds: Int) {
-        settings.stopAfterSilenceMs = milliseconds
-        _stopAfterSilenceMs.value = milliseconds
-        _timingNote.value = if (milliseconds == 0) {
-            "auto-stop off — recording ends when you tap stop"
+    fun onStopFieldChange(text: String) {
+        val parsed = ListenerTimings.parseSeconds(text, AppSettings.MAX_TIMING_SECONDS)
+        _stopField.value = TimingField(text, parsed, parsed == null)
+        if (parsed == null) return
+        settings.stopAfterSilenceSeconds = parsed
+        _timingNote.value = if (parsed == 0f) {
+            "auto-stop off — the recording runs until you stop it"
         } else {
-            "auto-stop after %.1fs of silence".format(milliseconds / 1000.0)
+            "auto-stop after %.2f s of silence".format(parsed)
         }
     }
 

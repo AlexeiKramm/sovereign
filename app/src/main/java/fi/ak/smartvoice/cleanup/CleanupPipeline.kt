@@ -52,9 +52,15 @@ class CleanupPipeline(
     var submitted: Int = 0
         private set
 
-    fun begin() {
+    /**
+     * Starts an utterance. [initialTail] is any text already committed for this utterance — cleanup can
+     * engage *mid-utterance*, when the model finishes loading, so the tail must start from what the user
+     * already has on screen rather than from nothing (D-037).
+     */
+    fun begin(initialTail: String = "") {
         abort()
         state.reset()
+        state.seed(initialTail)
         lastPass = null
         submitted = 0
         val channel = Channel<String>(Channel.UNLIMITED)

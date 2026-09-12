@@ -16,7 +16,25 @@ data class ListenerTimings(
     val stopAfterSilenceSeconds: Double = DEFAULT_STOP_AFTER_SILENCE_SECONDS,
 ) {
     companion object {
-        const val DEFAULT_UNIT_STABLE_SECONDS = 1.8
-        const val DEFAULT_STOP_AFTER_SILENCE_SECONDS = 3.0
+        const val DEFAULT_UNIT_STABLE_SECONDS = 3.0
+        const val DEFAULT_STOP_AFTER_SILENCE_SECONDS = 6.0
+
+        /**
+         * Reads a seconds value out of a text field, or null when the text is not a usable number yet —
+         * `""` and `"2."` on the way to `"2.5"` must not be treated as values, and a negative or NaN entry
+         * must never reach a threshold. A comma is accepted as the decimal mark, because that is how the
+         * number is written in the languages this keyboard is for.
+         */
+        fun parseSeconds(text: String, max: Float): Float? {
+            val value = text.trim().replace(',', '.').toFloatOrNull() ?: return null
+            if (value.isNaN() || value < 0f) return null
+            return value.coerceAtMost(max)
+        }
+
+        /** How a stored value appears in a text field: `2`, `2.5`, `0.25` — no trailing zeros. */
+        fun formatSeconds(seconds: Float): String {
+            if (seconds == seconds.toInt().toFloat()) return seconds.toInt().toString()
+            return "%.3f".format(seconds).trimEnd('0').trimEnd('.')
+        }
     }
 }

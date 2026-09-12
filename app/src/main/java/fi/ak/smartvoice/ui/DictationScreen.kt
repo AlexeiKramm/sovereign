@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,9 +65,9 @@ fun DictationScreen(
     val cleanupCases by viewModel.cleanupCases.collectAsStateWithLifecycle()
     val cleanupBusy by viewModel.cleanupBusy.collectAsStateWithLifecycle()
     val cleanupLoad by viewModel.cleanupLoad.collectAsStateWithLifecycle()
-    val pauseSilenceMs by viewModel.pauseSilenceMs.collectAsStateWithLifecycle()
-    val stableSilenceMs by viewModel.stableSilenceMs.collectAsStateWithLifecycle()
-    val stopAfterSilenceMs by viewModel.stopAfterSilenceMs.collectAsStateWithLifecycle()
+    val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
+    val stableField by viewModel.stableField.collectAsStateWithLifecycle()
+    val stopField by viewModel.stopField.collectAsStateWithLifecycle()
     val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
     val cleanupVariant by viewModel.cleanupVariant.collectAsStateWithLifecycle()
     val cleanupCustomUnit by viewModel.cleanupCustomUnit.collectAsStateWithLifecycle()
@@ -112,13 +114,13 @@ fun DictationScreen(
         HorizontalDivider()
 
         TimingSection(
-            pauseMs = pauseSilenceMs,
-            stableMs = stableSilenceMs,
-            stopMs = stopAfterSilenceMs,
+            pause = pauseField,
+            stable = stableField,
+            stop = stopField,
             note = timingNote,
-            onPause = viewModel::onPauseSilenceChange,
-            onStable = viewModel::onStableSilenceChange,
-            onStop = viewModel::onStopAfterSilenceChange,
+            onPause = viewModel::onPauseFieldChange,
+            onStable = viewModel::onStableFieldChange,
+            onStop = viewModel::onStopFieldChange,
         )
 
         HorizontalDivider()
@@ -329,44 +331,61 @@ private fun EngineSection(
  */
 @Composable
 private fun TimingSection(
-    pauseMs: Int,
-    stableMs: Int,
-    stopMs: Int,
+    pause: TimingField,
+    stable: TimingField,
+    stop: TimingField,
     note: String?,
-    onPause: (Int) -> Unit,
-    onStable: (Int) -> Unit,
-    onStop: (Int) -> Unit,
+    onPause: (String) -> Unit,
+    onStable: (String) -> Unit,
+    onStop: (String) -> Unit,
 ) {
     Text("Listener timings", style = MaterialTheme.typography.titleMedium)
     Text(
-        "Measured from the audio and from the recogniser's text, not from a fixed timer. The unit pause " +
-            "is the recogniser's own rule, so changing it costs one cold model load on the next load.",
+        "Seconds, decimals welcome — a tunable number should not be limited to a few choices. Measured " +
+            "from the audio and from the recogniser's text, not from a fixed timer.",
         style = MaterialTheme.typography.bodySmall,
     )
 
-    TimingRow("Pause that ends a unit", pauseMs, AppSettings.PAUSE_SILENCE_CHOICES_MS, onPause)
-    TimingRow("Fallback: text steady for", stableMs, AppSettings.STABLE_SILENCE_CHOICES_MS, onStable)
-    TimingRow("Stop recording after silence", stopMs, AppSettings.STOP_AFTER_SILENCE_CHOICES_MS, onStop)
+    TimingField(
+        label = "Pause that ends a unit (s)",
+        hint = "the recogniser's own rule; changing it rebuilds the model on the next load",
+        field = pause,
+        onChange = onPause,
+    )
+    TimingField(
+        label = "Fallback: text steady for (s)",
+        hint = "used only when the recogniser reports no endpoint of its own",
+        field = stable,
+        onChange = onStable,
+    )
+    TimingField(
+        label = "Stop recording after silence (s)",
+        hint = "0 = never stop on its own — the recording runs until you close it",
+        field = stop,
+        onChange = onStop,
+    )
     note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable
-private fun TimingRow(
+private fun TimingField(
     label: String,
-    selectedMs: Int,
-    choices: List<Int>,
-    onChange: (Int) -> Unit,
+    hint: String,
+    field: TimingField,
+    onChange: (String) -> Unit,
 ) {
-    Text(label, style = MaterialTheme.typography.titleSmall)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        choices.forEach { candidate ->
-            FilterChip(
-                selected = candidate == selectedMs,
-                onClick = { onChange(candidate) },
-                label = { Text(if (candidate == 0) "off" else "%.1f".format(candidate / 1000.0)) },
-            )
-        }
-    }
+    OutlinedTextField(
+        value = field.text,
+        onValueChange = onChange,
+        label = { Text(label) },
+        supportingText = {
+            Text(if (field.invalid) "not a number of seconds — the previous value stays in force" else hint)
+        },
+        isError = field.invalid,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 /**

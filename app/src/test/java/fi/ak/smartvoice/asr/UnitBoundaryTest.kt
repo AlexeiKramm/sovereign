@@ -2,6 +2,7 @@ package fi.ak.smartvoice.asr
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,7 +29,9 @@ class UnitBoundaryTest {
 
     @Test
     fun `text that stops changing cuts a unit once the fallback threshold passes`() {
-        val boundary = UnitBoundary()
+        // The threshold is passed explicitly: this test is about the rule, and the shipped default is a
+        // separate decision that changed once already (D-035 → D-037).
+        val boundary = UnitBoundary(stableSeconds = 1.8)
         boundary.onFrame(SECOND, "one two", false)              // t=1.0, text changed
         assertFalse(boundary.onFrame(SECOND, "one two", false)) // t=2.0, stable 1.0 < 1.8
         assertTrue(boundary.onFrame(SECOND, "one two", false))  // t=3.0, stable 2.0 >= 1.8
@@ -54,7 +57,7 @@ class UnitBoundaryTest {
 
     @Test
     fun `one pause cannot cut twice, because the caller restarts the timer`() {
-        val boundary = UnitBoundary()
+        val boundary = UnitBoundary(stableSeconds = 1.8)
         boundary.onFrame(SECOND, "one two", false)
         boundary.onFrame(SECOND, "one two", false)
         assertTrue(boundary.onFrame(SECOND, "one two", false))
@@ -120,6 +123,30 @@ class UnitBoundaryTest {
         assertEquals(1, snapshot.cuts)
         assertEquals(2.0, snapshot.seconds, 0.0001)
         assertTrue(snapshot.hasSpeech)
+    }
+
+    @Test
+    fun `the boundary cuts on the threshold the timings declare`() {
+        // Pins the wiring, not the number: if the constant is raised and the boundary keeps cutting after
+        // 3 s, this fails here instead of arriving as "it cuts too early" from the phone.
+        val threshold = ListenerTimings.DEFAULT_UNIT_STABLE_SECONDS
+        val boundary = UnitBoundary()
+        boundary.onFrame(SECOND, "one two", false)          // t = 1.0: the text arrived, the clock starts
+
+        var seconds = 1.0
+        var cutAt: Double? = null
+        while (seconds < threshold + 2.0) {
+            boundary.onFrame(SECOND, "one two", false)
+            seconds += 1.0
+            if (boundary.cutsByTextStability == 1) {
+                cutAt = seconds
+                break
+            }
+        }
+        assertNotNull("the fallback must cut once its threshold has passed", cutAt)
+        // The cut lands on the first frame where the text has been steady for the whole threshold, and
+        // frames are one second, so the steady time can be up to a frame longer than the threshold.
+        assertEquals(threshold, cutAt!! - 1.0, 0.5)
     }
 
     private companion object {
