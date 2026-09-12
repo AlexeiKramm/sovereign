@@ -110,6 +110,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _modelStatus = MutableStateFlow<ModelStatus>(currentModelStatus())
     val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
 
+    /**
+     * Result of the last explicit load check — D-010's cold-load number, obtainable without having
+     * to dictate. The keyboard reports the same number in its status line when it pays it for real.
+     */
+    private val _loadProbe = MutableStateFlow<String?>(null)
+    val loadProbe: StateFlow<String?> = _loadProbe.asStateFlow()
+
     private val _state = MutableStateFlow<DictationUiState>(DictationUiState.Idle)
     val state: StateFlow<DictationUiState> = _state.asStateFlow()
 
@@ -175,7 +182,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     .download(isCancelled = { cancelDownload })
             }
             _modelStatus.value = when (result) {
-                ModelDownloadResult.Complete -> ModelStatus.Installed
+                ModelDownloadResult.Complete -> {
+                    // A completed download is worth proving: load it once, here, and report the ms.
+                    probeLocalEngine()
+                    ModelStatus.Installed
+                }
                 is ModelDownloadResult.Cancelled ->
                     if (AsrModels.isInstalled(modelDirectory)) {
                         ModelStatus.Installed
@@ -193,6 +204,27 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
+     * Loads the recogniser once and reports how long it took. This is the same code path the first
+     * dictation takes, so a green result here means the model loads, not merely that it downloaded.
+     */
+    fun probeLocalEngine() {
+        if (!AsrModels.isInstalled(modelDirectory)) {
+            _loadProbe.value = "not installed — nothing to load"
+            return
+        }
+        _loadProbe.value = "loading…"
+        viewModelScope.launch {
+            val availability = withContext(asrDispatcher) { localEngine.load() }
+            _loadProbe.value = when (availability) {
+                LocalAsrEngine.Availability.Loaded -> "load check: OK in ${localEngine.lastLoadMillis} ms"
+                LocalAsrEngine.Availability.NotInstalled -> "not installed — nothing to load"
+                LocalAsrEngine.Availability.NotLoaded -> "not loaded"
+                is LocalAsrEngine.Availability.Unavailable -> "load check FAILED: ${availability.reason}"
+            }
+        }
+    }
+
+    /**
      * Frees ~681 MB. Honest about what it costs: the next local utterance pays the download again,
      * and the engine must be unloaded first or the runtime keeps reading deleted files.
      */
@@ -202,6 +234,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             withContext(Dispatchers.IO) {
                 File(modelDirectory, "").listFiles()?.forEach { it.delete() }
             }
+            _loadProbe.value = null
             _modelStatus.value = currentModelStatus()
         }
     }

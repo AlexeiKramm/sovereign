@@ -2,6 +2,7 @@ package fi.ak.smartvoice.engine
 
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -60,6 +61,22 @@ class TierPolicyTest {
         assertEquals(EnginePreference.LOCAL, EnginePreference.fromStored(null))
         assertEquals(EnginePreference.LOCAL, EnginePreference.fromStored("something-from-an-older-build"))
         assertEquals(EnginePreference.REMOTE, EnginePreference.fromStored("remote"))
+    }
+
+    @Test
+    fun `prefetch only when the local tier is what the user will use, and it is not loaded yet`() {
+        // D-010 rule 2 fired for real: the measured cold load is 1912 ms, over the ~1.5 s threshold.
+        assertTrue(TierPolicy.shouldPrefetch(EnginePreference.LOCAL, LocalAsrEngine.Availability.NotLoaded))
+        assertFalse("already loaded — nothing to pay", TierPolicy.shouldPrefetch(EnginePreference.LOCAL, LocalAsrEngine.Availability.Loaded))
+        assertFalse("nothing to load", TierPolicy.shouldPrefetch(EnginePreference.LOCAL, LocalAsrEngine.Availability.NotInstalled))
+        assertFalse(
+            "a broken runtime must not be retried on every keyboard show",
+            TierPolicy.shouldPrefetch(EnginePreference.LOCAL, LocalAsrEngine.Availability.Unavailable("nope")),
+        )
+        assertFalse(
+            "the user asked for the server",
+            TierPolicy.shouldPrefetch(EnginePreference.REMOTE, LocalAsrEngine.Availability.NotLoaded),
+        )
     }
 
     @Test

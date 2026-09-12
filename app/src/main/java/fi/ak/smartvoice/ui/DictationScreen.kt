@@ -52,6 +52,7 @@ fun DictationScreen(
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val modelStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
+    val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     var micGranted by remember {
@@ -82,11 +83,13 @@ fun DictationScreen(
             preference = enginePreference,
             summary = viewModel.engineSummary(),
             modelStatus = modelStatus,
+            loadProbe = loadProbe,
             modelBytes = viewModel.modelBytes,
             onPreferenceChange = viewModel::onEnginePreferenceChange,
             onDownload = viewModel::downloadModel,
             onCancelDownload = viewModel::cancelModelDownload,
             onDeleteModel = viewModel::deleteModel,
+            onProbe = viewModel::probeLocalEngine,
         )
 
         HorizontalDivider()
@@ -166,11 +169,13 @@ private fun EngineSection(
     preference: EnginePreference,
     summary: String,
     modelStatus: ModelStatus,
+    loadProbe: String?,
     modelBytes: Long,
     onPreferenceChange: (EnginePreference) -> Unit,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
     onDeleteModel: () -> Unit,
+    onProbe: () -> Unit,
 ) {
     Text("Engine", style = MaterialTheme.typography.titleMedium)
 
@@ -225,7 +230,16 @@ private fun EngineSection(
 
         ModelStatus.Installed -> {
             Text("Downloaded and verified (size + sha256 per file).", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = onDeleteModel) { Text("Delete model (frees ~681 MB)") }
+            loadProbe?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onProbe) { Text("Test load") }
+                OutlinedButton(onClick = onDeleteModel) { Text("Delete model (~681 MB)") }
+            }
+            Text(
+                "Test load runs the same code path the first dictation takes, and reports how long " +
+                    "the cold load took (D-010).",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
 
         is ModelStatus.Failed -> {

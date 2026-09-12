@@ -142,6 +142,25 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         abandonCapture()
         syncPanelSettings()
         panel?.setStatus(idleStatus())
+        prefetchLocalModel()
+    }
+
+    /**
+     * D-010 rule 2, as measured: the cold load is **1912 ms** on the target phone (2026-09-12) —
+     * over the ~1.5 s the rule was written against — so the load is paid while the keyboard is
+     * visible instead of after the first mic tap. Nothing is loaded at process start, and nothing
+     * is loaded when the user's setting is the server.
+     */
+    private fun prefetchLocalModel() {
+        if (recorder.isRecording) return
+        if (!TierPolicy.shouldPrefetch(settings.enginePreference, localEngine.availability())) return
+
+        scope.launch {
+            withContext(asrDispatcher) { localEngine.load() }
+            // Only report if the user has not started dictating in the meantime: the ticker owns the
+            // status line from that point.
+            if (!recorder.isRecording && inFlight?.isActive != true) panel?.setStatus(idleStatus())
+        }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {

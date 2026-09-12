@@ -60,6 +60,18 @@ object TierPolicy {
                 EngineChoice(Engine.REMOTE, "local engine unavailable (${local.reason}) — using the server")
         }
     }
+
+    /**
+     * D-010 rule 2: load on first use — **unless the measured cold load exceeds ~1.5 s**, in which
+     * case promote to prefetching while the keyboard is visible.
+     *
+     * Measured on the target phone 2026-09-12: **1912 ms**, so prefetching is on (STATUS). The
+     * threshold is in the rule, not here, and this function is the rule made checkable: prefetch
+     * only when the local tier is what the user will actually use, and only when there is something
+     * left to load.
+     */
+    fun shouldPrefetch(preference: EnginePreference, local: LocalAsrEngine.Availability): Boolean =
+        preference == EnginePreference.LOCAL && local == LocalAsrEngine.Availability.NotLoaded
 }
 
 /**
