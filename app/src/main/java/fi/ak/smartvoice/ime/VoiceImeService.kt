@@ -241,7 +241,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val view = VoicePanelView(this, this)
         panel = view
         syncPanelSettings()
-        view.setStatus(idleStatus())
+        view.render(idleState())
         return view.root
     }
 
@@ -250,7 +250,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         // A new field means a clean slate; an utterance started in the previous field is abandoned.
         abandonCapture()
         syncPanelSettings()
-        panel?.setStatus(idleStatus())
+        render(idleState())
         prefetchLocalModel()
     }
 
@@ -282,7 +282,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             }
             // Only report if the user has not started dictating in the meantime: the ticker owns the
             // status line from that point.
-            if (!recorder.isRecording && inFlight?.isActive != true) panel?.setStatus(idleStatus())
+            if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
         }
     }
 
@@ -304,7 +304,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         syncPanelSettings()
 
         val local = currentChoice().engine == Engine.LOCAL
-        panel?.setStatus(
+        show(
             when {
                 !local && settings.cleanupEnabled ->
                     "cleanup on — the server will clean and punctuate the transcript"
@@ -327,7 +327,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val next = cycle[(cycle.indexOf(settings.language).takeIf { it >= 0 } ?: 0).let { (it + 1) % cycle.size }]
         settings.language = next
         syncPanelSettings()
-        panel?.setStatus(
+        show(
             when {
                 next == AppSettings.LANGUAGE_AUTO && currentChoice().engine == Engine.LOCAL ->
                     "language: auto — the local model detects it per utterance"
@@ -349,18 +349,53 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private fun syncPanelSettings() {
         val choice = currentChoice()
-        panel?.setCleanupLabel(cleanupLabel(choice))
+        panel?.setCleanupLabel(cleanupChipLabel(choice))
         panel?.setLanguage(settings.language)
+        // The diagnostics travelled with the chip, so a settings change has to repaint them too.
+        if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
     }
 
-    private fun cleanupLabel(choice: EngineChoice): String = when (choice.engine) {
+    /**
+     * The chip is a control, so it says only what it does (D-041); the reason behind the state lives in
+     * [cleanupDetail], one tap away. "Cleanup: on — load failed" spent five words telling the reader
+     * something the details can carry in a sentence.
+     */
+    private fun cleanupChipLabel(choice: EngineChoice): String = when (choice.engine) {
         Engine.LOCAL -> when {
             !settings.cleanupEnabled -> "Cleanup: off"
-            cleanupEngine?.isLoaded == true -> "Cleanup: on (device)"
-            cleanupLoadNote != null -> "Cleanup: on — load failed"
-            else -> "Cleanup: on — loading"
+            cleanupEngine?.isLoaded == true -> "Cleanup: on"
+            cleanupLoadNote != null -> "Cleanup: failed"
+            else -> "Cleanup: loading…"
         }
         Engine.REMOTE -> if (settings.cleanupEnabled) "Cleanup: full" else "Cleanup: off"
+    }
+
+    /** Why the cleanup chip says what it says. */
+    private fun cleanupDetail(choice: EngineChoice): String = when (choice.engine) {
+        Engine.LOCAL -> when {
+            !settings.cleanupEnabled ->
+                "cleanup off — units reach the cursor as the recogniser heard them"
+            cleanupEngine?.isLoaded == true -> "cleanup on — Gemma 4 E2B on the Hexagon NPU"
+            cleanupLoadNote != null ->
+                "cleanup load FAILED — $cleanupLoadNote; units are the recogniser's own text"
+            else -> "cleanup model still loading — the first units are the recogniser's own text"
+        }
+        Engine.REMOTE -> if (settings.cleanupEnabled) "cleanup full (server)" else "cleanup off (server)"
+    }
+
+    // ------------------------------------------------------------------ panel state (D-041)
+
+    /** The panel's state, kept here so a headline change never loses the diagnostics. */
+    private var panelState = PanelState(headline = "")
+
+    /** Shows a headline — what a person needs — keeping the details from [panelState]. */
+    private fun show(headline: String, phase: PanelState.Phase = PanelState.Phase.IDLE) {
+        render(panelState.copy(headline = headline, phase = phase, elapsedSeconds = 0.0, preview = ""))
+    }
+
+    private fun render(state: PanelState) {
+        panelState = state
+        panel?.render(state)
     }
 
     // ------------------------------------------------------------------ dictation
@@ -368,22 +403,23 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     override fun onMic() {
         when {
             recorder.isRecording -> stopAndTranscribe()
-            inFlight?.isActive == true -> panel?.setStatus("still working on the last utterance…")
+            inFlight?.isActive == true -> show("still working on the last utterance…", PanelState.Phase.WORKING)
             else -> startCapture()
         }
     }
 
     override fun onCancel() {
         abandonCapture()
-        panel?.setStatus("cancelled — nothing was sent")
+        show("cancelled — nothing was sent")
     }
 
     private fun currentChoice(): EngineChoice = TierPolicy.choose(settings.enginePreference, localEngine.availability())
 
     private fun startCapture() {
         if (!hasMicrophonePermission()) {
-            panel?.setStatus(
+            show(
                 "microphone permission not granted — tap ⚙ and allow the mic in Smart Voice",
+                PanelState.Phase.ERROR,
             )
             return
         }
@@ -427,7 +463,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason
                     ?: "model not installed"
                 abandonCapture()
-                panel?.setStatus("local engine unavailable — $reason; download the model or pick the server")
+                show(
+                    "local engine unavailable — $reason; download the model or pick the server",
+                    PanelState.Phase.ERROR,
+                )
             } else if (paysColdLoad) {
                 coldLoadMs = localEngine.lastLoadMillis
             }
@@ -514,7 +553,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // The chip has to say what happened: "on — loading" that never resolves is how a failed load
             // looked like a stuck setting (reported 2026-09-12, D-037).
             syncPanelSettings()
-            if (!recorder.isRecording && inFlight?.isActive != true) panel?.setStatus(idleStatus())
+            if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
         }
     }
 
@@ -546,13 +585,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     private fun reportLocal(audioSeconds: Double, tailMs: Long, whole: String) {
         if (whole.isBlank()) {
             val pinned = settings.language
-            panel?.setStatus(
+            show(
                 if (pinned != AppSettings.LANGUAGE_AUTO) {
                     "no text — the local model was pinned to ${pinned.uppercase()} and only " +
                         "transcribes speech in that language; set the language chip to auto and retry"
                 } else {
                     "local returned empty text — nothing committed"
                 },
+                PanelState.Phase.ERROR,
             )
             return
         }
@@ -598,7 +638,21 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             }
             commitNote?.let { append(" · $it") }
         }
-        panel?.setStatus(note)
+        // The report is diagnostics, so it belongs in the details; the headline says what arrived.
+        render(
+            panelState.copy(
+                headline = buildString {
+                    append("Done — %.1f s, %d unit(s)".format(audioSeconds, localSession.unitCount))
+                    if (settings.cleanupEnabled) {
+                        append(if (cleanupEngaged) " · cleaned" else " · not cleaned (model was loading)")
+                    }
+                },
+                details = note,
+                phase = PanelState.Phase.IDLE,
+                elapsedSeconds = 0.0,
+                preview = "",
+            ),
+        )
     }
 
     // ------------------------------------------------------------------ server tier
@@ -614,12 +668,16 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         inFlight = scope.launch {
             val wav = withContext(Dispatchers.IO) { recorder.stop() }
             if (wav == null) {
-                panel?.setStatus("nothing was captured — no audio sent")
+                show("nothing was captured — no audio sent", PanelState.Phase.ERROR)
                 return@launch
             }
 
             val seconds = (wav.size - 44).toDouble() / (WavRecorder.SAMPLE_RATE * 2)
-            panel?.setStatus("transcribing %.1f s · cleanup $cleanup · lang $language…".format(seconds))
+            // The remote tier has no streaming signal, so the headline carries the honest progress word.
+            show(
+                "Transcribing %.1f s…".format(seconds),
+                PanelState.Phase.WORKING,
+            )
 
             try {
                 val startedAt = SystemClock.elapsedRealtime()
@@ -637,13 +695,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     roundTripMs = roundTripMs,
                 )
             } catch (e: StackHttpException) {
-                panel?.setStatus("server said ${e.code} (HTTP ${e.status}) — ${e.message}")
+                show("server said ${e.code} (HTTP ${e.status}) — ${e.message}", PanelState.Phase.ERROR)
             } catch (e: StackUnreachableException) {
-                panel?.setStatus("cannot reach ${settings.serverUrl} — check the URL in ⚙ settings")
+                show("cannot reach ${settings.serverUrl} — check the URL in ⚙ settings", PanelState.Phase.ERROR)
             } catch (e: StackResponseParseException) {
-                panel?.setStatus("server response could not be read — ${e.message}")
+                show("server response could not be read — ${e.message}", PanelState.Phase.ERROR)
             } catch (t: Throwable) {
-                panel?.setStatus("failed: ${t.message ?: t::class.java.simpleName}")
+                show("failed: ${t.message ?: t::class.java.simpleName}", PanelState.Phase.ERROR)
             }
         }
     }
@@ -659,15 +717,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         runCatching { recorder.start() }
             .onSuccess {
                 panel?.setListening(true)
-                panel?.setStatus(listeningStatus(choice, 0.0, localSession.boundaryState, settings.stopAfterSilenceSeconds))
+                render(listeningState(choice, 0.0, localSession.boundaryState))
                 ticker = scope.launch {
                     while (isActive) {
                         delay(TICK_MS)
                         val state = localSession.boundaryState
                         val stopAfterSeconds = settings.stopAfterSilenceSeconds
-                        panel?.setStatus(
-                            listeningStatus(choice, recorder.capturedSeconds, state, stopAfterSeconds),
-                        )
+                        render(listeningState(choice, recorder.capturedSeconds, state))
                         // Auto-stop (D-035): the recording ends when the speaker has been silent long
                         // enough *and* has actually said something. Silence before speech must never end
                         // a recording the user has not spoken into yet, and the local tier is where this
@@ -689,7 +745,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 recorder.frameSink = null
                 localSession.abort()
                 val reason = it.message ?: "AudioRecord failed"
-                panel?.setStatus("could not start recording: $reason")
+                show("could not start recording: $reason", PanelState.Phase.ERROR)
             }
     }
 
@@ -705,14 +761,42 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         }
     }
 
-    private fun listeningStatus(
+    /**
+     * The live state while recording: one line for the user, the diagnostics for the details, and the
+     * recogniser's current hypothesis as a preview — which is what makes the unit boundary visible as it
+     * happens instead of something to be inferred by watching a counter (D-041).
+     */
+    private fun listeningState(
         choice: EngineChoice,
         seconds: Double,
         boundary: BoundaryState,
+    ): PanelState {
+        val level = PanelText.levelFor(boundary.quietFor)
+        return PanelState(
+            headline = PanelText.listeningLine(
+                seconds = seconds,
+                level = level,
+                cleanupNote = when {
+                    choice.engine != Engine.LOCAL -> null
+                    !settings.cleanupEnabled -> null
+                    cleanupEngaged -> null
+                    else -> "cleanup starts when the model is ready"
+                },
+            ),
+            details = listeningDetails(choice, boundary, settings.stopAfterSilenceSeconds),
+            phase = PanelState.Phase.LISTENING,
+            elapsedSeconds = seconds,
+            level = level,
+            preview = boundary.partial,
+        )
+    }
+
+    private fun listeningDetails(
+        choice: EngineChoice,
+        boundary: BoundaryState,
         stopAfterSeconds: Float,
     ): String = buildString {
-        append("listening… %.1f s".format(seconds))
-        append(" · ${choice.engine.label}")
+        append("engine: ${choice.engine.label}")
         if (choice.engine == Engine.LOCAL) {
             // The partial count is not the transcript — the transcript lands at the cursor when each
             // unit becomes final, and nothing is rewritten (D-021). Both numbers are here because they
@@ -746,6 +830,9 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             append(" · cleanup ${if (settings.cleanupEnabled) "full" else "off"}")
         }
         append(" · lang ${settings.language}")
+        append(" · pause %.2f s · fallback %.2f s".format(
+            settings.pauseSilenceSeconds, settings.stableSilenceSeconds,
+        ))
     }
 
     /**
@@ -755,7 +842,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     private fun commit(outcome: DictationOutcome, roundTripMs: Long? = null) {
         val connection = currentInputConnection
         if (connection == null) {
-            panel?.setStatus("no text field is focused — nothing committed")
+            show("no text field is focused — nothing committed", PanelState.Phase.ERROR)
             return
         }
         if (outcome.text.isBlank()) {
@@ -763,43 +850,49 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // prompt — English audio with `fi` pinned comes back empty, not as a guess. Saying so
             // is the difference between "the keyboard is broken" and "change one chip".
             val pinned = settings.language
-            panel?.setStatus(
+            show(
                 if (outcome.engine == Engine.LOCAL && pinned != AppSettings.LANGUAGE_AUTO) {
                     "no text — the local model was pinned to ${pinned.uppercase()} and only " +
                         "transcribes speech in that language; set the language chip to auto and retry"
                 } else {
                     "${outcome.engine.label} returned empty text — nothing committed"
                 },
+                PanelState.Phase.ERROR,
             )
             return
         }
 
         connection.commitText(outcome.text, 1)
 
-        panel?.setStatus(
-            when (outcome.engine) {
-                Engine.LOCAL -> buildString {
-                    append("committed · local · %.1f s audio".format(outcome.audioSeconds))
-                    append(" · tail ${outcome.elapsedMs} ms")
-                    append(" · ${outcome.note}")
-                }
+        // Headline for the person, numbers for the details (D-041): the server's latency breakdown and
+        // the local tail are diagnostics, and neither belongs in front of someone watching their words.
+        val details = when (outcome.engine) {
+            Engine.LOCAL -> buildString {
+                append("committed · local · %.1f s audio".format(outcome.audioSeconds))
+                append(" · tail ${outcome.elapsedMs} ms")
+                append(" · ${outcome.note}")
+            }
 
-                Engine.REMOTE -> {
-                    val result = outcome.response
-                    buildString {
-                        append("committed · server")
-                        append(" · stt ${result?.latencyMs?.sttMs() ?: "?"} ms")
-                        append(result?.latencyMs?.cleanupMs()?.let { " · cleanup $it ms" } ?: " · cleanup not run")
-                        append(result?.latencyMs?.let { " · total ${it.totalMs()} ms" } ?: "")
-                        append(roundTripMs?.let { " · round trip $it ms" } ?: "")
-                        append(" · ${result?.detectedLanguage ?: "?"}")
-                        if ((result?.corrections?.size ?: 0) > 0) append(" · ${result!!.corrections.size} correction(s)")
-                        // Degraded success is a normal state per the contract, and the user must see it.
-                        if (result?.cleanupUnavailable == true) append(" · cleanup was unavailable")
-                    }
+            Engine.REMOTE -> {
+                val result = outcome.response
+                buildString {
+                    append("committed · server")
+                    append(" · stt ${result?.latencyMs?.sttMs() ?: "?"} ms")
+                    append(result?.latencyMs?.cleanupMs()?.let { " · cleanup $it ms" } ?: " · cleanup not run")
+                    append(result?.latencyMs?.let { " · total ${it.totalMs()} ms" } ?: "")
+                    append(roundTripMs?.let { " · round trip $it ms" } ?: "")
+                    append(" · ${result?.detectedLanguage ?: "?"}")
+                    if ((result?.corrections?.size ?: 0) > 0) append(" · ${result!!.corrections.size} correction(s)")
+                    // Degraded success is a normal state per the contract, and the user must see it.
+                    if (result?.cleanupUnavailable == true) append(" · cleanup was unavailable")
                 }
-            },
-        )
+            }
+        }
+        val headline = when (outcome.engine) {
+            Engine.LOCAL -> "Inserted — %.1f s".format(outcome.audioSeconds)
+            Engine.REMOTE -> "Inserted (server)"
+        }
+        render(panelState.copy(headline = headline, details = details, phase = PanelState.Phase.IDLE))
     }
 
     private fun abandonCapture() {
@@ -824,16 +917,27 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
-    private fun idleStatus(): String {
+    /** What the panel shows between utterances: one line for the user, the rest one tap away. */
+    private fun idleState(): PanelState = PanelState(
+        headline = "${getString(R.string.ime_status_ready)} — tap the mic to dictate",
+        details = idleDetails(),
+        phase = PanelState.Phase.IDLE,
+    )
+
+    private fun idleDetails(): String {
         val choice = currentChoice()
-        val base = "${getString(R.string.ime_status_ready)} · engine: ${choice.engine.label} (${choice.note})"
-        if (choice.engine != Engine.LOCAL) return base
-        val cleanup = when {
-            !settings.cleanupEnabled -> "cleanup off"
-            cleanupEngine?.isLoaded == true -> "cleanup ready"
-            else -> cleanupLoadNote ?: "cleanup model loading"
+        return buildString {
+            append("engine: ${choice.engine.label} (${choice.note})")
+            append(" · ${cleanupDetail(choice)}")
+            append(" · lang ${settings.language}")
+            append(
+                " · pause %.2f s · fallback %.2f s · stop after %.2f s".format(
+                    settings.pauseSilenceSeconds,
+                    settings.stableSilenceSeconds,
+                    settings.stopAfterSilenceSeconds,
+                ),
+            )
         }
-        return "$base · $cleanup"
     }
 
     companion object {

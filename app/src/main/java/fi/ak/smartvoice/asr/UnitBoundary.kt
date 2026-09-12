@@ -110,7 +110,11 @@ class UnitBoundary(
     }
 
     /** A consistent reading for the UI thread, which must not poke at the worker's fields. */
-    fun snapshot(audioQuietFor: Double, heardAudio: Boolean): BoundaryState = BoundaryState(
+    fun snapshot(
+        audioQuietFor: Double,
+        heardAudio: Boolean,
+        partial: String = "",
+    ): BoundaryState = BoundaryState(
         cutsByModel = cutsByModel,
         cutsByTextStability = cutsByTextStability,
         stableFor = stableFor,
@@ -118,6 +122,7 @@ class UnitBoundary(
         quietFor = audioQuietFor,
         heardAudio = heardAudio,
         quietAtLastCut = quietAtLastCut,
+        partial = partial,
         hasSpeech = hasSpeech,
         seconds = seconds,
     )
@@ -156,6 +161,11 @@ data class BoundaryState(
     val heardAudio: Boolean,
     /** Audio quiet at the moment the last unit was cut: the number that attributes a cut. */
     val quietAtLastCut: Double,
+    /**
+     * The recogniser's hypothesis for the unit being spoken. **Display only** — nothing here has been
+     * committed, and the cursor only ever sees text through the commit path (D-021, D-041).
+     */
+    val partial: String = "",
     val hasSpeech: Boolean,
     val seconds: Double,
 ) {

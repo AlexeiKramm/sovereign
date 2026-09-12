@@ -130,7 +130,8 @@ class LocalAsrSession(
                     boundary.markCut()
                     emitUnit(unit)
                 }
-                boundaryState = boundary.snapshot(quietFor, audioLevel.heardSpeech)
+                // The partial is published for the panel's preview only; it is never committed (D-041).
+                boundaryState = boundary.snapshot(quietFor, audioLevel.heardSpeech, text)
             }
         }
         return availability

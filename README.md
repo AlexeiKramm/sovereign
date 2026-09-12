@@ -23,6 +23,7 @@ evidence; `STATUS.md` is what is true now, `PLAN.md` is intent, `DECISIONS.md` i
 | `docs/spikes.md` | How does a time-boxed experiment get run, so its number can be re-taken? | Append per spike; update the status line when one is run. |
 | `docs/v1-report.md` | What did v1 ship, what was verified, what broke, what could v2 be? | Closed out at the end of v1; new evidence goes to the appendix. |
 | `docs/prior-art.md` | What other projects and the research line actually do, with numbers. | Append as new evidence arrives; never rewritten. |
+| `docs/ui.md` | What states the dictation panel has, what each shows, and what is deliberately kept out of the user's way. | Keep true when the panel changes — the panel is the whole user interface of this product. |
 | `README.md` | This file. Orientation only. | Rarely. |
 
 Three rules that keep these documents honest:

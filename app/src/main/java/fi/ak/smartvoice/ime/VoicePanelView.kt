@@ -2,6 +2,7 @@ package fi.ak.smartvoice.ime
 
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -31,6 +32,11 @@ interface VoicePanelListener {
  * utterance sends, and the requested value is echoed in the status line so the user can always see
  * what was actually asked for.
  *
+ * **Two status lines, not one (D-041).** [PanelState.headline] is what a person needs while dictating;
+ * [PanelState.details] is the diagnostics that three device rounds earned the hard way — shown when the
+ * status area is tapped, and not deleted, because the next wrong threshold will need it as much as the
+ * last three did. One line carrying both is how a status line becomes a developer's instrument.
+ *
  * Views rather than Compose: an IME's input view has no Activity to host a Compose lifecycle.
  * Styling stays plain on purpose — colour, size and type are the user's to design in Studio.
  */
@@ -39,11 +45,41 @@ class VoicePanelView(
     private val listener: VoicePanelListener,
 ) {
 
-    private val statusView = TextView(context).apply {
+    private var collapsed = true
+    private var lastState = PanelState(headline = "")
+
+    private val headlineView = TextView(context).apply {
+        textSize = 15f
+        gravity = Gravity.CENTER
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        setPadding(dp(12), dp(10), dp(12), dp(2))
+        isClickable = true
+        contentDescription = "Dictation status; tap for the details"
+        setOnClickListener { toggleDetails() }
+    }
+
+    /** The recogniser's words as they arrive — a preview only, never the cursor's text (D-021). */
+    private val previewView = TextView(context).apply {
         textSize = 13f
         gravity = Gravity.CENTER
-        maxLines = 3
-        setPadding(dp(12), dp(10), dp(12), dp(4))
+        maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
+        setTextColor(attrColor(android.R.attr.textColorSecondary))
+        setPadding(dp(12), 0, dp(12), dp(4))
+        visibility = View.GONE
+    }
+
+    private val detailsView = TextView(context).apply {
+        textSize = 12f
+        gravity = Gravity.START
+        maxLines = 8
+        ellipsize = TextUtils.TruncateAt.END
+        setTextColor(attrColor(android.R.attr.textColorSecondary))
+        setPadding(dp(12), 0, dp(12), dp(6))
+        isClickable = true
+        setOnClickListener { toggleDetails() }
+        visibility = View.GONE
     }
 
     private val recordButton = TextView(context).apply {
@@ -66,7 +102,9 @@ class VoicePanelView(
         setBackgroundColor(attrColor(android.R.attr.colorBackground))
         setPadding(dp(8), dp(6), dp(8), dp(10))
 
-        addView(statusView, matchWidth())
+        addView(headlineView, matchWidth())
+        addView(previewView, matchWidth())
+        addView(detailsView, matchWidth())
 
         addView(
             LinearLayout(context).apply {
@@ -97,8 +135,29 @@ class VoicePanelView(
 
     // ------------------------------------------------------------------ state
 
-    fun setStatus(text: String) {
-        statusView.text = text
+    /**
+     * Paints a whole panel state. The service composes it (see [PanelState] for the split); this class
+     * owns only how it looks — including whether the details are open, which is the user's business and
+     * therefore survives every re-render while they dictate.
+     */
+    fun render(state: PanelState) {
+        lastState = state
+        paint()
+    }
+
+    private fun paint() {
+        val state = lastState
+        val hasDetails = state.details.isNotBlank()
+        headlineView.text = PanelText.headlineWithMarker(state, collapsed)
+        previewView.text = PanelText.previewLine(state.preview)
+        previewView.visibility = if (state.hasPreview) View.VISIBLE else View.GONE
+        detailsView.text = state.details
+        detailsView.visibility = if (hasDetails && !collapsed) View.VISIBLE else View.GONE
+    }
+
+    fun toggleDetails() {
+        collapsed = !collapsed
+        paint()
     }
 
     fun setCleanup(enabled: Boolean) {
@@ -106,8 +165,8 @@ class VoicePanelView(
     }
 
     /**
-     * The cleanup chip is a view of what the *current tier* will do. On the local tier there is no
-     * cleanup stage yet (D-024), so it says so instead of offering a toggle that would do nothing.
+     * The cleanup chip is a view of what the *current tier* will do, so it says only what it does: the
+     * reason behind the state ("model still loading", "load failed") is one tap away in the details.
      */
     fun setCleanupLabel(label: String) {
         cleanupChip.text = label
