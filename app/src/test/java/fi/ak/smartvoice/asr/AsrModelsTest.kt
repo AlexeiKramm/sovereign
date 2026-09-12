@@ -50,7 +50,7 @@ class AsrModelsTest {
     @Test
     fun `the model lives in the app's private files dir`() {
         assertEquals(
-            "${temp.root}/models/${AsrModels.DIRECTORY}",
+            java.io.File(java.io.File(temp.root, "models"), AsrModels.DIRECTORY).absolutePath,
             AsrModels.directory(temp.root).absolutePath,
         )
     }

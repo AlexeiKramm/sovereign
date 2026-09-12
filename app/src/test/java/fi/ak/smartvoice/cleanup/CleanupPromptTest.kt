@@ -1,5 +1,7 @@
 package fi.ak.smartvoice.cleanup
 
+import fi.ak.smartvoice.data.DictionaryEntry
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -51,6 +53,22 @@ class CleanupPromptTest {
         val labels = CleanupPrompt.Variant.entries.map { it.label }
         assertEquals(labels.size, labels.toSet().size)
         assertEquals(CleanupPrompt.Variant.STANDARD, CleanupPrompt.Variant.DEFAULT)
+    }
+
+    @Test
+    fun `dictionary entries with aliases produce explicit replacement prompt rules`() {
+        val entries = listOf(
+            DictionaryEntry("Parakeet", listOf("parakit", "parakeete")),
+            DictionaryEntry("Kotlin", emptyList()),
+        )
+        val built = CleanupPrompt.build(
+            unit = "i saw a parakit",
+            context = null,
+            dictionaryEntries = entries,
+        )
+        assertTrue(built.system.contains("Custom Vocabulary & Spelling Replacements:"))
+        assertTrue(built.system.contains("- \"Parakeet\" (common misspellings to replace: \"parakit\", \"parakeete\")"))
+        assertTrue(built.system.contains("- \"Kotlin\""))
     }
 
     @Test

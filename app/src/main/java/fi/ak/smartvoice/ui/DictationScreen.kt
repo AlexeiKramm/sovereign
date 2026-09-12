@@ -17,6 +17,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -28,6 +31,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +63,8 @@ fun DictationScreen(
     val context = LocalContext.current
     val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
+    val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
+    val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val modelStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val cleanupStatus by viewModel.cleanupStatus.collectAsStateWithLifecycle()
@@ -80,6 +87,9 @@ fun DictationScreen(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(Unit) { focusManager.clearFocus(force = true) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> micGranted = granted }
@@ -91,11 +101,15 @@ fun DictationScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Smart Voice", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "build %s — permissions and settings the keyboard cannot handle itself, and a diagnostics " +
-                "run through whichever tier is selected.".format(buildVersion(context)),
-            style = MaterialTheme.typography.bodySmall,
+            "Settings & Diagnostics",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        )
+        Text(
+            "build ${buildVersion(context)} — engine preferences, timings, and live mic diagnostics",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         EngineSection(
@@ -121,6 +135,15 @@ fun DictationScreen(
             onPause = viewModel::onPauseFieldChange,
             onStable = viewModel::onStableFieldChange,
             onStop = viewModel::onStopFieldChange,
+        )
+
+        HorizontalDivider()
+
+        PowerManagementSection(
+            unloadOnScreenOff = unloadOnScreenOff,
+            idleTimeoutMinutes = idleTimeoutMinutes,
+            onUnloadOnScreenOffChange = viewModel::onUnloadOnScreenOffChange,
+            onIdleTimeoutMinutesChange = viewModel::onModelIdleTimeoutMinutesChange,
         )
 
         HorizontalDivider()
@@ -777,6 +800,86 @@ private fun FailureCard(code: String, message: String) {
         ) {
             Text("Failed — $code", style = MaterialTheme.typography.titleMedium)
             Text(message)
+        }
+    }
+}
+
+@Composable
+private fun PowerManagementSection(
+    unloadOnScreenOff: Boolean,
+    idleTimeoutMinutes: Int,
+    onUnloadOnScreenOffChange: (Boolean) -> Unit,
+    onIdleTimeoutMinutesChange: (Int) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "Power & Memory Management",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "Automatically unloads ~4 GB of neural models (ASR and LLM) from RAM/NPU to prevent background battery drain and keep the phone cool.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Unload on screen off", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        "Immediately frees models when screen is locked or turned off",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = unloadOnScreenOff,
+                    onCheckedChange = onUnloadOnScreenOffChange,
+                )
+            }
+
+            HorizontalDivider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Auto-unload on inactivity",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    "Frees weights if no dictation occurs for the chosen time (reloads on next dictation)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AppSettings.IDLE_TIMEOUT_OPTIONS.forEach { option ->
+                        val selected = idleTimeoutMinutes == option
+                        FilterChip(
+                            selected = selected,
+                            onClick = { onIdleTimeoutMinutesChange(option) },
+                            label = {
+                                Text(if (option == 0) "Never" else "${option}m")
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -1,10 +1,15 @@
 package fi.ak.smartvoice.ime
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -16,57 +21,64 @@ interface VoicePanelListener {
     fun onToggleCleanup()
     fun onCycleLanguage()
     fun onSettings()
+    fun onBackspace()
+    fun onEnter()
+    fun onSwitchKeyboard()
 }
 
 /**
- * The dictation panel — the shape of the IME.
- *
- * Deliberately **not** a QWERTY keyboard. It works like the voice mode of a system keyboard: the
- * user switches to it, dictates, and switches back to their normal keyboard to type. Building a
- * second keyboard (layouts, autocorrect, numbers page) would have been a large amount of work in
- * the least interesting part of the product; a panel with one big record key is the whole surface
- * the feature needs.
- *
- * The two chips are the contract's own request fields, not app inventions:
- * `cleanup` (`off|full`) and `language` (`auto|<ISO-639-1>`). Tapping them changes what the next
- * utterance sends, and the requested value is echoed in the status line so the user can always see
- * what was actually asked for.
- *
- * **Two status lines, not one (D-041).** [PanelState.headline] is what a person needs while dictating;
- * [PanelState.details] is the diagnostics that three device rounds earned the hard way — shown when the
- * status area is tapped, and not deleted, because the next wrong threshold will need it as much as the
- * last three did. One line carrying both is how a status line becomes a developer's instrument.
- *
- * Views rather than Compose: an IME's input view has no Activity to host a Compose lifecycle.
- * Styling stays plain on purpose — colour, size and type are the user's to design in Studio.
+ * The dictation panel — modern, sleek dark theme with:
+ * - Animated RecordButtonView featuring a pulsing glow ring when listening
+ * - Subtle, sleek utility keys: Switch Keyboard, Backspace, and Enter
+ * - Profile and language switcher chips
+ * - Elevated preview bubble for live streaming transcription
  */
 class VoicePanelView(
     private val context: Context,
     private val listener: VoicePanelListener,
 ) {
 
+    private val density = context.resources.displayMetrics.density
+    private fun dp(value: Int): Int = (value * density).toInt()
+
     private var collapsed = true
     private var lastState = PanelState(headline = "")
 
+    // Top grab handle
+    private val handleBar = View(context).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(2).toFloat()
+            setColor(Color.parseColor("#334155"))
+        }
+    }
+
     private val headlineView = TextView(context).apply {
-        textSize = 15f
+        textSize = 14f
         gravity = Gravity.CENTER
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
-        setPadding(dp(12), dp(10), dp(12), dp(2))
+        setTextColor(Color.parseColor("#94A3B8"))
+        setPadding(dp(12), dp(4), dp(12), dp(2))
         isClickable = true
-        contentDescription = "Dictation status; tap for the details"
+        contentDescription = "Dictation status; tap for details"
         setOnClickListener { toggleDetails() }
     }
 
-    /** The recogniser's words as they arrive — a preview only, never the cursor's text (D-021). */
+    /** The recogniser's words as they arrive — styled as an elevated floating bubble. */
     private val previewView = TextView(context).apply {
-        textSize = 13f
+        textSize = 14f
         gravity = Gravity.CENTER
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
-        setTextColor(attrColor(android.R.attr.textColorSecondary))
-        setPadding(dp(12), 0, dp(12), dp(4))
+        setTextColor(Color.parseColor("#38BDF8")) // Soft cyan/sky blue
+        setPadding(dp(16), dp(6), dp(16), dp(6))
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(Color.parseColor("#1E293B"))
+            setStroke(dp(1), Color.parseColor("#334155"))
+        }
         visibility = View.GONE
     }
 
@@ -75,58 +87,104 @@ class VoicePanelView(
         gravity = Gravity.START
         maxLines = 8
         ellipsize = TextUtils.TruncateAt.END
-        setTextColor(attrColor(android.R.attr.textColorSecondary))
-        setPadding(dp(12), 0, dp(12), dp(6))
+        setTextColor(Color.parseColor("#64748B"))
+        setPadding(dp(16), 0, dp(16), dp(6))
         isClickable = true
         setOnClickListener { toggleDetails() }
         visibility = View.GONE
     }
 
-    private val recordButton = TextView(context).apply {
-        text = "🎤"
-        textSize = 40f
-        gravity = Gravity.CENTER
-        isClickable = true
-        contentDescription = "Start dictating"
-        background = circle(accentColor())
+    // Center record button with animated pulsing glow
+    private val recordButton = RecordButtonView(context).apply {
         setOnClickListener { listener.onMic() }
+        contentDescription = "Start or stop dictating"
     }
 
-    private val cleanupChip = chip("Cleanup: full") { listener.onToggleCleanup() }
-    private val languageChip = chip("Lang: auto") { listener.onCycleLanguage() }
-    private val cancelChip = chip("✕ cancel") { listener.onCancel() }
+    // Utility keys: subtle dark background with slate icons
+    private val switchKey = actionKey("⌨", "Switch keyboard") { listener.onSwitchKeyboard() }
+    private val backspaceKey = actionKey("⌫", "Backspace") { listener.onBackspace() }
+    private val enterKey = actionKey("↵", "New line") { listener.onEnter() }
+
+    private val cleanupChip = chip("Cleanup: Standard") { listener.onToggleCleanup() }
+    private val languageChip = chip("Lang: AUTO") { listener.onCycleLanguage() }
+    private val cancelChip = chip("✕ Cancel", isDestructive = true) { listener.onCancel() }
     private val settingsChip = chip("⚙") { listener.onSettings() }
 
     val root: LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        setBackgroundColor(attrColor(android.R.attr.colorBackground))
-        setPadding(dp(8), dp(6), dp(8), dp(10))
+        // Sleek dark sheet with rounded top corners
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadii = floatArrayOf(
+                dp(24).toFloat(), dp(24).toFloat(), // top-left
+                dp(24).toFloat(), dp(24).toFloat(), // top-right
+                0f, 0f, 0f, 0f,
+            )
+            setColor(Color.parseColor("#0F172A")) // Deep dark slate
+            setStroke(dp(1), Color.parseColor("#1E293B"))
+        }
+        setPadding(dp(12), dp(8), dp(12), dp(10))
 
+        // 1. Handle bar at the top
+        val handleParams = LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setMargins(0, dp(2), 0, dp(6))
+        }
+        addView(handleBar, handleParams)
+
+        // 2. Status & preview
         addView(headlineView, matchWidth())
-        addView(previewView, matchWidth())
+        val previewParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setMargins(dp(16), dp(4), dp(16), dp(4))
+        }
+        addView(previewView, previewParams)
         addView(detailsView, matchWidth())
 
-        addView(
-            LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                addView(recordButton, circleParams())
-            },
-            matchWidth(),
-        )
+        // 3. Main interactive row: Switch Key | Record Button | Backspace & Enter
+        val controlsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(6))
 
-        addView(
-            LinearLayout(context).apply {
+            addView(switchKey, keyParams())
+
+            val leftSpacer = View(context)
+            addView(leftSpacer, LinearLayout.LayoutParams(dp(28), 1))
+
+            addView(recordButton, LinearLayout.LayoutParams(dp(92), dp(92)).apply {
+                gravity = Gravity.CENTER
+            })
+
+            val rightSpacer = View(context)
+            addView(rightSpacer, LinearLayout.LayoutParams(dp(20), 1))
+
+            val rightKeys = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                setPadding(0, dp(8), 0, 0)
-                addView(cancelChip, chipParams())
-                addView(cleanupChip, chipParams())
-                addView(languageChip, chipParams())
-                addView(settingsChip, chipParams())
-            },
-            matchWidth(),
-        )
+                addView(backspaceKey, keyParams())
+                val keyGap = View(context)
+                addView(keyGap, LinearLayout.LayoutParams(dp(8), 1))
+                addView(enterKey, keyParams())
+            }
+            addView(rightKeys)
+        }
+        addView(controlsRow, matchWidth())
+
+        // 4. Bottom chips bar
+        val chipsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, dp(2))
+            addView(cancelChip, chipParams())
+            addView(cleanupChip, chipParams())
+            addView(languageChip, chipParams())
+            addView(settingsChip, chipParams())
+        }
+        addView(chipsRow, matchWidth())
     }
 
     init {
@@ -135,11 +193,6 @@ class VoicePanelView(
 
     // ------------------------------------------------------------------ state
 
-    /**
-     * Paints a whole panel state. The service composes it (see [PanelState] for the split); this class
-     * owns only how it looks — including whether the details are open, which is the user's business and
-     * therefore survives every re-render while they dictate.
-     */
     fun render(state: PanelState) {
         lastState = state
         paint()
@@ -161,85 +214,83 @@ class VoicePanelView(
     }
 
     fun setCleanup(enabled: Boolean) {
-        cleanupChip.text = if (enabled) "Cleanup: full" else "Cleanup: off"
+        cleanupChip.text = if (enabled) "Cleanup: Standard" else "Cleanup: Off"
     }
 
-    /**
-     * The cleanup chip is a view of what the *current tier* will do, so it says only what it does: the
-     * reason behind the state ("model still loading", "load failed") is one tap away in the details.
-     */
     fun setCleanupLabel(label: String) {
         cleanupChip.text = label
     }
 
     fun setLanguage(language: String) {
-        languageChip.text = "Lang: ${if (language == "auto") "auto" else language.uppercase()}"
+        languageChip.text = "Lang: ${if (language == "auto") "AUTO" else language.uppercase()}"
     }
 
-    /**
-     * While listening the record key becomes the stop key and cancel appears; a cancel must leave
-     * nothing behind, so it is always reachable in the same place.
-     */
     fun setListening(listening: Boolean) {
-        recordButton.text = if (listening) "■" else "🎤"
-        recordButton.contentDescription = if (listening) "Send the dictation" else "Start dictating"
+        recordButton.setListening(listening)
         cancelChip.visibility = if (listening) View.VISIBLE else View.GONE
     }
 
     // ------------------------------------------------------------------ construction
 
-    private fun circleParams() = LinearLayout.LayoutParams(dp(96), dp(96)).apply {
-        gravity = Gravity.CENTER_HORIZONTAL
-    }
-
-    private fun chip(label: String, onClick: () -> Unit): TextView =
+    private fun actionKey(symbol: String, desc: String, onClick: () -> Unit): TextView =
         TextView(context).apply {
-            text = label
-            textSize = 13f
+            text = symbol
+            textSize = 18f
             gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#94A3B8"))
+            contentDescription = desc
             isClickable = true
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = pill(outlineColor())
-            setOnClickListener { onClick() }
+            isFocusable = true
+            background = keyBackground()
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                onClick()
+            }
         }
 
-    private fun circle(color: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(color)
-        setStroke(dp(2), outlineColor())
+    private fun keyBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(14).toFloat()
+        setColor(Color.parseColor("#1E293B"))
+        setStroke(dp(1), Color.parseColor("#334155"))
     }
 
-    private fun pill(strokeColor: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(18).toFloat()
-        setColor(attrColor(android.R.attr.colorBackground))
-        setStroke(dp(1), strokeColor)
+    private fun keyParams() = LinearLayout.LayoutParams(dp(50), dp(46)).apply {
+        gravity = Gravity.CENTER_VERTICAL
+    }
+
+    private fun chip(label: String, isDestructive: Boolean = false, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            val textColor = if (isDestructive) Color.parseColor("#F87171") else Color.parseColor("#CBD5E1")
+            setTextColor(textColor)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.parseColor("#1E293B"))
+                val strokeColor = if (isDestructive) Color.parseColor("#7F1D1D") else Color.parseColor("#334155")
+                setStroke(dp(1), strokeColor)
+            }
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                onClick()
+            }
+        }
+
+    private fun chipParams() = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.WRAP_CONTENT,
+        LinearLayout.LayoutParams.WRAP_CONTENT,
+    ).apply {
+        setMargins(dp(3), 0, dp(3), 0)
     }
 
     private fun matchWidth() = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT,
         LinearLayout.LayoutParams.WRAP_CONTENT,
     )
-
-    private fun chipParams() = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.WRAP_CONTENT,
-        LinearLayout.LayoutParams.WRAP_CONTENT,
-    ).apply { marginEnd = dp(6) }
-
-    private fun dp(value: Int): Int = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        value.toFloat(),
-        context.resources.displayMetrics,
-    ).toInt()
-
-    private fun attrColor(attr: Int): Int {
-        val value = TypedValue()
-        context.theme.resolveAttribute(attr, value, true)
-        return value.data
-    }
-
-    /** `colorAccent` exists on every Android theme, which keeps this independent of the theme family. */
-    private fun accentColor(): Int = attrColor(android.R.attr.colorAccent)
-
-    private fun outlineColor(): Int = attrColor(android.R.attr.colorControlHighlight)
 }

@@ -165,6 +165,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _serverStatus = MutableStateFlow<ServerStatus>(ServerStatus.Unknown)
     val serverStatus: StateFlow<ServerStatus> = _serverStatus.asStateFlow()
 
+    private val _unloadOnScreenOff = MutableStateFlow(settings.unloadOnScreenOff)
+    val unloadOnScreenOff: StateFlow<Boolean> = _unloadOnScreenOff.asStateFlow()
+
+    private val _modelIdleTimeoutMinutes = MutableStateFlow(settings.modelIdleTimeoutMinutes)
+    val modelIdleTimeoutMinutes: StateFlow<Int> = _modelIdleTimeoutMinutes.asStateFlow()
+
     private val _enginePreference = MutableStateFlow(settings.enginePreference)
     val enginePreference: StateFlow<EnginePreference> = _enginePreference.asStateFlow()
 
@@ -229,8 +235,18 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     val modelBytes: Long get() = AsrModels.TOTAL_BYTES
 
+    private val _selectedCleanupModel = MutableStateFlow(CleanupModels.byRepository(settings.cleanupModelId))
+    val selectedCleanupModel: StateFlow<CleanupModel> = _selectedCleanupModel.asStateFlow()
+
     /** The catalogue entry the user picked; unknown or unset means the default (D-029 item 3). */
-    val cleanupModel: CleanupModel get() = CleanupModels.byRepository(settings.cleanupModelId)
+    val cleanupModel: CleanupModel get() = _selectedCleanupModel.value
+
+    fun selectCleanupModel(model: CleanupModel) {
+        settings.cleanupModelId = model.repository
+        _selectedCleanupModel.value = model
+        unloadCleanupModel()
+        refreshCleanupStatus()
+    }
 
     init {
         refreshCleanupStatus()
@@ -242,6 +258,16 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _serverUrl.value = value
         settings.serverUrl = value
         _serverStatus.value = ServerStatus.Unknown
+    }
+
+    fun onUnloadOnScreenOffChange(enabled: Boolean) {
+        settings.unloadOnScreenOff = enabled
+        _unloadOnScreenOff.value = enabled
+    }
+
+    fun onModelIdleTimeoutMinutesChange(minutes: Int) {
+        settings.modelIdleTimeoutMinutes = minutes
+        _modelIdleTimeoutMinutes.value = minutes
     }
 
     fun onEnginePreferenceChange(preference: EnginePreference) {

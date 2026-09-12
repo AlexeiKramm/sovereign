@@ -30,3 +30,6 @@ app/libs/*.aar
 
 # Spike payloads: GenieX bench bundle is fetched from its GitHub release, not committed
 tools/*.tar.gz
+
+# VS Code Counter
+.VSCodeCounter/

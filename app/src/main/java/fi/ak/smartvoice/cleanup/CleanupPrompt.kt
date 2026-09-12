@@ -1,5 +1,7 @@
 package fi.ak.smartvoice.cleanup
 
+import fi.ak.smartvoice.data.DictionaryEntry
+
 import com.geniex.sdk.bean.ChatMessage
 
 /**
@@ -104,7 +106,9 @@ object CleanupPrompt {
         unit: String,
         context: String?,
         dictionary: List<String> = emptyList(),
+        dictionaryEntries: List<DictionaryEntry> = emptyList(),
         variant: Variant = Variant.DEFAULT,
+        customRules: String? = null,
     ): Messages {
         val trimmed = context?.trim().orEmpty()
         val usedContext = when {
@@ -116,13 +120,23 @@ object CleanupPrompt {
 
         val system = buildString {
             append(SAFETY_CORE)
-            if (dictionary.isNotEmpty()) {
+            if (dictionaryEntries.isNotEmpty()) {
+                append("\n\nCustom Vocabulary & Spelling Replacements:\n")
+                append("Always use the exact casing and spelling for these terms. If the recogniser misheard them as any of the known phonetic variants or common misspellings, replace them with the correct term:\n")
+                dictionaryEntries.forEach { entry ->
+                    if (entry.aliases.isNotEmpty()) {
+                        append("- \"${entry.word}\" (common misspellings to replace: ${entry.aliases.joinToString(", ") { "\"$it\"" }})\n")
+                    } else {
+                        append("- \"${entry.word}\"\n")
+                    }
+                }
+            } else if (dictionary.isNotEmpty()) {
                 append("\n\nSpell these terms exactly as written: ")
                 append(dictionary.joinToString(", "))
                 append('.')
             }
             append("\n\n")
-            append(variant.rules)
+            append(customRules ?: variant.rules)
             append("\n\n")
             append(FRAGMENT_RULE)
         }
@@ -142,9 +156,11 @@ object CleanupPrompt {
         unit: String,
         context: String?,
         dictionary: List<String> = emptyList(),
+        dictionaryEntries: List<DictionaryEntry> = emptyList(),
         variant: Variant = Variant.DEFAULT,
+        customRules: String? = null,
     ): Array<ChatMessage> {
-        val built = build(unit, context, dictionary, variant)
+        val built = build(unit, context, dictionary, dictionaryEntries, variant, customRules)
         return arrayOf(
             ChatMessage("system", built.system),
             ChatMessage("user", built.user),

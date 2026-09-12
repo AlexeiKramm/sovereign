@@ -36,7 +36,28 @@ object CleanupModels {
             repository = "google/gemma-4-E2B-it-qat-q4_0-gguf",
             precision = "Q4_0",
             approximateBytes = 3_350_000_000L,
-            note = "557 tps prefill / 29.4 tps decode on the NPU, 3.2 s cold load (measured, D-030)",
+            note = "557 tps prefill / 29.4 tps decode on Hexagon NPU, 3.2 s cold load (measured)",
+        ),
+        CleanupModel(
+            label = "Gemma 4 E4B QAT",
+            repository = "google/gemma-4-E4B-it-qat-q4_0-gguf",
+            precision = "Q4_0",
+            approximateBytes = 5_800_000_000L,
+            note = "Higher capacity cleanup model for complex sentences and formatting",
+        ),
+        CleanupModel(
+            label = "Qwen 3.5 0.8B",
+            repository = "unsloth/Qwen3.5-0.8B-GGUF",
+            precision = "Q4_0",
+            approximateBytes = 507_000_000L,
+            note = "Ultra-compact 0.8B parameter edge model from Qualcomm AI Hub",
+        ),
+        CleanupModel(
+            label = "Qwen 3.5 2B",
+            repository = "unsloth/Qwen3.5-2B-GGUF",
+            precision = "Q4_0",
+            approximateBytes = 1_400_000_000L,
+            note = "Up-to-date 2B parameter conversational cleanup model from Qualcomm AI Hub",
         ),
     )
 

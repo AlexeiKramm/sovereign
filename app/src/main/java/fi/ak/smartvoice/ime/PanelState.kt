@@ -100,4 +100,14 @@ object PanelText {
         collapsed -> state.headline + "  ▾"
         else -> state.headline + "  ▴"
     }
+
+    /**
+     * Whether a space should be prepended before new utterance text based on the
+     * character immediately before the cursor. If the previous character is non-whitespace
+     * (e.g. '.', '!', '?', or a letter), returns true so consecutive utterances don't fuse.
+     */
+    fun shouldPrependSpace(precedingChar: Char?): Boolean {
+        if (precedingChar == null) return false
+        return !precedingChar.isWhitespace()
+    }
 }

@@ -81,4 +81,14 @@ class PanelTextTest {
         assertFalse(PanelState(headline = "Listening", preview = "   ").hasPreview)
         assertTrue(PanelState(headline = "Listening", preview = "moi").hasPreview)
     }
+
+    @Test
+    fun `shouldPrependSpace inserts space after non-whitespace and avoids double space`() {
+        assertTrue("space after dot", PanelText.shouldPrependSpace('.'))
+        assertTrue("space after letter", PanelText.shouldPrependSpace('a'))
+        assertTrue("space after question mark", PanelText.shouldPrependSpace('?'))
+        assertFalse("no space after space", PanelText.shouldPrependSpace(' '))
+        assertFalse("no space after newline", PanelText.shouldPrependSpace('\n'))
+        assertFalse("no space after null", PanelText.shouldPrependSpace(null))
+    }
 }

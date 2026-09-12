@@ -1,12 +1,18 @@
 package fi.ak.smartvoice.ime
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
 import fi.ak.smartvoice.MainActivity
 import fi.ak.smartvoice.R
@@ -19,6 +25,9 @@ import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPipeline
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
+import fi.ak.smartvoice.data.DictionaryStore
+import fi.ak.smartvoice.data.ProfileStore
+import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.asr.LocalAsrSession
 import fi.ak.smartvoice.audio.WavRecorder
 import fi.ak.smartvoice.data.AppSettings
@@ -94,9 +103,15 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private lateinit var settings: AppSettings
     private lateinit var recorder: WavRecorder
+    private var screenOffReceiver: BroadcastReceiver? = null
+    private var idleTimeoutJob: Job? = null
     private lateinit var localEngine: LocalAsrEngine
     private lateinit var localSession: LocalAsrSession
     private lateinit var cleanupPipeline: CleanupPipeline
+    private lateinit var dictionaryStore: DictionaryStore
+    private lateinit var profileStore: ProfileStore
+    private lateinit var usageStatsStore: UsageStatsStore
+    private var rawWordsCount: Int = 0
 
     /** The engine for the catalogue's current selection; rebuilt only when that selection changes. */
     private var cleanupEngine: GenieXCleanupEngine? = null
@@ -141,6 +156,9 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     override fun onCreate() {
         super.onCreate()
         settings = AppSettings(this)
+        dictionaryStore = DictionaryStore(this)
+        profileStore = ProfileStore(this)
+        usageStatsStore = UsageStatsStore(this)
         recorder = WavRecorder()
         // Model directory comes from the app's private files dir; nothing here loads the model.
         // The recogniser is created on the first local utterance (D-010) — a keyboard appearing
@@ -158,12 +176,35 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             timings = { settings.listenerTimings() },
         )
 
+        val screenFilter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == Intent.ACTION_SCREEN_OFF && settings.unloadOnScreenOff) {
+                    Log.i("SmartVoice", "Screen off: unloading models and releasing capture")
+                    abandonCapture()
+                    scope.launch(Dispatchers.IO) {
+                        localEngine.unload()
+                        cleanupEngine?.unload()
+                    }
+                }
+            }
+        }
+        registerReceiver(receiver, screenFilter)
+        screenOffReceiver = receiver
+
         cleanupPipeline = CleanupPipeline(
             engine = CurrentCleanupEngine(),
             scope = scope,
             dispatcher = cleanupDispatcher,
             // The rules D-034 chose on the phone. Per-unit, so a profile (D-022) can vary them per app.
-            rules = { CleanupPrompt.Variant.DEFAULT },
+            rules = {
+                val active = profileStore.activeProfile()
+                when (active.id) {
+                    "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
+                    "repairing" -> CleanupPrompt.Variant.REPAIRING
+                    else -> CleanupPrompt.Variant.STANDARD
+                }
+            },
             onCommitted = { commit ->
                 // The pipeline runs on its own thread; an InputConnection belongs to the main one. The
                 // order is preserved because the worker commits serially and the looper runs posted
@@ -191,10 +232,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             unit: String,
             context: String?,
             variant: CleanupPrompt.Variant,
+            customRules: String?,
         ): CleanupPass {
             val engine = cleanupEngine
                 ?: return CleanupPass.failed(unit, "no cleanup model is loaded")
-            return engine.clean(unit, context, variant)
+            val active = profileStore.activeProfile()
+            val effectiveRules = customRules ?: if (!active.isBuiltin) active.rules else null
+            return engine.clean(unit, context, variant, effectiveRules)
         }
 
         override fun unload() {
@@ -209,11 +253,22 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             if (existing.uses(wanted)) return existing
             existing.unload()
         }
-        return GenieXCleanupEngine(this, wanted).also { cleanupEngine = it }
+        return GenieXCleanupEngine(
+            context = this,
+            model = wanted,
+            computeUnit = GenieXCleanupEngine.COMPUTE_UNIT_NPU,
+            dictionary = dictionaryStore.getWords(),
+            dictionaryEntries = dictionaryStore.getEntries(),
+        ).also { cleanupEngine = it }
     }
 
     override fun onDestroy() {
         abandonCapture()
+        cancelIdleTimeout()
+        screenOffReceiver?.let {
+            runCatching { unregisterReceiver(it) }
+            screenOffReceiver = null
+        }
         scope.cancel()
         localEngine.unload()
         cleanupEngine?.unload()
@@ -247,6 +302,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        cancelIdleTimeout()
         // A new field means a clean slate; an utterance started in the previous field is abandoned.
         abandonCapture()
         syncPanelSettings()
@@ -288,6 +344,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         abandonCapture()
+        scheduleIdleTimeout()
         super.onFinishInputView(finishingInput)
     }
 
@@ -300,28 +357,65 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * rather than leaving a chip with no visible effect.
      */
     override fun onToggleCleanup() {
-        settings.cleanupEnabled = !settings.cleanupEnabled
+        val all = profileStore.allProfiles()
+        val currentActive = profileStore.activeProfile()
+        if (!settings.cleanupEnabled) {
+            settings.cleanupEnabled = true
+            val target = all.firstOrNull { it.id == "standard" } ?: all.firstOrNull() ?: currentActive
+            profileStore.setActiveProfile(target.id)
+        } else {
+            val idx = all.indexOfFirst { it.id == currentActive.id }
+            if (idx >= 0 && idx < all.size - 1) {
+                profileStore.setActiveProfile(all[idx + 1].id)
+            } else {
+                settings.cleanupEnabled = false
+            }
+        }
         syncPanelSettings()
 
-        val local = currentChoice().engine == Engine.LOCAL
+        val active = profileStore.activeProfile()
         show(
-            when {
-                !local && settings.cleanupEnabled ->
-                    "cleanup on — the server will clean and punctuate the transcript"
-                !local ->
-                    "cleanup off — you will get the raw transcript (faster, no LLM)"
-                settings.cleanupEnabled && cleanupEngine?.isLoaded == true ->
-                    "cleanup on — each unit is punctuated on the device before it is inserted"
-                settings.cleanupEnabled ->
-                    "cleanup on — the model is loading (3.2 s measured); this utterance still goes " +
-                        "through uncleaned"
-                else ->
-                    "cleanup off — the local tier inserts the recogniser's own text"
+            if (settings.cleanupEnabled) {
+                "cleanup profile: ${active.name} — ${active.description}"
+            } else {
+                "cleanup off — raw recogniser transcript"
             },
         )
-        if (local && settings.cleanupEnabled) prefetchCleanupModel()
+        if (currentChoice().engine == Engine.LOCAL && settings.cleanupEnabled) {
+            prefetchCleanupModel()
+        }
     }
 
+    override fun onBackspace() {
+        val connection = currentInputConnection ?: return
+        val selected = connection.getSelectedText(0)
+        if (!selected.isNullOrEmpty()) {
+            connection.commitText("", 1)
+        } else {
+            connection.deleteSurroundingText(1, 0)
+        }
+    }
+
+    override fun onEnter() {
+        val connection = currentInputConnection ?: return
+        connection.commitText("\n", 1)
+    }
+
+    override fun onSwitchKeyboard() {
+        val switched = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            switchToNextInputMethod(false)
+        } else {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            val token = window?.window?.attributes?.token
+            if (imm != null && token != null) {
+                imm.switchToNextInputMethod(token, false)
+            } else false
+        }
+        if (!switched) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showInputMethodPicker()
+        }
+    }
     override fun onCycleLanguage() {
         val cycle = AppSettings.LANGUAGE_CYCLE
         val next = cycle[(cycle.indexOf(settings.language).takeIf { it >= 0 } ?: 0).let { (it + 1) % cycle.size }]
@@ -360,17 +454,18 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * [cleanupDetail], one tap away. "Cleanup: on — load failed" spent five words telling the reader
      * something the details can carry in a sentence.
      */
-    private fun cleanupChipLabel(choice: EngineChoice): String = when (choice.engine) {
-        Engine.LOCAL -> when {
-            !settings.cleanupEnabled -> "Cleanup: off"
-            cleanupEngine?.isLoaded == true -> "Cleanup: on"
-            cleanupLoadNote != null -> "Cleanup: failed"
-            else -> "Cleanup: loading…"
+    private fun cleanupChipLabel(choice: EngineChoice): String {
+        if (!settings.cleanupEnabled) return "Cleanup: Off"
+        val profileName = profileStore.activeProfile().name
+        return when (choice.engine) {
+            Engine.LOCAL -> when {
+                cleanupEngine?.isLoaded == true -> "\u2728 $profileName"
+                cleanupLoadNote != null -> "\u26A0\uFE0F $profileName"
+                else -> "\u23F3 $profileName"
+            }
+            Engine.REMOTE -> "\u2728 $profileName"
         }
-        Engine.REMOTE -> if (settings.cleanupEnabled) "Cleanup: full" else "Cleanup: off"
     }
-
-    /** Why the cleanup chip says what it says. */
     private fun cleanupDetail(choice: EngineChoice): String = when (choice.engine) {
         Engine.LOCAL -> when {
             !settings.cleanupEnabled ->
@@ -492,6 +587,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             val tailMs = SystemClock.elapsedRealtime() - stoppedAt
 
             reportLocal(audioSeconds, tailMs, whole)
+            scheduleIdleTimeout()
         }
     }
 
@@ -533,7 +629,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         }
         val body = text.trim()
         if (body.isEmpty()) return
-        connection.commitText(if (unitsCommitted > 0) " $body" else body, 1)
+        val prefix = if (unitsCommitted > 0) {
+            " "
+        } else {
+            val before = connection.getTextBeforeCursor(1, 0)
+            if (PanelText.shouldPrependSpace(before?.firstOrNull())) " " else ""
+        }
+        connection.commitText("$prefix$body", 1)
         unitsCommitted++
         if (committedText.isNotEmpty()) committedText.append(' ')
         committedText.append(body)
@@ -702,6 +804,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 show("server response could not be read — ${e.message}", PanelState.Phase.ERROR)
             } catch (t: Throwable) {
                 show("failed: ${t.message ?: t::class.java.simpleName}", PanelState.Phase.ERROR)
+            } finally {
+                scheduleIdleTimeout()
             }
         }
     }
@@ -862,7 +966,17 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             return
         }
 
-        connection.commitText(outcome.text, 1)
+        val body = outcome.text.trim()
+        val before = connection.getTextBeforeCursor(1, 0)
+        val textToCommit = if (PanelText.shouldPrependSpace(before?.firstOrNull())) " $body" else body
+        connection.commitText(textToCommit, 1)
+        val wordCount = outcome.text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+        usageStatsStore.record(
+            durationSeconds = outcome.audioSeconds,
+            rawWords = wordCount,
+            cleanedWords = wordCount,
+            engine = outcome.engine.label,
+        )
 
         // Headline for the person, numbers for the details (D-041): the server's latency breakdown and
         // the local tail are diagnostics, and neither belongs in front of someone watching their words.
@@ -893,6 +1007,28 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             Engine.REMOTE -> "Inserted (server)"
         }
         render(panelState.copy(headline = headline, details = details, phase = PanelState.Phase.IDLE))
+    }
+
+    private fun scheduleIdleTimeout() {
+        idleTimeoutJob?.cancel()
+        val timeoutMinutes = settings.modelIdleTimeoutMinutes
+        if (timeoutMinutes <= 0) return
+
+        idleTimeoutJob = scope.launch {
+            delay(timeoutMinutes * 60 * 1000L)
+            if (!recorder.isRecording && inFlight?.isActive != true) {
+                Log.i("SmartVoice", "Inactivity timeout ($timeoutMinutes min) expired: unloading models from RAM/NPU")
+                withContext(Dispatchers.IO) {
+                    localEngine.unload()
+                    cleanupEngine?.unload()
+                }
+            }
+        }
+    }
+
+    private fun cancelIdleTimeout() {
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = null
     }
 
     private fun abandonCapture() {

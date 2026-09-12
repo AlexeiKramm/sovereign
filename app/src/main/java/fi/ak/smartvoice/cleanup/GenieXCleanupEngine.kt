@@ -1,5 +1,7 @@
 package fi.ak.smartvoice.cleanup
 
+import fi.ak.smartvoice.data.DictionaryEntry
+
 import android.content.Context
 import android.os.SystemClock
 import com.geniex.sdk.LlmWrapper
@@ -32,6 +34,7 @@ class GenieXCleanupEngine(
     /** `npu` is the measured choice (D-030); the settings screen can pass another to compare. */
     private val computeUnit: String = COMPUTE_UNIT_NPU,
     private val dictionary: List<String> = emptyList(),
+    private val dictionaryEntries: List<DictionaryEntry> = emptyList(),
 ) : CleanupEngine {
 
     private val lock = Mutex()
@@ -87,6 +90,7 @@ class GenieXCleanupEngine(
         unit: String,
         context: String?,
         variant: CleanupPrompt.Variant,
+        customRules: String?,
     ): CleanupPass = lock.withLock {
         val loaded = ensureLoaded().getOrElse { error ->
             return@withLock CleanupPass.failed(unit, "cleanup model unavailable — ${error.message}")
@@ -103,7 +107,7 @@ class GenieXCleanupEngine(
         runCatching { loaded.reset() }
 
         val templated = loaded
-            .applyChatTemplate(CleanupPrompt.messages(unit, context, dictionary, variant), null, false)
+            .applyChatTemplate(CleanupPrompt.messages(unit, context, dictionary, dictionaryEntries, variant, customRules), null, false)
             .getOrElse { error ->
                 return@withLock CleanupPass.failed(unit, "chat template failed — ${error.message}")
             }

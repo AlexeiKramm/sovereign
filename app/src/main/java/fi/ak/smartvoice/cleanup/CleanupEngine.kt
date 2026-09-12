@@ -55,6 +55,7 @@ interface CleanupEngine {
         unit: String,
         context: String?,
         variant: CleanupPrompt.Variant = CleanupPrompt.Variant.DEFAULT,
+        customRules: String? = null,
     ): CleanupPass
 
     /** Releases the model. Called on teardown and by the settings screen's explicit release. */
