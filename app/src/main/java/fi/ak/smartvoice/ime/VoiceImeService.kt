@@ -84,6 +84,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     @Volatile
     private var partialWords = 0
 
+    /** Cold-load time of the current utterance, when it paid for one (D-010 rule 2). */
+    @Volatile
+    private var coldLoadMs = 0L
+
     override fun onCreate() {
         super.onCreate()
         settings = AppSettings(this)
@@ -242,6 +246,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      */
     private fun startLocalCapture(choice: EngineChoice) {
         val language = settings.language
+        // Whether this utterance pays the cold load decides if its number is worth reporting:
+        // D-010 rule 2 asks for a measured load time, not for one on every utterance's status line.
+        val paysColdLoad = localEngine.availability() != LocalAsrEngine.Availability.Loaded
+        coldLoadMs = 0L
+
         localSession.begin()
         startRecording(choice, sink = localSession::onFrames)
 
@@ -252,6 +261,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     ?: "model not installed"
                 abandonCapture()
                 panel?.setStatus("local engine unavailable — $reason; download the model or pick the server")
+            } else if (paysColdLoad) {
+                coldLoadMs = localEngine.lastLoadMillis
             }
         }
     }
@@ -270,6 +281,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
             val note = buildString {
                 append(choice.note)
+                if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
                 if (localSession.droppedFrames > 0) {
                     append(" · ${localSession.droppedFrames} audio frame(s) dropped (engine behind)")
                 }

@@ -91,6 +91,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     @Volatile
     private var cancelDownload = false
 
+    /** Cold-load time reported on the utterance that paid it (D-010 rule 2). */
+    @Volatile
+    private var coldLoadMs = 0L
+
+    @Volatile
+    private var paysColdLoad = false
+
     private val _serverUrl = MutableStateFlow(settings.serverUrl)
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
@@ -203,9 +210,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun startRecording() {
         val choice = TierPolicy.choose(settings.enginePreference, localEngine.availability())
+        coldLoadMs = 0L
 
         if (choice.engine == Engine.LOCAL) {
             // Queued before the model loads, so the first utterance is not silently truncated.
+            paysColdLoad = localEngine.availability() != LocalAsrEngine.Availability.Loaded
             localSession.begin()
             recorder.frameSink = localSession::onFrames
         } else {
@@ -231,6 +240,8 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                             recorder.cancel()
                             ticker?.cancel()
                             _state.value = DictationUiState.Failed("local_engine", reason)
+                        } else if (paysColdLoad) {
+                            coldLoadMs = localEngine.lastLoadMillis
                         }
                     }
                 }
@@ -267,6 +278,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     engine = Engine.LOCAL,
                     note = buildString {
                         append(note)
+                        if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
                         if (localSession.droppedFrames > 0) {
                             append(" · ${localSession.droppedFrames} frame(s) dropped")
                         }

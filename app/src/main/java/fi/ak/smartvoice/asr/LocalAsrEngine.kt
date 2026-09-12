@@ -1,5 +1,6 @@
 package fi.ak.smartvoice.asr
 
+import android.os.SystemClock
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
@@ -49,6 +50,18 @@ class LocalAsrEngine(
     private var stream: OnlineStream? = null
     private var failure: String? = null
 
+    /**
+     * Wall time of the last successful [load], in ms.
+     *
+     * D-010 rule 2 is written against a number — "if the measured cold load exceeds ~1.5 s, promote
+     * to prefetching while the keyboard is visible" — so the number has to exist somewhere the user
+     * can see it. It is reported in the status line of the utterance that paid for it and on the
+     * settings screen, not hidden in a log.
+     */
+    @Volatile
+    var lastLoadMillis: Long = 0L
+        private set
+
     val isSessionActive: Boolean get() = stream != null
 
     fun availability(): Availability = when {
@@ -71,6 +84,7 @@ class LocalAsrEngine(
         if (!AsrModels.isInstalled(modelDirectory)) return Availability.NotInstalled
 
         return try {
+            val startedAt = SystemClock.elapsedRealtime()
             val config = OnlineRecognizerConfig(
                 // 16 kHz mono, 80-bin features: the artifact's expected front end.
                 featConfig = FeatureConfig(sampleRate = AsrModels.SAMPLE_RATE, featureDim = FEATURE_DIM),
@@ -95,6 +109,7 @@ class LocalAsrEngine(
             )
             val created = OnlineRecognizer(assetManager = null, config = config)
             recognizer = created
+            lastLoadMillis = SystemClock.elapsedRealtime() - startedAt
             Availability.Loaded
         } catch (t: Throwable) {
             // UnsatisfiedLinkError is a link problem, OOM is the model not fitting: both are
