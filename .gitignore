@@ -27,3 +27,6 @@ app/libs/*.aar
 
 # Local config
 .env
+
+# Spike payloads: GenieX bench bundle is fetched from its GitHub release, not committed
+tools/*.tar.gz

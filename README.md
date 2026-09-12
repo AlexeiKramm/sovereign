@@ -19,6 +19,7 @@ evidence; `STATUS.md` is what is true now, `PLAN.md` is intent, `DECISIONS.md` i
 | `DECISIONS.md` | Why is it this way, and what did we reject? | Append-only. Never edited, only superseded. |
 | `docs/contract.md` | How do the app and the server talk, and where are the gaps? | Updated whenever either side changes an interface. |
 | `docs/build.md` | How is this built and deployed without Android Studio, and what version pitfalls exist? | Update when the toolchain or a dependency forces a change. |
+| `docs/spikes.md` | How does a time-boxed experiment get run, so its number can be re-taken? | Append per spike; update the status line when one is run. |
 | `docs/v1-report.md` | What did v1 ship, what was verified, what broke, what could v2 be? | Closed out at the end of v1; new evidence goes to the appendix. |
 | `docs/prior-art.md` | What other projects and the research line actually do, with numbers. | Append as new evidence arrives; never rewritten. |
 | `README.md` | This file. Orientation only. | Rarely. |
