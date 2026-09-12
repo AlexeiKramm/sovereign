@@ -23,6 +23,16 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
     private var captureThread: Thread? = null
     private val pcm = ByteArrayOutputStream()
 
+    /**
+     * Optional live tap for the local engine: raw little-endian s16 frames, exactly as
+     * `AudioRecord` produced them.
+     *
+     * Called **on the capture thread**. A sink that blocks is a sink that drops microphone frames,
+     * so the local tier's sink only converts and hands the frame to a queue (see
+     * `VoiceImeService`). The server tier leaves this null and pays nothing for it.
+     */
+    var frameSink: ((ByteArray, Int) -> Unit)? = null
+
     @Volatile
     private var running = false
 
@@ -57,11 +67,13 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
         recorder.startRecording()
 
         val buffer = ByteArray(bufferSize)
+        val sink = frameSink
         captureThread = Thread({
             while (running) {
                 val read = recorder.read(buffer, 0, buffer.size)
                 if (read > 0) {
                     pcm.write(buffer, 0, read)
+                    sink?.invoke(buffer, read)
                 } else if (read < 0) {
                     break
                 }

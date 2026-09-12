@@ -22,5 +22,8 @@ models/
 *.tflite
 *.bin
 
+# Native runtime AAR: 48 MB binary, fetched and sha256-verified by tools/fetch_sherpa_aar.sh
+app/libs/*.aar
+
 # Local config
 .env

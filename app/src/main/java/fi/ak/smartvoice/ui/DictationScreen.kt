@@ -11,15 +11,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,12 +30,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import fi.ak.smartvoice.engine.DictationOutcome
+import fi.ak.smartvoice.engine.Engine
+import fi.ak.smartvoice.engine.EnginePreference
 import fi.ak.smartvoice.net.TranscribeResponse
 
 @Composable
@@ -43,6 +50,8 @@ fun DictationScreen(
     val context = LocalContext.current
     val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
+    val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
+    val modelStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     var micGranted by remember {
@@ -64,9 +73,23 @@ fun DictationScreen(
     ) {
         Text("Smart Voice", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Chunk 0: record → POST /v1/transcribe → show what came back. Server tier only.",
+            "Permissions and settings the keyboard cannot handle itself, and a diagnostics run " +
+                "through whichever tier is selected.",
             style = MaterialTheme.typography.bodySmall,
         )
+
+        EngineSection(
+            preference = enginePreference,
+            summary = viewModel.engineSummary(),
+            modelStatus = modelStatus,
+            modelBytes = viewModel.modelBytes,
+            onPreferenceChange = viewModel::onEnginePreferenceChange,
+            onDownload = viewModel::downloadModel,
+            onCancelDownload = viewModel::cancelModelDownload,
+            onDeleteModel = viewModel::deleteModel,
+        )
+
+        HorizontalDivider()
 
         ServerSection(
             url = serverUrl,
@@ -85,7 +108,12 @@ fun DictationScreen(
             }
 
             is DictationUiState.Recording -> {
-                Text("Recording — %.1f s of 16 kHz mono audio".format(s.seconds))
+                Text(
+                    "Recording — %.1f s of 16 kHz mono audio · engine: %s".format(
+                        s.seconds,
+                        s.engine.label,
+                    ),
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = viewModel::stopAndTranscribe) { Text("Stop and transcribe") }
                     OutlinedButton(onClick = viewModel::cancelRecording) { Text("Cancel") }
@@ -96,15 +124,19 @@ fun DictationScreen(
                 )
             }
 
-            is DictationUiState.Uploading -> {
+            is DictationUiState.Working -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator()
-                    Text("Uploading %.1f s of audio, cleaned on the PC…".format(s.audioSeconds))
+                    Text(s.stage)
                 }
             }
 
             is DictationUiState.Done -> {
-                ResultCard(result = s.result, roundTripMs = s.roundTripMs)
+                if (s.outcome.engine == Engine.LOCAL) {
+                    LocalResultCard(s.outcome)
+                } else {
+                    s.outcome.response?.let { ResultCard(it, s.roundTripMs ?: s.outcome.elapsedMs) }
+                }
                 TextButton(onClick = viewModel::reset) { Text("Record another") }
             }
 
@@ -120,6 +152,85 @@ fun DictationScreen(
                     "that, grant it from the app's system settings.",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+/**
+ * Engine choice and model state. Both tiers are first-class here: picking local without the model
+ * downloaded is allowed, and the summary line then says out loud that the next utterance will go
+ * to the server instead (D-027's fallback, made visible).
+ */
+@Composable
+private fun EngineSection(
+    preference: EnginePreference,
+    summary: String,
+    modelStatus: ModelStatus,
+    modelBytes: Long,
+    onPreferenceChange: (EnginePreference) -> Unit,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onDeleteModel: () -> Unit,
+) {
+    Text("Engine", style = MaterialTheme.typography.titleMedium)
+
+    EnginePreference.entries.forEach { option ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectable(selected = preference == option, onClick = { onPreferenceChange(option) }),
+        ) {
+            RadioButton(selected = preference == option, onClick = { onPreferenceChange(option) })
+            Text(option.label)
+        }
+    }
+    Text("next utterance: $summary", style = MaterialTheme.typography.bodySmall)
+
+    Text("On-device model", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "Nemotron 3.5 streaming 0.6B int8, 560 ms chunks — %.0f MB, %d files.".format(
+            modelBytes / 1_000_000f,
+            fi.ak.smartvoice.asr.AsrModels.FILES.size,
+        ),
+        style = MaterialTheme.typography.bodySmall,
+    )
+
+    when (modelStatus) {
+        ModelStatus.Missing -> {
+            Text(
+                "Not downloaded. Nothing on the device can transcribe until it is, and the local " +
+                    "tier will fall back to the server.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(onClick = onDownload) { Text("Download model") }
+        }
+
+        is ModelStatus.Downloading -> {
+            val p = modelStatus.progress
+            Text(
+                "%s — %.0f %% (file %d/%d)".format(p.fileName, p.overall * 100, p.fileIndex + 1, p.totalFiles),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            LinearProgressIndicator(
+                progress = { p.overall },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedButton(onClick = onCancelDownload) { Text("Cancel download") }
+            Text(
+                "Cancelling keeps what has already been fetched, so resuming does not start over.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        ModelStatus.Installed -> {
+            Text("Downloaded and verified (size + sha256 per file).", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onDeleteModel) { Text("Delete model (frees ~681 MB)") }
+        }
+
+        is ModelStatus.Failed -> {
+            Text("Download failed: ${modelStatus.message}", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = onDownload) { Text("Retry download") }
         }
     }
 }
@@ -140,7 +251,7 @@ private fun ServerSection(
     )
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedButton(onClick = onCheck) { Text("Check server") }
         Text(
@@ -163,6 +274,41 @@ private fun RecordButton(micGranted: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * The local tier's result. It deliberately does not reuse the server's card: there is no stage
+ * list, no latency split and no corrections, because there is no second stage on the device yet
+ * (D-024). Showing empty server fields would suggest a stage ran and found nothing to do.
+ */
+@Composable
+private fun LocalResultCard(outcome: DictationOutcome) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Transcript (on-device)", style = MaterialTheme.typography.titleMedium)
+            SelectionContainer {
+                Text(outcome.text.ifBlank { "(empty text returned)" })
+            }
+
+            HorizontalDivider()
+
+            Text(
+                "engine: local · %.1f s of audio · tail (stop → final text) ${outcome.elapsedMs} ms".format(
+                    outcome.audioSeconds,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(outcome.note, style = MaterialTheme.typography.bodySmall)
+            Text(
+                "No cleanup stage ran: the on-device LLM is not built yet (D-024), so this is the " +
+                    "model's own text with its own punctuation.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
 @Composable
 private fun ResultCard(result: TranscribeResponse, roundTripMs: Long) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -170,7 +316,7 @@ private fun ResultCard(result: TranscribeResponse, roundTripMs: Long) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Transcript", style = MaterialTheme.typography.titleMedium)
+            Text("Transcript (server)", style = MaterialTheme.typography.titleMedium)
             SelectionContainer {
                 Text(result.text.ifBlank { "(empty text returned)" })
             }
@@ -180,7 +326,7 @@ private fun ResultCard(result: TranscribeResponse, roundTripMs: Long) {
             Text(
                 "stages: ${result.stagesRun.joinToString(", ").ifBlank { "none reported" }}" +
                     " · language: ${result.detectedLanguage ?: "unknown"}" +
-                    " · round trip: ${roundTripMs} ms",
+                    " · round trip: $roundTripMs ms",
                 style = MaterialTheme.typography.bodySmall,
             )
             result.latencyMs?.let { l ->

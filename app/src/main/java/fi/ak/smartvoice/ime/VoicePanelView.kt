@@ -105,6 +105,14 @@ class VoicePanelView(
         cleanupChip.text = if (enabled) "Cleanup: full" else "Cleanup: off"
     }
 
+    /**
+     * The cleanup chip is a view of what the *current tier* will do. On the local tier there is no
+     * cleanup stage yet (D-024), so it says so instead of offering a toggle that would do nothing.
+     */
+    fun setCleanupLabel(label: String) {
+        cleanupChip.text = label
+    }
+
     fun setLanguage(language: String) {
         languageChip.text = "Lang: ${if (language == "auto") "auto" else language.uppercase()}"
     }

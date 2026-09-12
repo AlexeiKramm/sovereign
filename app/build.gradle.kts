@@ -13,6 +13,14 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
+        // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
+        // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the
+        // build host (/dev/kvm is root-only, docs/build.md), so the other three are dead weight
+        // in the APK. Re-add x86_64 here if a software-emulated AVD ever becomes useful.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -41,6 +49,20 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+/**
+ * A missing AAR is the one failure mode a fresh clone hits, and Gradle's own "file not found"
+ * message does not say what to do about it. Fetch it with tools/fetch_sherpa_aar.sh.
+ *
+ * Declared before `dependencies` on purpose: Kotlin script properties initialise in source order,
+ * and the dependency block below runs immediately, so a declaration further down would be null.
+ */
+val sherpaOnnxVersion = libs.versions.sherpaOnnx.get()
+val sherpaOnnxAar = layout.projectDirectory.file("libs/sherpa-onnx-$sherpaOnnxVersion.aar")
+require(sherpaOnnxAar.asFile.exists()) {
+    "Missing ${sherpaOnnxAar.asFile}. Run tools/fetch_sherpa_aar.sh (downloads sherpa-onnx " +
+        "$sherpaOnnxVersion, ~48 MB, sha256-verified) — see docs/build.md."
 }
 
 dependencies {
@@ -88,4 +110,8 @@ dependencies {
   // normal Android Studio can open it. The multipart body is ours (net/MultipartForm.kt), which
   // also makes the wire format unit-testable.
   implementation(libs.kotlinx.serialization.json)
+
+  // v2 local tier: the on-device streaming ASR runtime (D-020, D-026). Not a Maven coordinate —
+  // see tools/fetch_sherpa_aar.sh, which pins the same version as the catalog entry above.
+  implementation(files(sherpaOnnxAar))
 }

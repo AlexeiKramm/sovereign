@@ -2,6 +2,7 @@ package fi.ak.smartvoice.data
 
 import android.content.Context
 import androidx.core.content.edit
+import fi.ak.smartvoice.engine.EnginePreference
 
 /**
  * The one place the app's settings are read and written.
@@ -32,6 +33,14 @@ class AppSettings(context: Context) {
         get() = prefs.getString(KEY_LANGUAGE, LANGUAGE_AUTO).orEmpty()
         set(value) = prefs.edit { putString(KEY_LANGUAGE, value) }
 
+    /**
+     * Which tier dictates. **Local by default** (D-027): the app's premise is that it works with
+     * nothing but the phone, so the server is the explicit choice, not the fallback.
+     */
+    var enginePreference: EnginePreference
+        get() = EnginePreference.fromStored(prefs.getString(KEY_ENGINE, null))
+        set(value) = prefs.edit { putString(KEY_ENGINE, value.storedValue) }
+
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"
 
@@ -48,5 +57,6 @@ class AppSettings(context: Context) {
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_CLEANUP = "cleanup_enabled"
         private const val KEY_LANGUAGE = "language"
+        private const val KEY_ENGINE = "engine_preference"
     }
 }

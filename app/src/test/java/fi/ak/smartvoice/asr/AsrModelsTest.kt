@@ -1,0 +1,84 @@
+package fi.ak.smartvoice.asr
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+
+/**
+ * Pins the artifact manifest. These are the values a wrong edit would silently corrupt: a sha256
+ * with a typo makes every download fail verification, and a wrong size makes a truncated download
+ * look complete.
+ */
+class AsrModelsTest {
+
+    @get:Rule
+    val temp = TemporaryFolder()
+
+    @Test
+    fun `the four artifact files are exactly the ones the runtime loads`() {
+        assertEquals(
+            listOf("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"),
+            AsrModels.FILES.map { it.name },
+        )
+    }
+
+    @Test
+    fun `every digest is a full lowercase sha256`() {
+        AsrModels.FILES.forEach { file ->
+            assertEquals("${file.name} digest length", 64, file.sha256.length)
+            assertTrue("${file.name} digest is hex", file.sha256.all { it in "0123456789abcdef" })
+        }
+    }
+
+    @Test
+    fun `the encoder dominates the download, which is why it is first`() {
+        val encoder = AsrModels.FILES.first().bytes
+        assertTrue(encoder > AsrModels.TOTAL_BYTES * 9 / 10)
+        assertEquals(AsrModels.FILES.sumOf { it.bytes }, AsrModels.TOTAL_BYTES)
+    }
+
+    @Test
+    fun `the download url is pinned to a revision and served over https`() {
+        val url = AsrModels.downloadUrl(AsrModels.FILES.first())
+        assertTrue(url.startsWith("https://huggingface.co/${AsrModels.REPO}/resolve/${AsrModels.REVISION}/"))
+        assertFalse("must not track a moving branch", url.contains("/resolve/main/"))
+    }
+
+    @Test
+    fun `the model lives in the app's private files dir`() {
+        assertEquals(
+            "${temp.root}/models/${AsrModels.DIRECTORY}",
+            AsrModels.directory(temp.root).absolutePath,
+        )
+    }
+
+    @Test
+    fun `a missing directory means every file is incomplete`() {
+        assertEquals(AsrModels.FILES.size, AsrModels.incomplete(temp.root.resolve("nothing-here")).size)
+        assertFalse(AsrModels.isInstalled(temp.root.resolve("nothing-here")))
+    }
+
+    @Test
+    fun `a file of the wrong length does not count as installed`() {
+        val directory = temp.newFolder("model")
+        AsrModels.FILES.forEach { file -> directory.resolve(file.name).writeText("too short") }
+
+        val incomplete = AsrModels.incomplete(directory)
+        assertEquals(AsrModels.FILES.size, incomplete.size)
+        assertFalse(AsrModels.isInstalled(directory))
+    }
+
+    @Test
+    fun `digest matches the bytes on disk`() {
+        val file = temp.newFile("tokens.txt")
+        file.writeText("abc")
+        // sha256("abc") — the canonical vector, so this test cannot drift with our own hashing.
+        assertEquals(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            AsrModels.sha256(file),
+        )
+    }
+}

@@ -16,6 +16,11 @@ lifecycleViewmodelNav3 = "2.10.0"
 # v1 networking + response parsing (see PLAN §14)
 kotlinxSerializationJson = "1.11.0"
 
+# On-device ASR runtime (D-020 streaming transducer, v2 scope D-026). The AAR itself is not a
+# Maven coordinate: it is fetched and sha256-verified by tools/fetch_sherpa_aar.sh, which pins
+# the same version. Keep the two in step.
+sherpaOnnx = "1.13.8"
+
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
