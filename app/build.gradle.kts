@@ -11,8 +11,8 @@ android {
         applicationId = "fi.ak.smartvoice"
         minSdk = 30
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0-spike-npu"
+        versionCode = 3
+        versionName = "1.0-spike-npu2"
 
         // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
         // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the
@@ -44,23 +44,17 @@ android {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
-      // SPIKE ONLY (D-029): GenieX bundles the whole QNN stack for several chipset generations —
-      // 198 MB of the AAR's 215 MB of arm64 libs. The NPU experiment uses its `llama_cpp` runtime
-      // (GGUF on Hexagon), which does not touch the qairt libraries, so they are stripped to keep
-      // the spike APK installable. If the SDK refuses to initialise without them, the fix is to
-      // delete this block and accept a ~280 MB APK — not to keep guessing at which libs matter.
+      // SPIKE ONLY (D-029), and the likely reason the first probe build failed with
+      // "Llm create failed: Invalid plugin": GenieX's plugin registry works by *scanning a
+      // directory* for plugin .so files, and AGP's modern default stores them uncompressed inside
+      // the APK without extracting them — so the native library directory is empty and the scan
+      // finds nothing. Extracting the libraries gives the SDK a real directory to scan.
+      //
+      // The qairt exclusions are deliberately GONE from this build. Guessing which of the 52 native
+      // libraries matter cost one round trip already; the whole 215 MB ships instead, and if the
+      // APK size ever matters again we will filter it from a working baseline rather than into one.
       jniLibs {
-        excludes += listOf(
-          "**/libQnn*.so",
-          "**/libhta_*.so",
-          "**/libgeniex_plugin_qairt.so",
-          "**/libgeniex-proc*.so",
-          "**/libgeniex_vlm.so",
-          "**/libPlatformValidatorShared.so",
-          "**/libcalculator*.so",
-          "**/libCalculator_skel.so",
-          "**/*.cat",
-        )
+        useLegacyPackaging = true
       }
     }
 }

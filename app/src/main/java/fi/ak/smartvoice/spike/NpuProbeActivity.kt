@@ -163,6 +163,52 @@ private fun NpuProbeScreen() {
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Diagnostics first: when the plugin does not register, the reason lives in logcat, and
+            // this screen is the only way to see it without adb. Loading the libraries by name from
+            // here surfaces the exact dlopen error in the UI.
+            OutlinedButton(
+                enabled = !busy && activity != null,
+                onClick = {
+                    if (activity == null) return@OutlinedButton
+                    busy = true
+                    activity.lifecycleScope.launch {
+                        withContext(Dispatchers.IO) {
+                            append("--- diagnose")
+                            val nativeDir = context.applicationInfo.nativeLibraryDir
+                            append("nativeLibraryDir=$nativeDir")
+                            val entries = java.io.File(nativeDir).list()?.sorted() ?: emptyList()
+                            append("libraries found on disk: ${entries.size}")
+                            entries.forEach { append("  $it") }
+
+                            // Dependency order on purpose: a missing vendor library shows up as the
+                            // first line that fails, which is the whole point of this step.
+                            listOf(
+                                "ggml-base", "ggml-cpu", "ggml-opencl", "OpenCL", "ggml-hexagon",
+                                "ggml-htp-v81", "llama", "llama-common", "mtmd", "omp",
+                                "geniex", "geniex_core", "geniex-proc", "geniex_plugin",
+                                "geniex_plugin_llama_cpp", "geniex_plugin_qairt",
+                            ).forEach { name ->
+                                val outcome = runCatching { System.loadLibrary(name) }
+                                append(
+                                    "  loadLibrary($name): " + outcome.fold(
+                                        onSuccess = { "OK" },
+                                        onFailure = { it.message?.take(180) ?: it.javaClass.simpleName },
+                                    ),
+                                )
+                            }
+
+                            // Which plugins the SDK thinks it has, as opposed to which ones load.
+                            listOf("llama_cpp", "qairt").forEach { id ->
+                                runCatching { GenieXSdk.getInstance().getPluginVersion(id) }
+                                    .onSuccess { append("getPluginVersion($id)=$it") }
+                                    .onFailure { append("getPluginVersion($id) threw: ${it.message}") }
+                            }
+                        }
+                        busy = false
+                    }
+                },
+            ) { Text("0 · diagnose") }
+
             Button(
                 enabled = !busy,
                 onClick = {
