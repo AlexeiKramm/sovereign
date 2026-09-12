@@ -3,15 +3,20 @@ package fi.ak.smartvoice.cleanup
 import com.geniex.sdk.bean.ChatMessage
 
 /**
- * The cleanup prompt, as a pure function of (unit, context, dictionary) — so its shape is pinned by
- * tests on this machine rather than discovered on a phone, and so D-015's ordering rule has one
- * implementation:
+ * The cleanup prompt, as a pure function of (unit, context, dictionary, variant) — so its shape is
+ * pinned by tests on this machine rather than discovered on a phone, and so D-015's ordering rule has
+ * one implementation:
  *
  *   stable prefix first → system core, then dictionary → then the growing part: cleaned context,
  *   then the unit to clean.
  *
- * The prefix is stable on purpose: it is the only part that could ever be cached across units
- * (D-014 mode 1), and the part that is not stable — the context — grows on the end.
+ * **The variant is the interesting knob.** Measured on the phone 2026-09-12, the first Finnish case came
+ * back *identical to its input except one capital letter* — no fillers removed, no comma before "että",
+ * no final mark. The English case in the same run was punctuated correctly. That points at the rules
+ * rather than the model: the wording said "do not add, remove or reorder information" and "never add
+ * sentence-ending punctuation to a fragment", which a cautious 2B model reads as "change almost
+ * nothing". The variants exist so the same unit can be run under each rule set and compared, instead of
+ * arguing about it.
  */
 object CleanupPrompt {
 
@@ -24,9 +29,7 @@ object CleanupPrompt {
 
     /**
      * D-015's "predict, do not fail": the carried context is trimmed to fit rather than being allowed
-     * to overflow the window. Kept generous, because the window itself (2048) is what bounds the pass;
-     * this is a budget for the *context* only, and it is counted in characters because tokens are not
-     * available to us before the pass.
+     * to overflow the window. Counted in characters because tokens are not available before the pass.
      */
     const val CONTEXT_CHAR_BUDGET = 1_500
 
@@ -37,21 +40,72 @@ object CleanupPrompt {
 
     /**
      * The fragment rule, and it is load-bearing rather than polite: a cleanup unit is delimited by a
-     * pause, which is a proxy for a thought ending, not a guarantee (D-032). A model that treats a
-     * fragment as a finished sentence will invent a sentence end — the exact failure that made
-     * arbitrary token-cut boundaries the rejected design.
+     * pause, which is a proxy for a thought ending, not a guarantee (D-032).
+     *
+     * It is deliberately two-sided. The first version only said "never add sentence-ending punctuation
+     * to a fragment", and the measured English output then came back with no final period at all — a
+     * rule that only forbids gets read as "add nothing". Both directions are stated now.
      */
     const val FRAGMENT_RULE =
-        "The segment may be a continuation or a fragment of a longer sentence. In that case clean only " +
-            "what is there: never complete a sentence that continues, and never add sentence-ending " +
-            "punctuation to a fragment. The context is for understanding only — never repeat it, and " +
-            "never clean it again. Keep the speaker's words and their order; do not add, remove or " +
-            "reorder information. Fix punctuation and capitalisation."
+        "The segment may be a continuation or a fragment of a longer sentence. If it is clearly a " +
+            "continuation, clean only what is there: do not capitalise its first word as if it started " +
+            "a sentence, and do not add a final mark. If it is a complete sentence, punctuate it as one, " +
+            "final mark included. The context is for understanding only — never repeat it, and never " +
+            "clean it again."
+
+    /**
+     * Which editing rules a pass runs under. The differences are only the editing rules; the safety core
+     * and the fragment rule are common to all three.
+     */
+    enum class Variant(val label: String, val rules: String) {
+        /**
+         * The first thing that was built, kept as the control: every word the speaker said is kept.
+         * Measured effect on Finnish: one capital letter and nothing else.
+         */
+        CONSERVATIVE(
+            label = "conservative — punctuation and capitalisation only",
+            rules = "Keep the speaker's words and their order; do not add, remove or reorder " +
+                "information. Fix punctuation and capitalisation.",
+        ),
+
+        /** The likely default: dictation's most common defects — fillers, stutters, missing marks. */
+        STANDARD(
+            label = "standard — drops fillers, punctuates",
+            rules = "Remove filler words, hesitations, stutters and accidentally doubled words " +
+                "(\"tuota\", \"niinku\", \"tota\", \"um\", \"uh\", \"you know\"). Then punctuate what is " +
+                "left, including a final mark on a complete sentence. Do not change the speaker's " +
+                "wording otherwise: no synonyms, no rephrasing, no summarising.",
+        ),
+
+        /**
+         * Also repairs obviously wrong dictated words — the misheard proper noun, the compound written
+         * apart. The most a cleanup pass should ever do; it is D-006's "obvious contextual slip", not
+         * licence to rewrite.
+         */
+        REPAIRING(
+            label = "repairing — also fixes obvious slips",
+            rules = "Remove filler words, hesitations, stutters and accidentally doubled words. " +
+                "Punctuate properly, including a final mark on a complete sentence. Repair obvious " +
+                "slips in the dictated words: an inflected form that cannot be right, a name or term " +
+                "that is clearly misheard, a compound written apart. Never change the meaning, never " +
+                "add facts, never answer.",
+        );
+
+        companion object {
+            /** What the pipeline should use until the Finnish comparison says otherwise. */
+            val DEFAULT = STANDARD
+        }
+    }
 
     /** The two messages handed to the runtime's chat template. */
     data class Messages(val system: String, val user: String, val context: String?)
 
-    fun build(unit: String, context: String?, dictionary: List<String> = emptyList()): Messages {
+    fun build(
+        unit: String,
+        context: String?,
+        dictionary: List<String> = emptyList(),
+        variant: Variant = Variant.DEFAULT,
+    ): Messages {
         val trimmed = context?.trim().orEmpty()
         val usedContext = when {
             trimmed.isEmpty() -> null
@@ -68,6 +122,8 @@ object CleanupPrompt {
                 append('.')
             }
             append("\n\n")
+            append(variant.rules)
+            append("\n\n")
             append(FRAGMENT_RULE)
         }
 
@@ -82,8 +138,13 @@ object CleanupPrompt {
     }
 
     /** The message list for `applyChatTemplate`, in the order D-015 requires. */
-    fun messages(unit: String, context: String?, dictionary: List<String> = emptyList()): Array<ChatMessage> {
-        val built = build(unit, context, dictionary)
+    fun messages(
+        unit: String,
+        context: String?,
+        dictionary: List<String> = emptyList(),
+        variant: Variant = Variant.DEFAULT,
+    ): Array<ChatMessage> {
+        val built = build(unit, context, dictionary, variant)
         return arrayOf(
             ChatMessage("system", built.system),
             ChatMessage("user", built.user),

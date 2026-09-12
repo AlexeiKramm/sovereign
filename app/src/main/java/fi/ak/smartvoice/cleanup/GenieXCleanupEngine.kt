@@ -83,14 +83,27 @@ class GenieXCleanupEngine(
             }
     }
 
-    override suspend fun clean(unit: String, context: String?): CleanupPass = lock.withLock {
+    override suspend fun clean(
+        unit: String,
+        context: String?,
+        variant: CleanupPrompt.Variant,
+    ): CleanupPass = lock.withLock {
         val loaded = ensureLoaded().getOrElse { error ->
             return@withLock CleanupPass.failed(unit, "cleanup model unavailable — ${error.message}")
         }
         val loadMs = lastLoadMs
 
+        // D-015: reset before every pass. This is not hygiene theatre — the SDK retains conversation
+        // state across generate calls, which the first device run proved: with a ~110-token system
+        // message, the four passes reported 151 / 36 / 26 / 114 prompt tokens, i.e. only the new
+        // suffix was prefilled. Without a reset the previous unit's text — and the previous
+        // *utterance's* — sits in the KV cache and can influence, or be echoed into, the next answer.
+        // Re-prefilling the explicit prompt costs ~0.1 s at the 1378 tps measured on this phone,
+        // which is cheaper than inheriting hidden state from a dictation the user has moved on from.
+        runCatching { loaded.reset() }
+
         val templated = loaded
-            .applyChatTemplate(CleanupPrompt.messages(unit, context, dictionary), null, false)
+            .applyChatTemplate(CleanupPrompt.messages(unit, context, dictionary, variant), null, false)
             .getOrElse { error ->
                 return@withLock CleanupPass.failed(unit, "chat template failed — ${error.message}")
             }
@@ -131,7 +144,7 @@ class GenieXCleanupEngine(
             unit = unit,
             text = cleaned,
             cleaned = true,
-            note = "cleaned on the $computeUnit unit",
+            note = "cleaned on the $computeUnit unit · rules: ${variant.name.lowercase()}",
             loadMs = loadMs,
             ttftMs = profile?.ttftMs ?: 0.0,
             promptTimeMs = profile?.promptTimeMs ?: 0.0,

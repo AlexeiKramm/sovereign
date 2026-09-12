@@ -16,6 +16,7 @@ import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.cleanup.CleanupPass
+import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.FileBytes
 import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.cleanup.PullProgress
@@ -182,6 +183,18 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _cleanupCache = MutableStateFlow<List<CachedModel>>(emptyList())
     val cleanupCache: StateFlow<List<CachedModel>> = _cleanupCache.asStateFlow()
+
+    /**
+     * Which editing rules the bench runs under. Exposed because the first device run showed the rules,
+     * not the model, decide how much gets fixed — so comparing them has to be possible without a new
+     * build.
+     */
+    private val _cleanupVariant = MutableStateFlow(CleanupPrompt.Variant.DEFAULT)
+    val cleanupVariant: StateFlow<CleanupPrompt.Variant> = _cleanupVariant.asStateFlow()
+
+    /** A unit the user typed, so their own Finnish can be tested without waiting for a new APK. */
+    private val _cleanupCustomUnit = MutableStateFlow("")
+    val cleanupCustomUnit: StateFlow<String> = _cleanupCustomUnit.asStateFlow()
 
     val modelBytes: Long get() = AsrModels.TOTAL_BYTES
 
@@ -452,6 +465,45 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _cleanupLoad.value = "unloaded — the next pass pays the cold load again"
     }
 
+    fun onCleanupVariantChange(variant: CleanupPrompt.Variant) {
+        _cleanupVariant.value = variant
+    }
+
+    fun onCleanupCustomUnitChange(unit: String) {
+        _cleanupCustomUnit.value = unit
+    }
+
+    /**
+     * Cleans a unit the user typed, carrying the latest cleaned text as context — the same shape the
+     * pipeline uses, so a sentence evaluated here behaves like a dictated one.
+     */
+    fun cleanCustomUnit() {
+        val unit = _cleanupCustomUnit.value.trim()
+        if (unit.isEmpty() || _cleanupBusy.value != null) return
+        viewModelScope.launch {
+            _cleanupBusy.value = "cleaning your unit (${_cleanupVariant.value.name.lowercase()} rules)"
+            val pass = engine().clean(unit, latestCleaned.ifBlank { null }, _cleanupVariant.value)
+            _cleanupCases.value = listOf(
+                CleanupCase(
+                    label = "your unit — ${_cleanupVariant.value.label}",
+                    input = unit,
+                    output = pass.text,
+                    cleaned = pass.cleaned,
+                    detail = describe(pass),
+                    prompt = pass.promptSent,
+                ),
+            ) + _cleanupCases.value
+            if (pass.cleaned) {
+                if (latestCleaned.isNotEmpty()) latestCleaned += " "
+                latestCleaned += pass.text
+            }
+            _cleanupBusy.value = null
+        }
+    }
+
+    /** The cleaned text so far, which is what a continuation pass receives as context (D-032). */
+    private var latestCleaned = ""
+
     /**
      * Runs the fixed cases in order, each case's cleaned output becoming the *context* for the next
      * one — which is how the streaming pipeline will carry the tail (D-032). Two questions live here
@@ -471,6 +523,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 val pass = engine.clean(
                     unit = spec.unit,
                     context = if (spec.usesContext) cleanedSoFar.toString().ifBlank { null } else null,
+                    variant = _cleanupVariant.value,
                 )
                 results += CleanupCase(
                     label = spec.label,
@@ -486,6 +539,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     cleanedSoFar.append(pass.text)
                 }
             }
+            latestCleaned = cleanedSoFar.toString()
             _cleanupLoad.value = "resident · cold load was ${engine.lastLoadMs} ms"
             _cleanupBusy.value = null
         }
@@ -501,9 +555,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val engine = engine()
             _cleanupBusy.value = "prefix-cache check — first pass"
-            val first = engine.clean(PREFIX_CHECK_UNIT, null)
+            val first = engine.clean(PREFIX_CHECK_UNIT, null, _cleanupVariant.value)
             _cleanupBusy.value = "prefix-cache check — second pass, identical prompt"
-            val second = engine.clean(PREFIX_CHECK_UNIT, null)
+            val second = engine.clean(PREFIX_CHECK_UNIT, null, _cleanupVariant.value)
 
             val ratio = if (first.promptTimeMs > 0.0) second.promptTimeMs / first.promptTimeMs else 1.0
             val verdict = when {

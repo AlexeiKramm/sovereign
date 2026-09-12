@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import fi.ak.smartvoice.cleanup.CachedModel
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.EnginePreference
@@ -60,6 +62,8 @@ fun DictationScreen(
     val cleanupCases by viewModel.cleanupCases.collectAsStateWithLifecycle()
     val cleanupBusy by viewModel.cleanupBusy.collectAsStateWithLifecycle()
     val cleanupLoad by viewModel.cleanupLoad.collectAsStateWithLifecycle()
+    val cleanupVariant by viewModel.cleanupVariant.collectAsStateWithLifecycle()
+    val cleanupCustomUnit by viewModel.cleanupCustomUnit.collectAsStateWithLifecycle()
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -119,10 +123,15 @@ fun DictationScreen(
             busy = cleanupBusy,
             load = cleanupLoad,
             cases = cleanupCases,
+            variant = cleanupVariant,
+            customUnit = cleanupCustomUnit,
             onRun = viewModel::runCleanupCases,
             onPrefixCheck = viewModel::checkPrefixReuse,
             onLoad = viewModel::loadCleanupModel,
             onUnload = viewModel::unloadCleanupModel,
+            onVariantChange = viewModel::onCleanupVariantChange,
+            onCustomUnitChange = viewModel::onCleanupCustomUnitChange,
+            onCleanCustom = viewModel::cleanCustomUnit,
         )
 
         HorizontalDivider()
@@ -429,10 +438,15 @@ private fun CleanupBenchSection(
     busy: String?,
     load: String?,
     cases: List<CleanupCase>,
+    variant: CleanupPrompt.Variant,
+    customUnit: String,
     onRun: () -> Unit,
     onPrefixCheck: () -> Unit,
     onLoad: () -> Unit,
     onUnload: () -> Unit,
+    onVariantChange: (CleanupPrompt.Variant) -> Unit,
+    onCustomUnitChange: (String) -> Unit,
+    onCleanCustom: () -> Unit,
 ) {
     Text("Cleanup test bench", style = MaterialTheme.typography.titleMedium)
     Text(
@@ -440,6 +454,38 @@ private fun CleanupBenchSection(
             "timings. Nothing here changes dictation — it is a bench, not the pipeline.",
         style = MaterialTheme.typography.bodySmall,
     )
+
+    // The rules are the variable worth comparing: the first Finnish run came back unchanged except for
+    // one capital letter, which is a property of the wording rather than of the model.
+    Text("Editing rules", style = MaterialTheme.typography.titleSmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CleanupPrompt.Variant.entries.forEach { candidate ->
+            FilterChip(
+                selected = candidate == variant,
+                onClick = { onVariantChange(candidate) },
+                label = { Text(candidate.name.lowercase()) },
+            )
+        }
+    }
+    Text(variant.label, style = MaterialTheme.typography.bodySmall)
+
+    OutlinedTextField(
+        value = customUnit,
+        onValueChange = onCustomUnitChange,
+        label = { Text("Your own unit (Finnish or English)") },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onCleanCustom, enabled = busy == null && customUnit.isNotBlank()) {
+            Text("Clean this unit")
+        }
+        Text(
+            "uses the cleaned text so far as context",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.align(Alignment.CenterVertically),
+        )
+    }
+
     load?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -20,8 +20,37 @@ class CleanupPromptTest {
         val built = CleanupPrompt.build("hello there", null)
         assertTrue(built.system.contains("never answer"))
         assertTrue(built.system.contains("fragment"))
-        assertTrue(built.system.contains("never add sentence-ending punctuation"))
         assertFalse("no context means no context text", built.system.contains("Already cleaned"))
+    }
+
+    @Test
+    fun `the fragment rule forbids and permits, in both directions`() {
+        // Measured 2026-09-12: a rule that only said "never add sentence-ending punctuation to a
+        // fragment" produced English output with no final period at all. The permission matters as
+        // much as the prohibition.
+        val system = CleanupPrompt.build("anything", null).system
+        assertTrue("forbids inventing an end", system.contains("do not add a final mark"))
+        assertTrue("permits finishing a complete sentence", system.contains("punctuate it as one"))
+        assertTrue("and it distinguishes continuation from complete", system.contains("continuation"))
+    }
+
+    @Test
+    fun `every variant keeps the safety core, and only the editing rules differ`() {
+        CleanupPrompt.Variant.entries.forEach { variant ->
+            val system = CleanupPrompt.build("anything", null, variant = variant).system
+            assertTrue("${variant.name} must keep the safety core", system.contains("never answer"))
+            assertTrue("${variant.name} must carry its own rules", system.contains(variant.rules))
+        }
+        assertTrue(CleanupPrompt.Variant.STANDARD.rules.contains("filler"))
+        assertTrue(CleanupPrompt.Variant.REPAIRING.rules.contains("slips"))
+        assertFalse(CleanupPrompt.Variant.CONSERVATIVE.rules.contains("filler"))
+    }
+
+    @Test
+    fun `the variant labels are distinct, so the bench cannot show two identical rows`() {
+        val labels = CleanupPrompt.Variant.entries.map { it.label }
+        assertEquals(labels.size, labels.toSet().size)
+        assertEquals(CleanupPrompt.Variant.STANDARD, CleanupPrompt.Variant.DEFAULT)
     }
 
     @Test

@@ -51,7 +51,11 @@ interface CleanupEngine {
      * far, or null on the first unit. Never throws: a pass that fails comes back with
      * `cleaned = false` and the unit untouched.
      */
-    suspend fun clean(unit: String, context: String?): CleanupPass
+    suspend fun clean(
+        unit: String,
+        context: String?,
+        variant: CleanupPrompt.Variant = CleanupPrompt.Variant.DEFAULT,
+    ): CleanupPass
 
     /** Releases the model. Called on teardown and by the settings screen's explicit release. */
     fun unload()
