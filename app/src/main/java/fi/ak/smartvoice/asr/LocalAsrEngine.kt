@@ -1,6 +1,8 @@
 package fi.ak.smartvoice.asr
 
 import android.os.SystemClock
+import com.k2fsa.sherpa.onnx.EndpointConfig
+import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
@@ -103,9 +105,37 @@ class LocalAsrEngine(
                     // artifacts also leaves it empty. Setting it is for the QNN provider only.
                     modelType = "",
                 ),
-                // Endpointing rules stay enabled: they cost nothing when unused, and chunk 3
-                // (stop on silence) reads [isEndpoint] instead of inventing its own detector.
+                // The endpoint detector is now load-bearing twice over, and it is why D-032 needs no
+                // new dependency: it *is* "the text up to a VAD silence". [isEndpoint] marks the pause
+                // that ends a cleanup unit, and the same signal is what chunk 3 will read for
+                // stop-on-silence.
+                //
+                // The numbers are the runtime's own defaults, read out of the artifact's constant pool
+                // on 2026-09-12 and written here so that D-032's "first values, tuned on the device"
+                // is one edit rather than a library default nobody can see:
+                //   rule1 — speech has been decoded, then this much silence → the thought boundary.
+                //   rule2 — nothing decoded yet, this much silence → an empty utterance.
+                //   rule3 — past this length, rule2's silence also ends the segment: D-032's safety
+                //           valve, and note it still needs a pause, so genuinely unbroken speech stays
+                //           one unit and is cleaned once at stop (the cost D-032 accepted).
                 enableEndpoint = true,
+                endpointConfig = EndpointConfig(
+                    rule1 = EndpointRule(
+                        mustContainNonSilence = true,
+                        minTrailingSilence = PAUSE_SILENCE_SECONDS,
+                        minUtteranceLength = 0f,
+                    ),
+                    rule2 = EndpointRule(
+                        mustContainNonSilence = false,
+                        minTrailingSilence = EMPTY_SILENCE_SECONDS,
+                        minUtteranceLength = 0f,
+                    ),
+                    rule3 = EndpointRule(
+                        mustContainNonSilence = false,
+                        minTrailingSilence = 0f,
+                        minUtteranceLength = SAFETY_VALVE_SECONDS,
+                    ),
+                ),
             )
             val created = OnlineRecognizer(assetManager = null, config = config)
             recognizer = created
@@ -147,6 +177,29 @@ class LocalAsrEngine(
         active.acceptWaveform(samples, AsrModels.SAMPLE_RATE)
         drain()
         return recognizer?.getResult(active)?.text
+    }
+
+    /**
+     * The text of the segment in progress — cumulative, and final once [isEndpoint] fires and the
+     * segment is closed with [resetSegment].
+     */
+    fun result(): String {
+        val active = stream ?: return ""
+        return recognizer?.getResult(active)?.text.orEmpty()
+    }
+
+    /**
+     * Closes the current segment and starts a fresh one on the same stream — D-032's unit boundary.
+     *
+     * This is not optional once text is committed per unit: without it the recogniser keeps revising
+     * the hypothesis it already produced (the streaming decoder's text is cumulative), and text the
+     * user has already seen would silently change under them. Resetting trades the recogniser's own
+     * cross-pause context for finality, which is the right trade because the *cleanup* stage carries
+     * the text context instead (D-032 rule 5).
+     */
+    fun resetSegment() {
+        val active = stream ?: return
+        recognizer?.reset(active)
     }
 
     /** True when the model's own endpoint rules say the speaker stopped (chunk 3's stop signal). */
@@ -211,6 +264,15 @@ class LocalAsrEngine(
         const val DEFAULT_THREADS = 4
 
         private const val FEATURE_DIM = 80
+
+        /** D-032's pause: how much silence after speech ends a cleanup unit. Start value. */
+        const val PAUSE_SILENCE_SECONDS = 2.4f
+
+        /** Silence with nothing decoded — an utterance that never started. */
+        const val EMPTY_SILENCE_SECONDS = 1.4f
+
+        /** Past this much speech, a pause also ends the segment: D-032's safety valve. */
+        const val SAFETY_VALVE_SECONDS = 20.0f
 
         /** See [finish]: a boundary, not a budget. */
         private const val MAX_FLUSH_DECODES = 512

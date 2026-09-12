@@ -40,9 +40,13 @@ import java.util.concurrent.Executors
  * Dictation that lands at the cursor in someone else's app — now from either tier.
  *
  * The panel (see [VoicePanelView]) works like a system keyboard's voice mode rather than being a
- * keyboard itself: switch to it, dictate, switch back to type. Push-to-talk, one utterance at a
- * time, and the text is committed once at the end — nothing is inserted raw and then rewritten,
- * which is the v1 rule from D-021 that the local tier keeps for the same reason.
+ * keyboard itself: switch to it, dictate, switch back to type. Push-to-talk, one utterance at a time.
+ *
+ * **Text is committed per pause-delimited unit, and never revised** (D-021 + D-032). The local tier's
+ * ASR closes a segment at each pause, and that segment's text is committed at the cursor as soon as it
+ * is final, so a long dictation no longer waits for the user to stop. Nothing is inserted raw and then
+ * rewritten, and the recogniser's stream is reset at each boundary precisely so that text already on
+ * screen cannot change under the user.
  *
  * **Tier policy (D-027): local by default, server as an explicit choice in settings.** The choice
  * is made per utterance by [TierPolicy], so switching the preference takes effect on the next tap
@@ -84,6 +88,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     @Volatile
     private var partialWords = 0
 
+    /** Units committed at the cursor this utterance, and the last reason a commit could not happen. */
+    @Volatile
+    private var unitsCommitted = 0
+
+    @Volatile
+    private var commitNote: String? = null
+
     /** Cold-load time of the current utterance, when it paid for one (D-010 rule 2). */
     @Volatile
     private var coldLoadMs = 0L
@@ -102,6 +113,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             scope = scope,
             // Called on the ASR thread; the status ticker reads it on the main thread.
             onPartialWords = { partialWords = it },
+            // Also called on the ASR thread, in order, once per pause-delimited unit (D-032).
+            onUnit = ::onLocalUnit,
         )
     }
 
@@ -253,6 +266,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
         val choice = currentChoice()
         partialWords = 0
+        unitsCommitted = 0
+        commitNote = null
 
         if (choice.engine == Engine.LOCAL) startLocalCapture(choice) else startRemoteCapture(choice)
     }
@@ -294,27 +309,66 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             withContext(Dispatchers.IO) { recorder.stop() }
 
             val stoppedAt = SystemClock.elapsedRealtime()
-            val text = localSession.finish()
-            // The tail D-020 is about: stop → final text, which is the flush, not a whole segment.
+            // finish() flushes and emits whatever the last segment held through onUnit, so by the time
+            // this returns the commits have been posted — in order, because the main looper runs posted
+            // tasks in order and the worker posted them in the order it produced them.
+            val whole = localSession.finish()
             val tailMs = SystemClock.elapsedRealtime() - stoppedAt
 
-            val note = buildString {
-                append(choice.note)
-                if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
-                if (localSession.droppedFrames > 0) {
-                    append(" · ${localSession.droppedFrames} audio frame(s) dropped (engine behind)")
-                }
-            }
-            commit(
-                DictationOutcome(
-                    text = text,
-                    engine = Engine.LOCAL,
-                    note = note,
-                    audioSeconds = audioSeconds,
-                    elapsedMs = tailMs,
-                ),
-            )
+            reportLocal(choice, audioSeconds, tailMs, whole)
         }
+    }
+
+    /**
+     * One completed unit arriving from the ASR worker (D-032). The commit happens on the main thread —
+     * an `InputConnection` belongs to the view hierarchy — and the leading space is deliberate: units are
+     * separate recognitions, so the first word of the next one arrives without one. The cleanup stage
+     * replaces that spacing with real punctuation when it lands (slice 5c-2); until then one space is the
+     * honest join, and the join rule itself is pinned by `UtteranceTextTest`.
+     */
+    private fun onLocalUnit(unit: String) {
+        scope.launch(Dispatchers.Main.immediate) {
+            val connection = currentInputConnection
+            if (connection == null) {
+                // Focus moved. Saying so beats text that silently goes nowhere.
+                commitNote = "no text field is focused — nothing committed"
+                return@launch
+            }
+            connection.commitText(if (unitsCommitted > 0) " $unit" else unit, 1)
+            unitsCommitted++
+        }
+    }
+
+    /**
+     * The local tier's end-of-utterance report. Deliberately does **not** commit: the text went to the
+     * cursor unit by unit as each pause closed a segment, which is also why nothing on screen is ever
+     * revised (D-021). What is left to report is the tail — the flush plus the last unit — and the
+     * numbers that make the run honest.
+     */
+    private fun reportLocal(choice: EngineChoice, audioSeconds: Double, tailMs: Long, whole: String) {
+        if (whole.isBlank()) {
+            val pinned = settings.language
+            panel?.setStatus(
+                if (pinned != AppSettings.LANGUAGE_AUTO) {
+                    "no text — the local model was pinned to ${pinned.uppercase()} and only " +
+                        "transcribes speech in that language; set the language chip to auto and retry"
+                } else {
+                    "local returned empty text — nothing committed"
+                },
+            )
+            return
+        }
+
+        val note = buildString {
+            append(choice.note)
+            append(" · ${localSession.unitCount} pause-delimited unit(s)")
+            if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
+            if (localSession.droppedFrames > 0) {
+                append(" · ${localSession.droppedFrames} audio frame(s) dropped (engine behind)")
+            }
+            commitNote?.let { append(" · $it") }
+        }
+        panel?.setStatus("committed · local · %.1f s audio · tail %d ms · %s".format(audioSeconds, tailMs, note))
     }
 
     // ------------------------------------------------------------------ server tier
@@ -407,15 +461,22 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         append("listening… %.1f s".format(seconds))
         append(" · ${choice.engine.label}")
         if (choice.engine == Engine.LOCAL) {
-            // The partial count is not the transcript — nothing is shown at the cursor and nothing
-            // is rewritten (D-021). It is the one honest sign that the engine is keeping up.
+            // The partial count is not the transcript — the transcript lands at the cursor when each
+            // unit becomes final, and nothing is rewritten (D-021). Both numbers are here because they
+            // say different things: the engine is keeping up, and text is actually arriving.
             if (partialWords > 0) append(" · ~$partialWords word(s) so far")
+            if (unitsCommitted > 0) append(" · $unitsCommitted unit(s) at the cursor")
+            commitNote?.let { append(" · $it") }
         } else {
             append(" · cleanup ${if (settings.cleanupEnabled) "full" else "off"}")
         }
         append(" · lang ${settings.language}")
     }
 
+    /**
+     * The server tier's commit path: one response, one commit. The local tier no longer comes through
+     * here — it commits per unit in [onLocalUnit] — so this keeps the remote path's shape.
+     */
     private fun commit(outcome: DictationOutcome, roundTripMs: Long? = null) {
         val connection = currentInputConnection
         if (connection == null) {
@@ -475,6 +536,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         // nothing was committed, which is what "cancel" has to mean.
         localSession.abort()
         partialWords = 0
+        unitsCommitted = 0
+        commitNote = null
         panel?.setListening(false)
     }
 
