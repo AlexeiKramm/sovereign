@@ -178,6 +178,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     "language: auto — the local model detects it per utterance"
                 next == AppSettings.LANGUAGE_AUTO ->
                     "language: auto — the server detects it per utterance"
+                currentChoice().engine == Engine.LOCAL ->
+                    // The local model uses this as a hard prompt: pinned to a language it is not
+                    // hearing, it returns nothing rather than guessing (measured 2026-09-12).
+                    "language: ${next.uppercase()} — the local model will only transcribe " +
+                        "${next.uppercase()}; use auto for mixed or unsure speech"
                 else -> "language: ${next.uppercase()} — pinned for the next utterance"
             },
         )
@@ -387,7 +392,18 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             return
         }
         if (outcome.text.isBlank()) {
-            panel?.setStatus("${outcome.engine.label} returned empty text — nothing committed")
+            // Measured 2026-09-12 (STATUS): the multilingual artifact treats `language` as a hard
+            // prompt — English audio with `fi` pinned comes back empty, not as a guess. Saying so
+            // is the difference between "the keyboard is broken" and "change one chip".
+            val pinned = settings.language
+            panel?.setStatus(
+                if (outcome.engine == Engine.LOCAL && pinned != AppSettings.LANGUAGE_AUTO) {
+                    "no text — the local model was pinned to ${pinned.uppercase()} and only " +
+                        "transcribes speech in that language; set the language chip to auto and retry"
+                } else {
+                    "${outcome.engine.label} returned empty text — nothing committed"
+                },
+            )
             return
         }
 

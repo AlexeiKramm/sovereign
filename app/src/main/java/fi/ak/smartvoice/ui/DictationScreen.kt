@@ -288,7 +288,12 @@ private fun LocalResultCard(outcome: DictationOutcome) {
         ) {
             Text("Transcript (on-device)", style = MaterialTheme.typography.titleMedium)
             SelectionContainer {
-                Text(outcome.text.ifBlank { "(empty text returned)" })
+                Text(
+                    outcome.text.ifBlank {
+                        "(no text returned — if the language is pinned to something you were not " +
+                            "speaking, the model returns nothing rather than guessing; use auto)"
+                    },
+                )
             }
 
             HorizontalDivider()
