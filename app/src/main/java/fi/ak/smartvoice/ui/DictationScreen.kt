@@ -681,9 +681,9 @@ private fun LocalResultCard(outcome: DictationOutcome) {
             )
             Text(outcome.note, style = MaterialTheme.typography.bodySmall)
             Text(
-                "No cleanup stage ran: the cleanup model is downloadable now but not yet wired " +
-                    "into dictation (D-031), so this is the recogniser's own text, with its own " +
-                    "punctuation.",
+                "This diagnostics run does not clean: the cleanup stage is wired into the keyboard " +
+                    "panel, where dictation actually happens (D-021/D-032). What you see here is the " +
+                    "recogniser's own text and its timings, which is what this screen is for.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

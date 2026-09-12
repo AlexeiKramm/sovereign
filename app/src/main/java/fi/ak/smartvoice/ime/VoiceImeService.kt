@@ -13,6 +13,12 @@ import fi.ak.smartvoice.R
 import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.BoundaryState
 import fi.ak.smartvoice.asr.LocalAsrEngine
+import fi.ak.smartvoice.cleanup.CleanupEngine
+import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.cleanup.CleanupPass
+import fi.ak.smartvoice.cleanup.CleanupPipeline
+import fi.ak.smartvoice.cleanup.CleanupPrompt
+import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
 import fi.ak.smartvoice.audio.WavRecorder
 import fi.ak.smartvoice.data.AppSettings
@@ -77,10 +83,27 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         Thread(runnable, "smartvoice-asr")
     }.asCoroutineDispatcher()
 
+    /**
+     * The cleanup stage's own thread. Separate from the ASR's because the two stages run **concurrently**
+     * (D-021) — the recogniser on the CPU, cleanup on the Hexagon NPU — and one thread would serialise the
+     * overlap the design is built on.
+     */
+    private val cleanupDispatcher = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "smartvoice-cleanup")
+    }.asCoroutineDispatcher()
+
     private lateinit var settings: AppSettings
     private lateinit var recorder: WavRecorder
     private lateinit var localEngine: LocalAsrEngine
     private lateinit var localSession: LocalAsrSession
+    private lateinit var cleanupPipeline: CleanupPipeline
+
+    /** The engine for the catalogue's current selection; rebuilt only when that selection changes. */
+    private var cleanupEngine: GenieXCleanupEngine? = null
+
+    /** Whether *this* utterance's units go through cleanup: decided once, at its start. */
+    @Volatile
+    private var cleaningThisUtterance = false
 
     private var panel: VoicePanelView? = null
     private var ticker: Job? = null
@@ -123,13 +146,68 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // Read at the start of every utterance, so a settings change needs no new build (D-035).
             timings = { settings.listenerTimings() },
         )
+
+        cleanupPipeline = CleanupPipeline(
+            engine = CurrentCleanupEngine(),
+            scope = scope,
+            dispatcher = cleanupDispatcher,
+            // The rules D-034 chose on the phone. Per-unit, so a profile (D-022) can vary them per app.
+            rules = { CleanupPrompt.Variant.DEFAULT },
+            onCommitted = { commit ->
+                // The pipeline runs on its own thread; an InputConnection belongs to the main one. The
+                // order is preserved because the worker commits serially and the looper runs posted
+                // tasks in order.
+                scope.launch(Dispatchers.Main.immediate) {
+                    commitUnit(commit.text, if (commit.cleaned) null else commit.note)
+                }
+            },
+        )
+    }
+
+    /**
+     * A stable handle for the pipeline. The selected model can change (the settings catalogue), and the
+     * pipeline must not be rebuilt for that; a missing engine fails closed per pass, like every other
+     * failure, instead of taking the commit path down with it.
+     */
+    private inner class CurrentCleanupEngine : CleanupEngine {
+        override val isLoaded: Boolean get() = cleanupEngine?.isLoaded == true
+
+        override val lastLoadMs: Long get() = cleanupEngine?.lastLoadMs ?: 0L
+
+        override suspend fun load(): Result<Unit> = engineForUtterance().load()
+
+        override suspend fun clean(
+            unit: String,
+            context: String?,
+            variant: CleanupPrompt.Variant,
+        ): CleanupPass {
+            val engine = cleanupEngine
+                ?: return CleanupPass.failed(unit, "no cleanup model is loaded")
+            return engine.clean(unit, context, variant)
+        }
+
+        override fun unload() {
+            cleanupEngine?.unload()
+        }
+    }
+
+    /** The engine for the model the settings currently select, rebuilt only when that model changes. */
+    private fun engineForUtterance(): GenieXCleanupEngine {
+        val wanted = CleanupModels.byRepository(settings.cleanupModelId)
+        cleanupEngine?.let { existing ->
+            if (existing.uses(wanted)) return existing
+            existing.unload()
+        }
+        return GenieXCleanupEngine(this, wanted).also { cleanupEngine = it }
     }
 
     override fun onDestroy() {
         abandonCapture()
         scope.cancel()
         localEngine.unload()
+        cleanupEngine?.unload()
         asrDispatcher.close()
+        cleanupDispatcher.close()
         super.onDestroy()
     }
 
@@ -182,6 +260,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 localEngine.applyPauseSilence(settings.pauseSilenceMs / 1000f)
                 localEngine.load()
             }
+            // D-032 rule 8: the cleanup model is prefetched too, but **after** the recogniser and on its
+            // own thread, sequentially — two multi-gigabyte reads at once would just fight for storage,
+            // and the keyboard being visible is exactly the window where neither is needed yet.
+            if (settings.cleanupEnabled && cleanupEngine?.isLoaded != true) {
+                withContext(cleanupDispatcher) { engineForUtterance().load() }
+            }
             // Only report if the user has not started dictating in the meantime: the ticker owns the
             // status line from that point.
             if (!recorder.isRecording && inFlight?.isActive != true) panel?.setStatus(idleStatus())
@@ -195,24 +279,33 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     // ------------------------------------------------------------------ panel controls
 
+    /**
+     * The cleanup chip is a real toggle on **both** tiers now. On the local tier it decides whether units
+     * go through the on-device model before they are inserted (D-032 rule 8: on by default, because an
+     * uncleaned local tier is not the product), and the status line says which of the two is happening
+     * rather than leaving a chip with no visible effect.
+     */
     override fun onToggleCleanup() {
-        if (currentChoice().engine == Engine.LOCAL) {
-            // Honest state, not a disabled control: there is no cleanup stage on the device yet.
-            panel?.setStatus(
-                "cleanup runs on the server tier only — the local tier commits the model's own text " +
-                    "(D-024). Pick the server in the app's settings if you want it cleaned.",
-            )
-            return
-        }
         settings.cleanupEnabled = !settings.cleanupEnabled
         syncPanelSettings()
+
+        val local = currentChoice().engine == Engine.LOCAL
         panel?.setStatus(
-            if (settings.cleanupEnabled) {
-                "cleanup on — the server will clean and punctuate the transcript"
-            } else {
-                "cleanup off — you will get the raw transcript (faster, no LLM)"
+            when {
+                !local && settings.cleanupEnabled ->
+                    "cleanup on — the server will clean and punctuate the transcript"
+                !local ->
+                    "cleanup off — you will get the raw transcript (faster, no LLM)"
+                settings.cleanupEnabled && cleanupEngine?.isLoaded == true ->
+                    "cleanup on — each unit is punctuated on the device before it is inserted"
+                settings.cleanupEnabled ->
+                    "cleanup on — the model is loading (3.2 s measured); this utterance still goes " +
+                        "through uncleaned"
+                else ->
+                    "cleanup off — the local tier inserts the recogniser's own text"
             },
         )
+        if (local && settings.cleanupEnabled) prefetchCleanupModel()
     }
 
     override fun onCycleLanguage() {
@@ -247,7 +340,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     }
 
     private fun cleanupLabel(choice: EngineChoice): String = when (choice.engine) {
-        Engine.LOCAL -> "Cleanup: n/a (local)"
+        Engine.LOCAL -> when {
+            !settings.cleanupEnabled -> "Cleanup: off"
+            cleanupEngine?.isLoaded == true -> "Cleanup: on (device)"
+            else -> "Cleanup: on — loading"
+        }
         Engine.REMOTE -> if (settings.cleanupEnabled) "Cleanup: full" else "Cleanup: off"
     }
 
@@ -299,6 +396,16 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         coldLoadMs = 0L
 
         localEngine.applyPauseSilence(settings.pauseSilenceMs / 1000f)
+
+        // Cleanup is decided once, at the start of the utterance, so a chip tapped mid-utterance applies
+        // from the next one instead of splitting one utterance across two commit paths.
+        cleaningThisUtterance = settings.cleanupEnabled && cleanupEngine?.isLoaded == true
+        if (cleaningThisUtterance) {
+            cleanupPipeline.begin()
+        } else if (settings.cleanupEnabled) {
+            prefetchCleanupModel()
+        }
+
         localSession.begin()
         startRecording(choice, sink = localSession::onFrames)
 
@@ -327,6 +434,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // this returns the commits have been posted — in order, because the main looper runs posted
             // tasks in order and the worker posted them in the order it produced them.
             val whole = localSession.finish()
+            // D-021: a unit's text is committed only after its cleanup pass, so the utterance is not over
+            // until the queue is empty. This is the tail D-032 priced (~0.4-1.3 s for a few seconds of
+            // speech, more for one long unbroken unit).
+            if (cleaningThisUtterance) cleanupPipeline.drain()
             val tailMs = SystemClock.elapsedRealtime() - stoppedAt
 
             reportLocal(audioSeconds, tailMs, whole)
@@ -341,15 +452,46 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * honest join, and the join rule itself is pinned by `UtteranceTextTest`.
      */
     private fun onLocalUnit(unit: String) {
-        scope.launch(Dispatchers.Main.immediate) {
-            val connection = currentInputConnection
-            if (connection == null) {
-                // Focus moved. Saying so beats text that silently goes nowhere.
-                commitNote = "no text field is focused — nothing committed"
-                return@launch
-            }
-            connection.commitText(if (unitsCommitted > 0) " $unit" else unit, 1)
-            unitsCommitted++
+        if (cleaningThisUtterance) {
+            // D-021: the unit is queued and reaches the cursor only after its cleanup pass, so this returns
+            // immediately and the commit happens later, on the main thread, from the pipeline.
+            cleanupPipeline.submit(unit)
+            return
+        }
+        scope.launch(Dispatchers.Main.immediate) { commitUnit(unit) }
+    }
+
+    /**
+     * Puts one unit's text at the cursor. **Everything** that reaches the cursor goes through here, so the
+     * joining rule lives in one place: units are separate recognitions, so every unit after the first needs
+     * its leading space. The cleanup stage supplies real punctuation of its own, which is why this is one
+     * space and not something cleverer.
+     */
+    private fun commitUnit(text: String, failureNote: String? = null) {
+        val connection = currentInputConnection
+        if (connection == null) {
+            // Focus moved. Saying so beats text that silently goes nowhere.
+            commitNote = "no text field is focused — nothing committed"
+            return
+        }
+        val body = text.trim()
+        if (body.isEmpty()) return
+        connection.commitText(if (unitsCommitted > 0) " $body" else body, 1)
+        unitsCommitted++
+        if (failureNote != null) commitNote = "a unit failed closed — $failureNote"
+    }
+
+    /**
+     * Loads the cleanup model for the *next* utterance, off the ASR's thread. Used when cleanup is on but
+     * the model is not ready yet — the utterance in progress goes out uncleaned and says so rather than
+     * waiting for a 3.2 s load mid-dictation.
+     */
+    private fun prefetchCleanupModel() {
+        if (!settings.cleanupEnabled) return
+        if (cleanupEngine?.isLoaded == true) return
+        scope.launch {
+            withContext(cleanupDispatcher) { engineForUtterance().load() }
+            if (!recorder.isRecording && inFlight?.isActive != true) panel?.setStatus(idleStatus())
         }
     }
 
@@ -390,6 +532,18 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             ))
             }
             if (stoppedBySilence) append(" · stopped on silence")
+            if (cleaningThisUtterance) {
+                val state = cleanupPipeline.state
+                append(" · cleaned ${state.cleanedUnits}/${state.units} unit(s)")
+                if (state.failedUnits > 0) {
+                    append(" (${state.failedUnits} failed closed — the recogniser's text stands)")
+                }
+                cleanupPipeline.lastPass?.takeIf { it.cleaned }?.let { pass ->
+                    append(" · last pass %.0f ms prompt + %.0f ms decode".format(pass.promptTimeMs, pass.decodeTimeMs))
+                }
+            } else if (settings.cleanupEnabled) {
+                append(" · cleanup was on but not ready — this text is the recogniser's own")
+            }
             if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
             if (localSession.droppedFrames > 0) {
                 append(" · ${localSession.droppedFrames} audio frame(s) dropped (engine behind)")
@@ -524,6 +678,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             if (stopAfterMs > 0 && boundary.hasSpeech) {
                 append(" · stops in %.1f s".format((stopAfterMs / 1000.0 - boundary.silenceFor).coerceAtLeast(0.0)))
             }
+            if (cleaningThisUtterance) {
+                // The queue depth is D-021's own gate, visible: if it climbs, cleanup is not keeping up.
+                append(" · cleaning${if (cleanupPipeline.queued > 0) " (${cleanupPipeline.queued} queued)" else ""}")
+            } else if (settings.cleanupEnabled) {
+                append(" · cleanup on but model not ready")
+            }
             commitNote?.let { append(" · $it") }
         } else {
             append(" · cleanup ${if (settings.cleanupEnabled) "full" else "off"}")
@@ -593,6 +753,9 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         // Dropping the stream is all a cancel needs: the recogniser stays resident (D-010) and
         // nothing was committed, which is what "cancel" has to mean.
         localSession.abort()
+        // Nothing queued is committed: dropping the queue is what makes "cancel" mean cancel.
+        cleanupPipeline.abort()
+        cleaningThisUtterance = false
         partialWords = 0
         unitsCommitted = 0
         commitNote = null
@@ -605,7 +768,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private fun idleStatus(): String {
         val choice = currentChoice()
-        return "${getString(R.string.ime_status_ready)} · engine: ${choice.engine.label} (${choice.note})"
+        val base = "${getString(R.string.ime_status_ready)} · engine: ${choice.engine.label} (${choice.note})"
+        if (choice.engine != Engine.LOCAL) return base
+        val cleanup = when {
+            !settings.cleanupEnabled -> "cleanup off"
+            cleanupEngine?.isLoaded == true -> "cleanup ready"
+            else -> "cleanup model not loaded"
+        }
+        return "$base · $cleanup"
     }
 
     companion object {
