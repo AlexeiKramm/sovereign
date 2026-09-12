@@ -11,6 +11,13 @@ import fi.ak.smartvoice.asr.ModelDownloadProgress
 import fi.ak.smartvoice.asr.ModelDownloadResult
 import fi.ak.smartvoice.asr.ModelDownloader
 import fi.ak.smartvoice.audio.WavRecorder
+import fi.ak.smartvoice.cleanup.CleanupModel
+import fi.ak.smartvoice.cleanup.CleanupModelStore
+import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.cleanup.FileBytes
+import fi.ak.smartvoice.cleanup.PullProgress
+import fi.ak.smartvoice.cleanup.SdkState
+import com.geniex.sdk.ModelManagerWrapper
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
@@ -69,8 +76,26 @@ sealed interface ModelStatus {
     data class Failed(val message: String) : ModelStatus
 }
 
+/**
+ * State of the **cleanup** model, which GenieX's own model manager owns (D-030) — a deliberately
+ * separate download path from the ASR model above, because the SDK knows which files its runtime
+ * needs for a given GGUF and we do not.
+ *
+ * `Absent` carries a note rather than a bare flag: during the spike the SDK's `init` callback did
+ * not need to be awaited for the manager to work, so "init unconfirmed" is a fact worth showing
+ * instead of hiding behind a boolean.
+ */
+sealed interface CleanupStatus {
+    data object Checking : CleanupStatus
+    data class Absent(val note: String?) : CleanupStatus
+    data class Pulling(val progress: PullProgress) : CleanupStatus
+    data class Installed(val bytes: Long) : CleanupStatus
+    data class Failed(val message: String) : CleanupStatus
+}
+
 class DictationViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val app: Application = application
     private val settings = AppSettings(application)
     private val recorder = WavRecorder()
     private var ticker: Job? = null
@@ -120,7 +145,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _state = MutableStateFlow<DictationUiState>(DictationUiState.Idle)
     val state: StateFlow<DictationUiState> = _state.asStateFlow()
 
+    private val _cleanupStatus = MutableStateFlow<CleanupStatus>(CleanupStatus.Checking)
+    val cleanupStatus: StateFlow<CleanupStatus> = _cleanupStatus.asStateFlow()
+
+    private var cleanupPull: Job? = null
+
     val modelBytes: Long get() = AsrModels.TOTAL_BYTES
+
+    /** The catalogue entry the user picked; unknown or unset means the default (D-029 item 3). */
+    val cleanupModel: CleanupModel get() = CleanupModels.byRepository(settings.cleanupModelId)
+
+    init {
+        refreshCleanupStatus()
+    }
 
     // ------------------------------------------------------------------ settings
 
@@ -236,6 +273,100 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             }
             _loadProbe.value = null
             _modelStatus.value = currentModelStatus()
+        }
+    }
+
+    // ------------------------------------------------------------------ cleanup model (D-030)
+
+    /**
+     * Asks the SDK what is actually on disk. This is the only honest source: the model manager owns
+     * the files, and it resumes its own downloads.
+     */
+    fun refreshCleanupStatus() {
+        if (_cleanupStatus.value is CleanupStatus.Pulling) return
+        viewModelScope.launch {
+            _cleanupStatus.value = CleanupStatus.Checking
+            _cleanupStatus.value = readCleanupStatus()
+        }
+    }
+
+    private suspend fun readCleanupStatus(): CleanupStatus {
+        val sdk = CleanupModelStore.ensureReady(app)
+        if (sdk is SdkState.NotReady) return CleanupStatus.Failed("GenieX init failed — ${sdk.message}")
+        val note = (sdk as? SdkState.Unconfirmed)?.let {
+            "SDK init: no callback within 10 s, so this proceeds as the spike's probe did (D-029)."
+        }
+        val model = cleanupModel
+        return if (CleanupModelStore.paths(app, model) == null) {
+            CleanupStatus.Absent(note)
+        } else {
+            CleanupStatus.Installed(CleanupModelStore.installedBytes(app, model))
+        }
+    }
+
+    fun pullCleanupModel() {
+        if (_cleanupStatus.value is CleanupStatus.Pulling) return
+        val model = cleanupModel
+        cleanupPull = viewModelScope.launch {
+            _cleanupStatus.value = CleanupStatus.Pulling(
+                PullProgress(0f, 0L, model.approximateBytes, "", 0, 0),
+            )
+            val sdk = CleanupModelStore.ensureReady(app)
+            if (sdk is SdkState.NotReady) {
+                _cleanupStatus.value = CleanupStatus.Failed("GenieX init failed — ${sdk.message}")
+                return@launch
+            }
+            try {
+                CleanupModelStore.pull(model).collect { event ->
+                    when (event) {
+                        is ModelManagerWrapper.PullEvent.Progress -> {
+                            _cleanupStatus.value = CleanupStatus.Pulling(
+                                CleanupModels.progressOf(
+                                    event.files.map {
+                                        FileBytes(it.file_name, it.downloaded_bytes, it.total_bytes)
+                                    },
+                                ),
+                            )
+                        }
+                        // Not trusted as "installed": the state is re-read from the SDK below, so a
+                        // completion event cannot make the screen claim a file that is not there.
+                        is ModelManagerWrapper.PullEvent.Completed -> Unit
+                        is ModelManagerWrapper.PullEvent.Error -> {
+                            _cleanupStatus.value =
+                                CleanupStatus.Failed("download failed (code ${event.code}) — ${event.message}")
+                        }
+                    }
+                }
+                if (_cleanupStatus.value !is CleanupStatus.Failed) {
+                    _cleanupStatus.value = readCleanupStatus()
+                }
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                _cleanupStatus.value = CleanupStatus.Failed(t.message ?: t::class.java.simpleName)
+            }
+        }
+    }
+
+    /**
+     * Cancels the pull. The SDK's manager keeps what it has already fetched, so the bytes are not
+     * wasted and a later download resumes.
+     */
+    fun cancelCleanupPull() {
+        cleanupPull?.cancel()
+        cleanupPull = null
+        viewModelScope.launch {
+            _cleanupStatus.value = CleanupStatus.Checking
+            _cleanupStatus.value = readCleanupStatus()
+        }
+    }
+
+    fun deleteCleanupModel() {
+        viewModelScope.launch {
+            _cleanupStatus.value = CleanupStatus.Checking
+            _cleanupStatus.value = CleanupModelStore.remove(app, cleanupModel).fold(
+                onSuccess = { readCleanupStatus() },
+                onFailure = { CleanupStatus.Failed(it.message ?: "delete failed") },
+            )
         }
     }
 
@@ -382,6 +513,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         ticker?.cancel()
+        cleanupPull?.cancel()
         recorder.cancel()
         localSession.abort()
         localEngine.unload()

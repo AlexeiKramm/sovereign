@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import fi.ak.smartvoice.cleanup.CleanupModel
+import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.EnginePreference
@@ -52,6 +54,7 @@ fun DictationScreen(
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val modelStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
+    val cleanupStatus by viewModel.cleanupStatus.collectAsStateWithLifecycle()
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -90,6 +93,17 @@ fun DictationScreen(
             onCancelDownload = viewModel::cancelModelDownload,
             onDeleteModel = viewModel::deleteModel,
             onProbe = viewModel::probeLocalEngine,
+        )
+
+        HorizontalDivider()
+
+        CleanupSection(
+            model = viewModel.cleanupModel,
+            status = cleanupStatus,
+            onPull = viewModel::pullCleanupModel,
+            onCancel = viewModel::cancelCleanupPull,
+            onDelete = viewModel::deleteCleanupModel,
+            onRefresh = viewModel::refreshCleanupStatus,
         )
 
         HorizontalDivider()
@@ -258,6 +272,101 @@ private fun EngineSection(
     }
 }
 
+/**
+ * The cleanup model's own download — the *second* download path, by decision rather than accident
+ * (D-030): GenieX's model manager knows which files its runtime needs for a GGUF, while the ASR
+ * model above stays on our own sha256-pinned downloader, which is the only thing that can promise
+ * byte-exact artifacts.
+ *
+ * The stage that consumes this model is not wired into dictation yet, and the screen says so rather
+ * than implying that installing it changes what the keyboard does.
+ */
+@Composable
+private fun CleanupSection(
+    model: CleanupModel,
+    status: CleanupStatus,
+    onPull: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Text("On-device cleanup model", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "%s · %s · %s — pulled by the GenieX model manager and run on the Hexagon NPU (D-030).".format(
+            model.label,
+            model.precision,
+            CleanupModels.sizeLabel(model.approximateBytes),
+        ),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Text(model.note, style = MaterialTheme.typography.bodySmall)
+
+    when (status) {
+        CleanupStatus.Checking -> Text("Checking…", style = MaterialTheme.typography.bodySmall)
+
+        is CleanupStatus.Absent -> {
+            Text(
+                "Not downloaded. The local tier still dictates without it and commits the " +
+                    "recogniser's own text; cleanup is what this model is for.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            status.note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Button(onClick = onPull) { Text("Download cleanup model") }
+        }
+
+        is CleanupStatus.Pulling -> {
+            val p = status.progress
+            Text(
+                if (p.totalFiles > 0) {
+                    "%s of %s — %.0f %% (%s, file %d of %d)".format(
+                        CleanupModels.sizeLabel(p.downloadedBytes),
+                        CleanupModels.sizeLabel(p.totalBytes),
+                        p.overall * 100,
+                        p.fileName.ifBlank { "…" },
+                        p.fileIndex + 1,
+                        p.totalFiles,
+                    )
+                } else {
+                    "starting…"
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            LinearProgressIndicator(progress = { p.overall }, modifier = Modifier.fillMaxWidth())
+            OutlinedButton(onClick = onCancel) { Text("Cancel download") }
+            Text(
+                "Cancelling keeps what the SDK has already fetched, so a later download resumes.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        is CleanupStatus.Installed -> {
+            Text(
+                "Downloaded — %s on disk, all of it managed by the SDK's model manager.".format(
+                    CleanupModels.sizeLabel(status.bytes),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onRefresh) { Text("Re-check") }
+                OutlinedButton(onClick = onDelete) { Text("Delete cleanup model") }
+            }
+            Text(
+                "Not feeding dictation yet — the cleanup stage inside the streaming pipeline is the " +
+                    "next slice (D-031), so nothing dictated today is cleaned by this model.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        is CleanupStatus.Failed -> {
+            Text("Cleanup model: ${status.message}", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onPull) { Text("Retry download") }
+                OutlinedButton(onClick = onRefresh) { Text("Re-check") }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ServerSection(
     url: String,
@@ -329,8 +438,9 @@ private fun LocalResultCard(outcome: DictationOutcome) {
             )
             Text(outcome.note, style = MaterialTheme.typography.bodySmall)
             Text(
-                "No cleanup stage ran: the on-device LLM is not built yet (D-024), so this is the " +
-                    "model's own text with its own punctuation.",
+                "No cleanup stage ran: the cleanup model is downloadable now but not yet wired " +
+                    "into dictation (D-031), so this is the recogniser's own text, with its own " +
+                    "punctuation.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

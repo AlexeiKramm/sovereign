@@ -2,6 +2,7 @@ package fi.ak.smartvoice.data
 
 import android.content.Context
 import androidx.core.content.edit
+import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.engine.EnginePreference
 
 /**
@@ -41,6 +42,14 @@ class AppSettings(context: Context) {
         get() = EnginePreference.fromStored(prefs.getString(KEY_ENGINE, null))
         set(value) = prefs.edit { putString(KEY_ENGINE, value.storedValue) }
 
+    /**
+     * Which cleanup model the local tier runs (D-029 item 3's catalogue). Stored as the repository
+     * id, not an index: reordering or extending the catalogue must not silently switch the model.
+     */
+    var cleanupModelId: String
+        get() = prefs.getString(KEY_CLEANUP_MODEL, null) ?: CleanupModels.DEFAULT.repository
+        set(value) = prefs.edit { putString(KEY_CLEANUP_MODEL, value) }
+
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"
 
@@ -58,5 +67,6 @@ class AppSettings(context: Context) {
         private const val KEY_CLEANUP = "cleanup_enabled"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_ENGINE = "engine_preference"
+        private const val KEY_CLEANUP_MODEL = "cleanup_model_id"
     }
 }
