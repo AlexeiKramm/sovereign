@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import fi.ak.smartvoice.cleanup.CachedModel
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.engine.DictationOutcome
@@ -55,6 +56,10 @@ fun DictationScreen(
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val modelStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val cleanupStatus by viewModel.cleanupStatus.collectAsStateWithLifecycle()
+    val cleanupCache by viewModel.cleanupCache.collectAsStateWithLifecycle()
+    val cleanupCases by viewModel.cleanupCases.collectAsStateWithLifecycle()
+    val cleanupBusy by viewModel.cleanupBusy.collectAsStateWithLifecycle()
+    val cleanupLoad by viewModel.cleanupLoad.collectAsStateWithLifecycle()
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -100,10 +105,24 @@ fun DictationScreen(
         CleanupSection(
             model = viewModel.cleanupModel,
             status = cleanupStatus,
+            cache = cleanupCache,
             onPull = viewModel::pullCleanupModel,
             onCancel = viewModel::cancelCleanupPull,
             onDelete = viewModel::deleteCleanupModel,
+            onDeleteCached = viewModel::deleteCachedModel,
             onRefresh = viewModel::refreshCleanupStatus,
+        )
+
+        HorizontalDivider()
+
+        CleanupBenchSection(
+            busy = cleanupBusy,
+            load = cleanupLoad,
+            cases = cleanupCases,
+            onRun = viewModel::runCleanupCases,
+            onPrefixCheck = viewModel::checkPrefixReuse,
+            onLoad = viewModel::loadCleanupModel,
+            onUnload = viewModel::unloadCleanupModel,
         )
 
         HorizontalDivider()
@@ -285,9 +304,11 @@ private fun EngineSection(
 private fun CleanupSection(
     model: CleanupModel,
     status: CleanupStatus,
+    cache: List<CachedModel>,
     onPull: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    onDeleteCached: (String) -> Unit,
     onRefresh: () -> Unit,
 ) {
     Text("On-device cleanup model", style = MaterialTheme.typography.titleMedium)
@@ -362,6 +383,102 @@ private fun CleanupSection(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onPull) { Text("Retry download") }
                 OutlinedButton(onClick = onRefresh) { Text("Re-check") }
+            }
+        }
+    }
+
+    if (cache.isNotEmpty()) {
+        Text("GenieX model cache", style = MaterialTheme.typography.titleSmall)
+        cache.forEach { entry ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "%s — %s%s".format(
+                        entry.id,
+                        CleanupModels.sizeLabel(entry.bytes),
+                        if (entry.inCatalogue) "" else " (not in this app's catalogue)",
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = { onDeleteCached(entry.id) }) { Text("Delete") }
+            }
+        }
+        Text(
+            "Everything the SDK's model manager holds, each size measured from that model's own files " +
+                "— a leftover from the NPU spike shows up here so it can be reclaimed, and the sizes " +
+                "add up to what the models actually cost on the phone.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+/**
+ * The cleanup test bench. Two questions could not be answered from documentation and were too
+ * valuable to leave to the first real dictation: **does Gemma clean Finnish**, and **does the carried
+ * context do anything**. Each case's cleaned output becomes the next case's context, which is exactly
+ * how the streaming pipeline will carry the tail (D-032).
+ *
+ * The prompt actually sent is shown, because a chat template that drops the system message would be
+ * invisible otherwise — and this is the screen where that has to be visible.
+ */
+@Composable
+private fun CleanupBenchSection(
+    busy: String?,
+    load: String?,
+    cases: List<CleanupCase>,
+    onRun: () -> Unit,
+    onPrefixCheck: () -> Unit,
+    onLoad: () -> Unit,
+    onUnload: () -> Unit,
+) {
+    Text("Cleanup test bench", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Runs the real prompt through the real runtime on this phone and reports the SDK's own " +
+            "timings. Nothing here changes dictation — it is a bench, not the pipeline.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    load?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onRun, enabled = busy == null) { Text("Run cases") }
+        OutlinedButton(onClick = onPrefixCheck, enabled = busy == null) { Text("Prefix-cache check") }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onLoad, enabled = busy == null) { Text("Load model") }
+        OutlinedButton(onClick = onUnload, enabled = busy == null) { Text("Unload") }
+    }
+
+    busy?.let {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator()
+            Text(it)
+        }
+    }
+
+    cases.forEach { case ->
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(case.label, style = MaterialTheme.typography.titleSmall)
+                Text("in:  ${case.input}", style = MaterialTheme.typography.bodySmall)
+                SelectionContainer {
+                    Text("out: ${case.output}")
+                }
+                Text(case.detail, style = MaterialTheme.typography.bodySmall)
+                if (case.prompt.isNotBlank()) {
+                    Text(
+                        "prompt sent (first 400 chars): ${case.prompt.take(400)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }

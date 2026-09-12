@@ -11,10 +11,13 @@ import fi.ak.smartvoice.asr.ModelDownloadProgress
 import fi.ak.smartvoice.asr.ModelDownloadResult
 import fi.ak.smartvoice.asr.ModelDownloader
 import fi.ak.smartvoice.audio.WavRecorder
+import fi.ak.smartvoice.cleanup.CachedModel
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.FileBytes
+import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.cleanup.PullProgress
 import fi.ak.smartvoice.cleanup.SdkState
 import com.geniex.sdk.ModelManagerWrapper
@@ -75,6 +78,20 @@ sealed interface ModelStatus {
     data object Installed : ModelStatus
     data class Failed(val message: String) : ModelStatus
 }
+
+/**
+ * One line of the cleanup test bench: what went in, what came out, and what it cost. `cleaned = false`
+ * means the pass failed closed and the input text is what stands (that is why `output` equals `input`
+ * rather than being empty).
+ */
+data class CleanupCase(
+    val label: String,
+    val input: String,
+    val output: String,
+    val cleaned: Boolean,
+    val detail: String,
+    val prompt: String,
+)
 
 /**
  * State of the **cleanup** model, which GenieX's own model manager owns (D-030) — a deliberately
@@ -149,6 +166,22 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     val cleanupStatus: StateFlow<CleanupStatus> = _cleanupStatus.asStateFlow()
 
     private var cleanupPull: Job? = null
+
+    private var cleanupEngine: GenieXCleanupEngine? = null
+
+    private val _cleanupCases = MutableStateFlow<List<CleanupCase>>(emptyList())
+    val cleanupCases: StateFlow<List<CleanupCase>> = _cleanupCases.asStateFlow()
+
+    /** Non-null while a bench step runs, and it is the step's own description. */
+    private val _cleanupBusy = MutableStateFlow<String?>(null)
+    val cleanupBusy: StateFlow<String?> = _cleanupBusy.asStateFlow()
+
+    /** Cold-load evidence for the cleanup model (D-010 rule 2), or an unload/failure message. */
+    private val _cleanupLoad = MutableStateFlow<String?>(null)
+    val cleanupLoad: StateFlow<String?> = _cleanupLoad.asStateFlow()
+
+    private val _cleanupCache = MutableStateFlow<List<CachedModel>>(emptyList())
+    val cleanupCache: StateFlow<List<CachedModel>> = _cleanupCache.asStateFlow()
 
     val modelBytes: Long get() = AsrModels.TOTAL_BYTES
 
@@ -296,11 +329,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         val note = (sdk as? SdkState.Unconfirmed)?.let {
             "SDK init: no callback within 10 s, so this proceeds as the spike's probe did (D-029)."
         }
+        _cleanupCache.value = CleanupModelStore.installedModels(app)
         val model = cleanupModel
         return if (CleanupModelStore.paths(app, model) == null) {
             CleanupStatus.Absent(note)
         } else {
             CleanupStatus.Installed(CleanupModelStore.installedBytes(app, model))
+        }
+    }
+
+    /** Deletes anything the manager has, including ids the catalogue does not list. */
+    fun deleteCachedModel(id: String) {
+        viewModelScope.launch {
+            _cleanupBusy.value = "deleting $id…"
+            CleanupModelStore.removeById(app, id).onFailure {
+                _cleanupLoad.value = "delete failed — ${it.message}"
+            }
+            _cleanupStatus.value = CleanupStatus.Checking
+            _cleanupStatus.value = readCleanupStatus()
+            _cleanupBusy.value = null
         }
     }
 
@@ -368,6 +415,136 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 onFailure = { CleanupStatus.Failed(it.message ?: "delete failed") },
             )
         }
+    }
+
+    // ------------------------------------------------------------------ cleanup test bench
+
+    /**
+     * One engine per model, reused across bench runs, so the cold load is paid once — the same
+     * residency rule the streaming pipeline will follow (D-010's lazy-sticky load, D-028's no automatic
+     * unload). Changing the catalogue selection discards the old instance.
+     */
+    private fun engine(): GenieXCleanupEngine {
+        val wanted = cleanupModel
+        cleanupEngine?.let { existing ->
+            if (existing.uses(wanted)) return existing
+            existing.unload()
+        }
+        return GenieXCleanupEngine(app, wanted).also { cleanupEngine = it }
+    }
+
+    /** D-010 rule 2's number for the cleanup model: the cold load, measured on the phone. */
+    fun loadCleanupModel() {
+        if (_cleanupBusy.value != null) return
+        viewModelScope.launch {
+            _cleanupBusy.value = "loading ${cleanupModel.label} on the NPU…"
+            val engine = engine()
+            _cleanupLoad.value = engine.load().fold(
+                onSuccess = { "loaded in ${engine.lastLoadMs} ms — resident until unloaded (D-028)" },
+                onFailure = { "load failed — ${it.message}" },
+            )
+            _cleanupBusy.value = null
+        }
+    }
+
+    fun unloadCleanupModel() {
+        cleanupEngine?.unload()
+        _cleanupLoad.value = "unloaded — the next pass pays the cold load again"
+    }
+
+    /**
+     * Runs the fixed cases in order, each case's cleaned output becoming the *context* for the next
+     * one — which is how the streaming pipeline will carry the tail (D-032). Two questions live here
+     * that no document could answer: whether Gemma cleans Finnish, and whether the carried context
+     * changes anything.
+     */
+    fun runCleanupCases() {
+        if (_cleanupBusy.value != null) return
+        viewModelScope.launch {
+            val engine = engine()
+            val results = mutableListOf<CleanupCase>()
+            val cleanedSoFar = StringBuilder()
+            _cleanupCases.value = emptyList()
+
+            CLEANUP_CASES.forEachIndexed { index, spec ->
+                _cleanupBusy.value = "case ${index + 1} of ${CLEANUP_CASES.size} — ${spec.label}"
+                val pass = engine.clean(
+                    unit = spec.unit,
+                    context = if (spec.usesContext) cleanedSoFar.toString().ifBlank { null } else null,
+                )
+                results += CleanupCase(
+                    label = spec.label,
+                    input = spec.unit,
+                    output = pass.text,
+                    cleaned = pass.cleaned,
+                    detail = describe(pass),
+                    prompt = pass.promptSent,
+                )
+                _cleanupCases.value = results.toList()
+                if (pass.cleaned) {
+                    if (cleanedSoFar.isNotEmpty()) cleanedSoFar.append(' ')
+                    cleanedSoFar.append(pass.text)
+                }
+            }
+            _cleanupLoad.value = "resident · cold load was ${engine.lastLoadMs} ms"
+            _cleanupBusy.value = null
+        }
+    }
+
+    /**
+     * D-014's two-call test, which was recorded as "undocumented, not unsupported" and stayed that way:
+     * the same prompt twice. If the runtime keeps its KV cache between calls, the second pass's prefill
+     * time collapses; if not, the two numbers match. Either answer is useful, and neither is a guess.
+     */
+    fun checkPrefixReuse() {
+        if (_cleanupBusy.value != null) return
+        viewModelScope.launch {
+            val engine = engine()
+            _cleanupBusy.value = "prefix-cache check — first pass"
+            val first = engine.clean(PREFIX_CHECK_UNIT, null)
+            _cleanupBusy.value = "prefix-cache check — second pass, identical prompt"
+            val second = engine.clean(PREFIX_CHECK_UNIT, null)
+
+            val ratio = if (first.promptTimeMs > 0.0) second.promptTimeMs / first.promptTimeMs else 1.0
+            val verdict = when {
+                !first.cleaned || !second.cleaned ->
+                    "inconclusive — a pass failed closed (${second.note.ifBlank { first.note }})"
+                ratio <= 0.35 ->
+                    "prefix IS reused — second prefill %.0f ms vs %.0f ms (%.2f×)".format(
+                        second.promptTimeMs, first.promptTimeMs, ratio,
+                    )
+                else ->
+                    "prefix is NOT reused — second prefill %.0f ms vs %.0f ms (%.2f×), so the prompt " +
+                        "is re-prefilled on every pass".format(second.promptTimeMs, first.promptTimeMs, ratio)
+            }
+            _cleanupCases.value = _cleanupCases.value + CleanupCase(
+                label = "D-014 two-call check (identical prompt twice)",
+                input = PREFIX_CHECK_UNIT,
+                output = verdict,
+                cleaned = first.cleaned && second.cleaned,
+                detail = "first: prompt %.0f ms, %d tok · second: prompt %.0f ms, %d tok".format(
+                    first.promptTimeMs, first.promptTokens, second.promptTimeMs, second.promptTokens,
+                ),
+                prompt = "",
+            )
+            _cleanupBusy.value = null
+        }
+    }
+
+    /** What the pass cost, in the SDK's own numbers — the same ones the spike's tables quote. */
+    private fun describe(pass: CleanupPass): String = if (!pass.cleaned) {
+        "failed closed — ${pass.note}"
+    } else {
+        "ttft %.0f ms · prompt %.0f ms (%d tok) · decode %.0f ms (%d tok) · prefill %.0f tps · decode %.1f tps · stop %s".format(
+            pass.ttftMs,
+            pass.promptTimeMs,
+            pass.promptTokens,
+            pass.decodeTimeMs,
+            pass.generatedTokens,
+            if (pass.promptTimeMs > 0.0) pass.promptTokens * 1000.0 / pass.promptTimeMs else 0.0,
+            if (pass.decodeTimeMs > 0.0) pass.generatedTokens * 1000.0 / pass.decodeTimeMs else 0.0,
+            pass.stopReason.ifBlank { "unknown" },
+        )
     }
 
     // ------------------------------------------------------------------ dictation
@@ -514,6 +691,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         ticker?.cancel()
         cleanupPull?.cancel()
+        // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
+        cleanupEngine?.unload()
+        cleanupEngine = null
         recorder.cancel()
         localSession.abort()
         localEngine.unload()
@@ -523,5 +703,37 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     companion object {
         private const val TICK_MS = 200L
+
+        /** One bench case. `usesContext` is the continuation case, which must see the previous output. */
+        private data class CleanupCaseSpec(val label: String, val unit: String, val usesContext: Boolean = false)
+
+        /**
+         * Fixed sample text, not audio: the point is to see the *cleanup* stage's behaviour in English
+         * and Finnish before any of it touches dictation. The real fixtures are dictation from the
+         * phone (`~/ime-bench/cases.json`), which the app cannot reach — these are a smoke test, and
+         * they are labelled as such on screen.
+         */
+        private val CLEANUP_CASES = listOf(
+            CleanupCaseSpec(
+                label = "English, one unit",
+                unit = "okay so i think we should move the meeting to thursday or friday next week",
+            ),
+            CleanupCaseSpec(
+                label = "Finnish, one unit",
+                unit = "tuota niin tota mä ajattelin että voitaisiinko me siirtää se palaveri " +
+                    "torstaille tai perjantaille ensi viikolla",
+            ),
+            CleanupCaseSpec(
+                label = "Finnish, with a name to repair",
+                unit = "joo ja sit mä kysyin matiakselta että onko se gemma malli jo ladattu",
+            ),
+            CleanupCaseSpec(
+                label = "Continuation — carries the previous output as context",
+                unit = "ja meidän pitää vielä varata se kokoushuone keskiviikkoon mennessä",
+                usesContext = true,
+            ),
+        )
+
+        private const val PREFIX_CHECK_UNIT = "yes i think that works lets go with friday"
     }
 }

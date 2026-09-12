@@ -74,6 +74,13 @@ object CleanupModels {
     }
 }
 
+/**
+ * One model the GenieX manager has on disk. `inCatalogue` is false for anything this app does not
+ * list — a probe model left over from the spike, most likely — so the screen can say so rather than
+ * pretending it does not exist.
+ */
+data class CachedModel(val id: String, val bytes: Long, val inCatalogue: Boolean)
+
 /** One file's progress, lifted out of the SDK's own bean so the arithmetic is testable off-device. */
 data class FileBytes(val name: String, val downloaded: Long, val total: Long)
 

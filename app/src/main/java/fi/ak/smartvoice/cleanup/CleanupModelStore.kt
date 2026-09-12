@@ -111,16 +111,48 @@ object CleanupModelStore {
         return paths
     }
 
-    /** Bytes actually on disk, so the screen can show what the download really cost. */
-    suspend fun installedBytes(context: Context, model: CleanupModel): Long {
-        val paths = paths(context, model) ?: return 0L
-        val directory = paths.model_dir.takeIf { it.isNotBlank() }?.let(::File)
-            ?: File(paths.model_path).parentFile
-            ?: return File(paths.model_path).length()
-        return withContext(Dispatchers.IO) {
-            directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    /**
+     * Bytes on disk for **this model only**.
+     *
+     * Measured from the files the SDK says belong to it — `model_path`, `tokenizer_path`,
+     * `mmproj_path` — and never by walking a directory. The model manager nests every model under one
+     * shared cache root, so a directory walk counts the *other* models too: it reported 4.34 GB for a
+     * 3.35 GB model, with a leftover 0.6B probe model from the spike inside that number (found on the
+     * device, 2026-09-12). A size the user cannot trust is worse than no size.
+     */
+    suspend fun installedBytes(context: Context, model: CleanupModel): Long =
+        paths(context, model)?.ownFiles()?.sumOf { it.length() } ?: 0L
+
+    /**
+     * Every model the manager has locally, each with its own size — **including ids this app's
+     * catalogue does not know about** (the spike's probe models, for instance). A cache the user
+     * cannot see is a cache the user cannot reclaim, and the probe's 0.6B model is exactly that.
+     */
+    suspend fun installedModels(context: Context): List<CachedModel> {
+        if (ensureReady(context) is SdkState.NotReady) return emptyList()
+        val ids = withContext(Dispatchers.IO) {
+            runCatching { ModelManagerWrapper.list() }.getOrNull().orEmpty()
         }
+        return ids.map { id ->
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { ModelManagerWrapper.getPaths(id) }.getOrNull()
+                    ?.ownFiles()?.sumOf { it.length() } ?: 0L
+            }
+            CachedModel(
+                id = id,
+                bytes = bytes,
+                inCatalogue = CleanupModels.ALL.any { it.repository == id },
+            )
+        }.sortedByDescending { it.bytes }
     }
+
+    private fun ModelPaths.ownFiles(): List<File> =
+        // listOfNotNull, because the SDK's bean types mmproj_path (and friends) as nullable: an LLM
+        // has no projector, and inventing one would be a load-time failure.
+        listOfNotNull(model_path, tokenizer_path, mmproj_path)
+            .filter { it.isNotBlank() }
+            .map(::File)
+            .filter { it.exists() }
 
     /**
      * The SDK's own progress stream. `hub = AUTO` and an explicit `ModelType.LLM` are set rather
@@ -140,22 +172,29 @@ object CleanupModelStore {
             ),
         )
 
+    suspend fun remove(context: Context, model: CleanupModel): Result<Unit> =
+        removeById(context, model.repository)
+
     /**
-     * Deletes the model through the SDK, then **re-checks** rather than trusting the return code:
-     * the caller is told what is true afterwards, not what a code claimed.
+     * Deletes any model the manager knows, by id — a catalogue update or a leftover probe model must
+     * not be undeletable just because this app never listed it. It then **re-checks** rather than
+     * trusting the return code: the caller is told what is true afterwards, not what a code claimed.
      */
-    suspend fun remove(context: Context, model: CleanupModel): Result<Unit> {
+    suspend fun removeById(context: Context, id: String): Result<Unit> {
         if (ensureReady(context) is SdkState.NotReady) {
             return Result.failure(IllegalStateException("SDK not ready — nothing was deleted"))
         }
         val code = withContext(Dispatchers.IO) {
-            runCatching { ModelManagerWrapper.remove(model.repository) }
+            runCatching { ModelManagerWrapper.remove(id) }
         }
         code.exceptionOrNull()?.let { return Result.failure(it) }
-        return if (paths(context, model) == null) {
-            Result.success(Unit)
+        val stillThere = withContext(Dispatchers.IO) {
+            runCatching { ModelManagerWrapper.getPaths(id) }.getOrNull()?.ownFiles()?.isNotEmpty() == true
+        }
+        return if (stillThere) {
+            Result.failure(IllegalStateException("still on disk after remove (code ${code.getOrNull()})"))
         } else {
-            Result.failure(IllegalStateException("the model is still on disk after remove (code ${code.getOrNull()})"))
+            Result.success(Unit)
         }
     }
 
