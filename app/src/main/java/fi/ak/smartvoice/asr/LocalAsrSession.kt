@@ -36,6 +36,12 @@ class LocalAsrSession(
      * unit commits the whole utterance exactly once and in order.
      */
     private val onUnit: (String) -> Unit = {},
+    /**
+     * The listener's timings, read at the start of each utterance so a settings change takes effect on
+     * the next one instead of requiring a new build. Nothing here is read mid-utterance: a threshold
+     * that changes under a running utterance would make its own boundaries inexplicable.
+     */
+    private val timings: () -> ListenerTimings = { ListenerTimings() },
 ) {
 
     private var queue: Channel<FloatArray>? = null
@@ -65,7 +71,7 @@ class LocalAsrSession(
      * appeared at my pauses" into either "the model never said endpoint" or "nothing was cut yet".
      */
     @Volatile
-    var boundaryState: BoundaryState = BoundaryState(0, 0, 0.0, 0.0)
+    var boundaryState: BoundaryState = boundary.snapshot()
         private set
 
     /** Frames the queue could not take because the engine is behind. Reported, never ignored. */
@@ -82,12 +88,18 @@ class LocalAsrSession(
         utterance.clear()
         unitCount = 0
         boundary.reset()
+        boundary.configureStability(timings().unitStableSeconds)
         boundaryState = boundary.snapshot()
     }
+
+    /** The timings this utterance is running with, for the status line and the report. */
+    var activeTimings: ListenerTimings = ListenerTimings()
+        private set
 
     /** Loads the model if needed and starts the drain loop. */
     suspend fun open(language: String): LocalAsrEngine.Availability {
         val queue = this.queue ?: error("begin() must be called before open()")
+        activeTimings = timings()
 
         val availability = withContext(dispatcher) { engine.load() }
         if (availability !is LocalAsrEngine.Availability.Loaded) {

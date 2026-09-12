@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import fi.ak.smartvoice.MainActivity
 import fi.ak.smartvoice.R
 import fi.ak.smartvoice.asr.AsrModels
+import fi.ak.smartvoice.asr.BoundaryState
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
 import fi.ak.smartvoice.audio.WavRecorder
@@ -95,6 +96,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     @Volatile
     private var commitNote: String? = null
 
+    /** True when the last utterance was ended by the silence rule rather than by the mic key. */
+    @Volatile
+    private var stoppedBySilence = false
+
     /** Cold-load time of the current utterance, when it paid for one (D-010 rule 2). */
     @Volatile
     private var coldLoadMs = 0L
@@ -115,6 +120,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             onPartialWords = { partialWords = it },
             // Also called on the ASR thread, in order, once per pause-delimited unit (D-032).
             onUnit = ::onLocalUnit,
+            // Read at the start of every utterance, so a settings change needs no new build (D-035).
+            timings = { settings.listenerTimings() },
         )
     }
 
@@ -169,7 +176,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         if (!TierPolicy.shouldPrefetch(settings.enginePreference, localEngine.availability())) return
 
         scope.launch {
-            withContext(asrDispatcher) { localEngine.load() }
+            withContext(asrDispatcher) {
+                // A changed pause threshold means the recogniser has to be rebuilt (D-035); doing it here
+                // rather than mid-utterance is the whole point of prefetching while the keyboard is up.
+                localEngine.applyPauseSilence(settings.pauseSilenceMs / 1000f)
+                localEngine.load()
+            }
             // Only report if the user has not started dictating in the meantime: the ticker owns the
             // status line from that point.
             if (!recorder.isRecording && inFlight?.isActive != true) panel?.setStatus(idleStatus())
@@ -268,6 +280,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         partialWords = 0
         unitsCommitted = 0
         commitNote = null
+        stoppedBySilence = false
 
         if (choice.engine == Engine.LOCAL) startLocalCapture(choice) else startRemoteCapture(choice)
     }
@@ -285,6 +298,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val paysColdLoad = localEngine.availability() != LocalAsrEngine.Availability.Loaded
         coldLoadMs = 0L
 
+        localEngine.applyPauseSilence(settings.pauseSilenceMs / 1000f)
         localSession.begin()
         startRecording(choice, sink = localSession::onFrames)
 
@@ -371,7 +385,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                     "boundary signal itself is the bug.")
             } else {
                 append(" · pauses: ${boundary.cutsByModel} by the model, ${boundary.cutsByTextStability} by text stability")
+            append(" · settings: pause %.1f s, stop after %.1f s".format(
+                settings.pauseSilenceMs / 1000.0, settings.stopAfterSilenceMs / 1000.0,
+            ))
             }
+            if (stoppedBySilence) append(" · stopped on silence")
             if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
             if (localSession.droppedFrames > 0) {
                 append(" · ${localSession.droppedFrames} audio frame(s) dropped (engine behind)")
@@ -439,11 +457,26 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         runCatching { recorder.start() }
             .onSuccess {
                 panel?.setListening(true)
-                panel?.setStatus(listeningStatus(choice, 0.0))
+                panel?.setStatus(listeningStatus(choice, 0.0, localSession.boundaryState, settings.stopAfterSilenceMs))
                 ticker = scope.launch {
                     while (isActive) {
                         delay(TICK_MS)
-                        panel?.setStatus(listeningStatus(choice, recorder.capturedSeconds))
+                        val state = localSession.boundaryState
+                        val stopAfterMs = settings.stopAfterSilenceMs
+                        panel?.setStatus(
+                            listeningStatus(choice, recorder.capturedSeconds, state, stopAfterMs),
+                        )
+                        // Auto-stop (D-035): the recording ends when the speaker has been silent long
+                        // enough *and* has actually said something. Silence before speech must never end
+                        // a recording the user has not spoken into yet, and the local tier is where this
+                        // applies — the server tier has no streaming signal to judge it from.
+                        if (choice.engine == Engine.LOCAL && stopAfterMs > 0 && state.hasSpeech &&
+                            state.silenceFor * 1000.0 >= stopAfterMs
+                        ) {
+                            stoppedBySilence = true
+                            stopAndTranscribe()
+                            return@launch
+                        }
                     }
                 }
             }
@@ -467,7 +500,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         }
     }
 
-    private fun listeningStatus(choice: EngineChoice, seconds: Double): String = buildString {
+    private fun listeningStatus(
+        choice: EngineChoice,
+        seconds: Double,
+        boundary: BoundaryState,
+        stopAfterMs: Int,
+    ): String = buildString {
         append("listening… %.1f s".format(seconds))
         append(" · ${choice.engine.label}")
         if (choice.engine == Engine.LOCAL) {
@@ -475,12 +513,16 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // unit becomes final, and nothing is rewritten (D-021). Both numbers are here because they
             // say different things: the engine is keeping up, and text is actually arriving.
             if (partialWords > 0) append(" · ~$partialWords word(s) so far")
-            val boundary = localSession.boundaryState
             append(" · ${boundary.cuts} pause(s) → $unitsCommitted at cursor")
             if (boundary.cuts == 0 && boundary.stableFor >= 1.0) {
                 // The number that makes a silent failure diagnosable: if this climbs and no unit is
                 // cut, the boundary signal is not working, not the user's pausing.
                 append(" · steady %.1f s".format(boundary.stableFor))
+            }
+            // The auto-stop gets a countdown, because a recording that ends by itself must never be a
+            // mystery: the number is the setting minus the silence measured so far.
+            if (stopAfterMs > 0 && boundary.hasSpeech) {
+                append(" · stops in %.1f s".format((stopAfterMs / 1000.0 - boundary.silenceFor).coerceAtLeast(0.0)))
             }
             commitNote?.let { append(" · $it") }
         } else {

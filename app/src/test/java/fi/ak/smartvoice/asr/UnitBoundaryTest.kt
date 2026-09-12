@@ -75,6 +75,42 @@ class UnitBoundaryTest {
     }
 
     @Test
+    fun `the silence timer counts from the last speech, and a cut does not restart it`() {
+        // The distinction that matters for the auto-stop (D-035): a cut means "speech was heard a
+        // moment ago", so sharing one timer between the cut and the silence measurement would make the
+        // recording wait for the pause threshold *plus* the auto-stop, i.e. feel wrong by a second.
+        val boundary = UnitBoundary()
+        boundary.onFrame(SECOND, "one two", false)                 // t=1.0, speech at 1.0
+        assertTrue(boundary.onFrame(SECOND, "one two", true))      // t=2.0, recogniser endpoint
+        assertEquals(1.0, boundary.silenceFor, 0.0001)
+        boundary.markCut()
+        assertEquals("markCut must not move the speech clock", 1.0, boundary.silenceFor, 0.0001)
+
+        // The stream was reset, so the next frame carries no text at all — still not a text change.
+        assertFalse(boundary.onFrame(SECOND, "", false))           // t=3.0
+        assertEquals(2.0, boundary.silenceFor, 0.0001)
+        assertTrue(boundary.hasSpeech)
+    }
+
+    @Test
+    fun `silence before the speaker starts reports no speech, so an auto-stop cannot fire`() {
+        val boundary = UnitBoundary()
+        repeat(5) { assertFalse(boundary.onFrame(SECOND, "", false)) }
+        assertFalse("nothing was said, so there is nothing to stop after", boundary.hasSpeech)
+        assertEquals(0.0, boundary.silenceFor, 0.0001)
+        assertEquals(5.0, boundary.seconds, 0.0001)
+    }
+
+    @Test
+    fun `the stability threshold is configurable between utterances`() {
+        val boundary = UnitBoundary(stableSeconds = 1.8)
+        boundary.configureStability(0.5)
+        boundary.onFrame(SECOND, "one", false)                      // t=1.0
+        assertTrue(boundary.onFrame(SECOND, "one", false))          // t=2.0, stable 1.0 >= 0.5
+        assertEquals(1, boundary.cutsByTextStability)
+    }
+
+    @Test
     fun `the snapshot reports what the status line shows`() {
         val boundary = UnitBoundary()
         boundary.onFrame(SECOND, "one", false)
@@ -83,6 +119,7 @@ class UnitBoundaryTest {
         assertEquals(1, snapshot.cutsByModel)
         assertEquals(1, snapshot.cuts)
         assertEquals(2.0, snapshot.seconds, 0.0001)
+        assertTrue(snapshot.hasSpeech)
     }
 
     private companion object {

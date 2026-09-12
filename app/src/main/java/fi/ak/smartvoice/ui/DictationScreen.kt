@@ -42,6 +42,7 @@ import fi.ak.smartvoice.cleanup.CachedModel
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.cleanup.CleanupPrompt
+import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.EnginePreference
@@ -62,6 +63,10 @@ fun DictationScreen(
     val cleanupCases by viewModel.cleanupCases.collectAsStateWithLifecycle()
     val cleanupBusy by viewModel.cleanupBusy.collectAsStateWithLifecycle()
     val cleanupLoad by viewModel.cleanupLoad.collectAsStateWithLifecycle()
+    val pauseSilenceMs by viewModel.pauseSilenceMs.collectAsStateWithLifecycle()
+    val stableSilenceMs by viewModel.stableSilenceMs.collectAsStateWithLifecycle()
+    val stopAfterSilenceMs by viewModel.stopAfterSilenceMs.collectAsStateWithLifecycle()
+    val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
     val cleanupVariant by viewModel.cleanupVariant.collectAsStateWithLifecycle()
     val cleanupCustomUnit by viewModel.cleanupCustomUnit.collectAsStateWithLifecycle()
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
@@ -102,6 +107,18 @@ fun DictationScreen(
             onCancelDownload = viewModel::cancelModelDownload,
             onDeleteModel = viewModel::deleteModel,
             onProbe = viewModel::probeLocalEngine,
+        )
+
+        HorizontalDivider()
+
+        TimingSection(
+            pauseMs = pauseSilenceMs,
+            stableMs = stableSilenceMs,
+            stopMs = stopAfterSilenceMs,
+            note = timingNote,
+            onPause = viewModel::onPauseSilenceChange,
+            onStable = viewModel::onStableSilenceChange,
+            onStop = viewModel::onStopAfterSilenceChange,
         )
 
         HorizontalDivider()
@@ -296,6 +313,58 @@ private fun EngineSection(
         is ModelStatus.Failed -> {
             Text("Download failed: ${modelStatus.message}", style = MaterialTheme.typography.bodySmall)
             Button(onClick = onDownload) { Text("Retry download") }
+        }
+    }
+}
+
+/**
+ * The listener's timings (D-035), as settings rather than constants — because these are the numbers a
+ * person tunes by _speaking_, and every adjustment used to cost an APK build, a hand-install and a
+ * pasted report.
+ *
+ * They are three different questions and are labelled as such:
+ * - **the unit pause** — when the transcript is cut into a unit and committed (the recogniser's own rule);
+ * - **the fallback** — how long the text must be unchanged before the app overrules a silent recogniser;
+ * - **the auto-stop** — how long a silence ends the whole recording, or `off`.
+ */
+@Composable
+private fun TimingSection(
+    pauseMs: Int,
+    stableMs: Int,
+    stopMs: Int,
+    note: String?,
+    onPause: (Int) -> Unit,
+    onStable: (Int) -> Unit,
+    onStop: (Int) -> Unit,
+) {
+    Text("Listener timings", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Measured from the audio and from the recogniser's text, not from a fixed timer. The unit pause " +
+            "is the recogniser's own rule, so changing it costs one cold model load on the next load.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+
+    TimingRow("Pause that ends a unit", pauseMs, AppSettings.PAUSE_SILENCE_CHOICES_MS, onPause)
+    TimingRow("Fallback: text steady for", stableMs, AppSettings.STABLE_SILENCE_CHOICES_MS, onStable)
+    TimingRow("Stop recording after silence", stopMs, AppSettings.STOP_AFTER_SILENCE_CHOICES_MS, onStop)
+    note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+}
+
+@Composable
+private fun TimingRow(
+    label: String,
+    selectedMs: Int,
+    choices: List<Int>,
+    onChange: (Int) -> Unit,
+) {
+    Text(label, style = MaterialTheme.typography.titleSmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        choices.forEach { candidate ->
+            FilterChip(
+                selected = candidate == selectedMs,
+                onClick = { onChange(candidate) },
+                label = { Text(if (candidate == 0) "off" else "%.1f".format(candidate / 1000.0)) },
+            )
         }
     }
 }

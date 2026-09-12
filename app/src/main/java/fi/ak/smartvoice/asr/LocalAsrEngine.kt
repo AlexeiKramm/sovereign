@@ -32,7 +32,27 @@ import java.io.File
 class LocalAsrEngine(
     private val modelDirectory: File,
     private val numThreads: Int = DEFAULT_THREADS,
+    pauseSilenceSeconds: Float = DEFAULT_PAUSE_SILENCE_SECONDS,
 ) {
+
+    /**
+     * The pause that ends a cleanup unit (D-032), in seconds of trailing silence after speech.
+     *
+     * It is a **setting** now, but not a live one: these rules live in the recogniser's own config, so
+     * retuning them means rebuilding the recogniser — one cold load (1.9 s measured on this phone), paid
+     * on the next utterance, which the status line then reports. That is a fair price for tuning a
+     * number by using the thing, and it is stated rather than hidden.
+     */
+    @Volatile
+    var pauseSilenceSeconds: Float = pauseSilenceSeconds
+        private set
+
+    /** Applies a new pause threshold. Unloads the recogniser if it actually changed. */
+    fun applyPauseSilence(seconds: Float) {
+        if (seconds == pauseSilenceSeconds) return
+        pauseSilenceSeconds = seconds
+        unload()
+    }
 
     sealed interface Availability {
         /** The model files are not on the device yet. Nothing to load. */
@@ -122,7 +142,7 @@ class LocalAsrEngine(
                 endpointConfig = EndpointConfig(
                     rule1 = EndpointRule(
                         mustContainNonSilence = true,
-                        minTrailingSilence = PAUSE_SILENCE_SECONDS,
+                        minTrailingSilence = pauseSilenceSeconds,
                         minUtteranceLength = 0f,
                     ),
                     rule2 = EndpointRule(
@@ -268,13 +288,12 @@ class LocalAsrEngine(
         /**
          * D-032's pause: how much silence after speech ends a cleanup unit.
          *
-         * The runtime's own default is 2.4 s, and a device run on 2026-09-12 where deliberate pauses
-         * produced no boundary at all says that is longer than a dictation pause — or that this
-         * artifact's endpoint detection does not fire. Lowered to 1.2 s as the first tuned value;
-         * `UnitBoundary`'s stability fallback covers the second possibility, and its counters say
-         * which one is happening.
+         * The runtime's own default is 2.4 s; 1.2 s is the tuned starting point, and it is a setting
+         * (`AppSettings.pauseSilenceMs`) rather than a constant because this is a number a person tunes
+         * by speaking. `UnitBoundary`'s stability fallback covers artifacts whose endpoint detection
+         * does not fire at all, and its counters say which signal is doing the cutting.
          */
-        const val PAUSE_SILENCE_SECONDS = 1.2f
+        const val DEFAULT_PAUSE_SILENCE_SECONDS = 1.2f
 
         /** Silence with nothing decoded — an utterance that never started. */
         const val EMPTY_SILENCE_SECONDS = 1.4f

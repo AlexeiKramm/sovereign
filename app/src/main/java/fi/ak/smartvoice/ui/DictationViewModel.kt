@@ -124,11 +124,21 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }.asCoroutineDispatcher()
 
     private val modelDirectory = AsrModels.directory(application.filesDir)
-    private val localEngine = LocalAsrEngine(modelDirectory)
+
+    /**
+     * The pause threshold is *part of the recogniser's config*, so it is passed at construction and
+     * applied again through [onPauseSilenceChange] (D-035). Everything else about the listener is a
+     * software rule and needs no rebuild.
+     */
+    private val localEngine = LocalAsrEngine(
+        modelDirectory = modelDirectory,
+        pauseSilenceSeconds = settings.pauseSilenceMs / 1000f,
+    )
     private val localSession = LocalAsrSession(
         engine = localEngine,
         dispatcher = asrDispatcher,
         scope = viewModelScope,
+        timings = { settings.listenerTimings() },
     )
 
     @Volatile
@@ -149,6 +159,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _enginePreference = MutableStateFlow(settings.enginePreference)
     val enginePreference: StateFlow<EnginePreference> = _enginePreference.asStateFlow()
+
+    private val _pauseSilenceMs = MutableStateFlow(settings.pauseSilenceMs)
+    val pauseSilenceMs: StateFlow<Int> = _pauseSilenceMs.asStateFlow()
+
+    private val _stableSilenceMs = MutableStateFlow(settings.stableSilenceMs)
+    val stableSilenceMs: StateFlow<Int> = _stableSilenceMs.asStateFlow()
+
+    private val _stopAfterSilenceMs = MutableStateFlow(settings.stopAfterSilenceMs)
+    val stopAfterSilenceMs: StateFlow<Int> = _stopAfterSilenceMs.asStateFlow()
+
+    /** What a timing change actually did, said out loud — notably that one of them rebuilds the model. */
+    private val _timingNote = MutableStateFlow<String?>(null)
+    val timingNote: StateFlow<String?> = _timingNote.asStateFlow()
 
     private val _modelStatus = MutableStateFlow<ModelStatus>(currentModelStatus())
     val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
@@ -216,6 +239,35 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun onEnginePreferenceChange(preference: EnginePreference) {
         settings.enginePreference = preference
         _enginePreference.value = preference
+    }
+
+    /**
+     * The unit pause lives in the recogniser's own config, so changing it rebuilds the recogniser: one
+     * cold load, paid on the next utterance. The screen says so rather than letting the next dictation
+     * look mysteriously slow (D-035).
+     */
+    fun onPauseSilenceChange(milliseconds: Int) {
+        settings.pauseSilenceMs = milliseconds
+        _pauseSilenceMs.value = milliseconds
+        localEngine.applyPauseSilence(milliseconds / 1000f)
+        _loadProbe.value = null
+        _timingNote.value = "applied — the recogniser rebuilds on the next load (1912 ms measured)"
+    }
+
+    fun onStableSilenceChange(milliseconds: Int) {
+        settings.stableSilenceMs = milliseconds
+        _stableSilenceMs.value = milliseconds
+        _timingNote.value = "applied from the next utterance — no rebuild needed"
+    }
+
+    fun onStopAfterSilenceChange(milliseconds: Int) {
+        settings.stopAfterSilenceMs = milliseconds
+        _stopAfterSilenceMs.value = milliseconds
+        _timingNote.value = if (milliseconds == 0) {
+            "auto-stop off — recording ends when you tap stop"
+        } else {
+            "auto-stop after %.1fs of silence".format(milliseconds / 1000.0)
+        }
     }
 
     /** What the tier policy would decide for the next utterance, for the screen to display. */
