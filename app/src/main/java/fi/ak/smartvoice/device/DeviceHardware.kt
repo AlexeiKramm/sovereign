@@ -16,8 +16,6 @@ data class DeviceHardwareProfile(
     val isMediaTekDimensity: Boolean,
     val isGoogleTensor: Boolean,
     val hasOpenClGpu: Boolean,
-    val hasQnnNpuRuntime: Boolean,
-    val qnnVersionSummary: String,
 )
 
 object DeviceHardware {
@@ -35,9 +33,6 @@ object DeviceHardware {
         // Check OpenCL GPU libraries
         val hasOpenCl = checkOpenClAvailability()
 
-        // Check QNN NPU runtime in app native libs
-        val (hasQnn, qnnSummary) = checkQnnAvailability(context)
-
         return DeviceHardwareProfile(
             socModel = soc,
             chipBrand = brand,
@@ -47,8 +42,6 @@ object DeviceHardware {
             isMediaTekDimensity = isMtk,
             isGoogleTensor = isTensor,
             hasOpenClGpu = hasOpenCl,
-            hasQnnNpuRuntime = hasQnn,
-            qnnVersionSummary = qnnSummary,
         )
     }
 
@@ -102,32 +95,6 @@ object DeviceHardware {
             "/system/lib64/libOpenCL.so",
         )
         return paths.any { File(it).exists() }
-    }
-
-    private fun checkQnnAvailability(context: Context): Pair<Boolean, String> {
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        if (!nativeDir.exists() || !nativeDir.isDirectory) {
-            return false to "Native lib directory not found"
-        }
-
-        val qnnHtp = File(nativeDir, "libQnnHtp.so")
-        val qnnSystem = File(nativeDir, "libQnnSystem.so")
-        if (!qnnHtp.exists() || !qnnSystem.exists()) {
-            return false to "QNN runtime libraries (libQnnHtp.so) missing"
-        }
-
-        val hexVersions = mutableListOf<String>()
-        if (File(nativeDir, "libQnnHtpV81Skel.so").exists()) hexVersions.add("Hexagon V81 (SM8850)")
-        if (File(nativeDir, "libQnnHtpV79Skel.so").exists()) hexVersions.add("Hexagon V79")
-        if (File(nativeDir, "libQnnHtpV75Skel.so").exists()) hexVersions.add("Hexagon V75 (SM8650)")
-        if (File(nativeDir, "libQnnHtpV73Skel.so").exists()) hexVersions.add("Hexagon V73 (SM8550)")
-
-        val summary = if (hexVersions.isNotEmpty()) {
-            "QNN HTP Runtime ready (${hexVersions.joinToString(", ")})"
-        } else {
-            "QNN HTP Runtime present"
-        }
-        return true to summary
     }
 
     private fun getSystemProperty(key: String, defaultValue: String): String {

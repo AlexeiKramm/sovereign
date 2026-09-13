@@ -107,14 +107,6 @@ class CleanupPromptTest {
         assertTrue("the truncation is visible", used.startsWith("…"))
     }
 
-    @Test
-    fun `the message list is a system message and a user message, in that order`() {
-        val messages = CleanupPrompt.messages("hello", null)
-        assertEquals(2, messages.size)
-        assertEquals("system", messages[0].role)
-        assertEquals("user", messages[1].role)
-        assertTrue(messages[1].content.contains("hello"))
-    }
 
     @Test
     fun `the parser strips fences and a leading label but keeps every word`() {

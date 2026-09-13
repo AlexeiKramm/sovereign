@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
+import fi.ak.smartvoice.cleanup.CleanupPrompt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -81,8 +82,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.audio.AudioDecoder
-import fi.ak.smartvoice.cleanup.CleanupPrompt
-import fi.ak.smartvoice.data.CleanupBackend
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.ui.DictationUiState
@@ -100,8 +99,6 @@ fun TranscribeHubScreen(
     val scope = rememberCoroutineScope()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedAsrModel by viewModel.selectedAsrModel.collectAsStateWithLifecycle()
-    val cleanupBackend by viewModel.cleanupBackend.collectAsStateWithLifecycle()
-    val selectedCleanupModel by viewModel.selectedCleanupModel.collectAsStateWithLifecycle()
     val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
     val cleanupVariant by viewModel.cleanupVariant.collectAsStateWithLifecycle()
 
@@ -166,14 +163,9 @@ fun TranscribeHubScreen(
                     onClick = {},
                     label = { Text("ASR: ${selectedAsrModel.label}") },
                 )
-                val llmLabel = if (cleanupBackend == CleanupBackend.LITERT_LM) {
-                    "LiteRT: ${selectedLitertModel.label}"
-                } else {
-                    "GenieX: ${selectedCleanupModel.label}"
-                }
                 SuggestionChip(
                     onClick = {},
-                    label = { Text("LLM: $llmLabel") },
+                    label = { Text("LLM: ${selectedLitertModel.label}") },
                 )
             }
         }

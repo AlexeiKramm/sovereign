@@ -1,5 +1,6 @@
 package fi.ak.smartvoice.ui.models
 
+import fi.ak.smartvoice.asr.AsrModelType
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,14 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
-import fi.ak.smartvoice.asr.AsrModelSpec
-import fi.ak.smartvoice.asr.AsrModelType
-import fi.ak.smartvoice.cleanup.CachedModel
-import fi.ak.smartvoice.cleanup.CleanupModel
-import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
-import fi.ak.smartvoice.data.CleanupBackend
-import fi.ak.smartvoice.ui.CleanupStatus
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ModelStatus
 
@@ -59,13 +53,9 @@ fun ModelsScreen(
     val selectedAsrModel by viewModel.selectedAsrModel.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val cleanupStatus by viewModel.cleanupStatus.collectAsStateWithLifecycle()
     val cleanupLoadNote by viewModel.cleanupLoad.collectAsStateWithLifecycle()
     val cleanupBusy by viewModel.cleanupBusy.collectAsStateWithLifecycle()
-    val cachedModels by viewModel.cleanupCache.collectAsStateWithLifecycle()
 
-    val activeCleanupModel by viewModel.selectedCleanupModel.collectAsStateWithLifecycle()
-    val cleanupBackend by viewModel.cleanupBackend.collectAsStateWithLifecycle()
     val litertCatalog = viewModel.litertCatalog
     val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
     val litertInstalled by viewModel.litertInstalled.collectAsStateWithLifecycle()
@@ -96,7 +86,7 @@ fun ModelsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { viewModel.refreshCleanupStatus() }) {
+                IconButton(onClick = { viewModel.refreshLitertInstalled() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh models")
                 }
             }
@@ -268,293 +258,144 @@ fun ModelsScreen(
         // --- SECTION 2: LLM CLEANUP MODELS ---
         item {
             Spacer(modifier = Modifier.height(8.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "2. LLM Cleanup Models",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Choose your on-device LLM cleanup engine backend:",
+                    text = "On-device LiteRT-LM models with mobile GPU acceleration (and CPU fallback):",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = cleanupBackend == CleanupBackend.GENIEX_NPU,
-                        onClick = { viewModel.setCleanupBackend(CleanupBackend.GENIEX_NPU) },
-                        label = { Text("GenieX (Hexagon NPU)") },
-                    )
-                    FilterChip(
-                        selected = cleanupBackend == CleanupBackend.LITERT_LM,
-                        onClick = { viewModel.setCleanupBackend(CleanupBackend.LITERT_LM) },
-                        label = { Text("Google LiteRT-LM (GPU)") },
-                    )
-                }
             }
         }
 
-        if (cleanupBackend == CleanupBackend.GENIEX_NPU) {
-            items(CleanupModels.ALL) { model ->
-                val isSelected = activeCleanupModel.repository == model.repository
-                val isInstalled = cachedModels.any { it.id == model.repository }
+        // Google LiteRT-LM models
+        items(litertCatalog, key = { it.id }) { model ->
+            val isSelected = selectedLitertModel.id == model.id
+            val isInstalled = litertInstalled[model.id] == true
+            val isPulling = litertPulling == model.id
+            val progress = litertProgress
 
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.selectCleanupModel(model) },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    ),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { viewModel.selectCleanupModel(model) },
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column {
-                                    Text(
-                                        text = model.label,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    Text(
-                                        text = "${CleanupModels.sizeLabel(model.approximateBytes)} • ${model.precision}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text("Hexagon NPU", style = MaterialTheme.typography.labelSmall) },
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.selectLitertModel(model) },
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { viewModel.selectLitertModel(model) },
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = model.note,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        if (isSelected) {
-                            when (val status = cleanupStatus) {
-                                is CleanupStatus.Installed -> {
-                                    Text(
-                                        text = "Ready on disk (${CleanupModels.sizeLabel(status.bytes)})",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedButton(onClick = { viewModel.loadCleanupModel() }) {
-                                            Text("Test Load NPU")
-                                        }
-                                        OutlinedButton(onClick = { viewModel.deleteCleanupModel() }) {
-                                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                                        }
-                                    }
-                                }
-                                is CleanupStatus.Absent -> {
-                                    Text(
-                                        text = "Not downloaded",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.outline,
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Button(onClick = { viewModel.pullCleanupModel() }) {
-                                        Text("Download (${CleanupModels.sizeLabel(model.approximateBytes)})")
-                                    }
-                                }
-                                is CleanupStatus.Pulling -> {
-                                    val p = status.progress
-                                    Text(
-                                        text = "Pulling from Hugging Face: ${p.fileName}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    LinearProgressIndicator(
-                                        progress = { p.overall },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "${CleanupModels.sizeLabel(p.downloadedBytes)} / ${CleanupModels.sizeLabel(p.totalBytes)} (${(p.overall * 100).toInt()}%)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                is CleanupStatus.Failed -> {
-                                    Text(
-                                        text = "Error: ${status.message}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.error,
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Button(onClick = { viewModel.pullCleanupModel() }) {
-                                        Text("Retry Download")
-                                    }
-                                }
-                                CleanupStatus.Checking -> {
-                                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
-                                }
-                            }
-                        } else {
-                            if (isInstalled) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
                                 Text(
-                                    text = "Installed on device",
+                                    text = model.label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = "${model.approximateBytes / 1_000_000} MB • LiteRT-LM (.litertlm)",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            } else {
-                                Text(
-                                    text = "Available in catalogue",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Google LiteRT-LM models
-            items(litertCatalog, key = { it.id }) { model ->
-                val isSelected = selectedLitertModel.id == model.id
-                val isInstalled = litertInstalled[model.id] == true
-                val isPulling = litertPulling == model.id
-                val progress = litertProgress
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.selectLitertModel(model) },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    ),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { viewModel.selectLitertModel(model) },
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column {
-                                    Text(
-                                        text = model.label,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    Text(
-                                        text = "${model.approximateBytes / 1_000_000} MB • LiteRT-LM (.litertlm)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            SuggestionChip(
-                                onClick = {},
-                                label = { Text(model.targetHardware, style = MaterialTheme.typography.labelSmall) },
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = model.note,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        if (isPulling && progress != null) {
-                            Text(
-                                text = "Downloading: ${model.fileName}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            LinearProgressIndicator(
-                                progress = { progress.percent },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.percent * 100).toInt()}%)",
-                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                OutlinedButton(onClick = { viewModel.cancelLitertDownload() }) {
-                                    Text("Cancel")
+                            }
+                        }
+                        SuggestionChip(
+                            onClick = {},
+                            label = { Text(model.targetHardware, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = model.note,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (isPulling && progress != null) {
+                        Text(
+                            text = "Downloading: ${model.fileName}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { progress.percent },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.percent * 100).toInt()}%)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedButton(onClick = { viewModel.cancelLitertDownload() }) {
+                                Text("Cancel")
+                            }
+                        }
+                    } else if (isInstalled) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (isSelected) "Active LLM engine" else "Ready on disk",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (!isSelected) {
+                                    Button(onClick = { viewModel.selectLitertModel(model) }) {
+                                        Text("Select")
+                                    }
+                                } else {
+                                    OutlinedButton(onClick = { viewModel.loadCleanupModel() }) {
+                                        Text("Test Load")
+                                    }
+                                }
+                                OutlinedButton(onClick = { viewModel.deleteLitertModel(model) }) {
+                                    Text("Delete", color = MaterialTheme.colorScheme.error)
                                 }
                             }
-                        } else if (isInstalled) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = if (isSelected) "Active LiteRT engine" else "Ready on disk",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (!isSelected) {
-                                        Button(onClick = { viewModel.selectLitertModel(model) }) {
-                                            Text("Select")
-                                        }
-                                    } else {
-                                        OutlinedButton(onClick = { viewModel.loadCleanupModel() }) {
-                                            Text("Test Load")
-                                        }
-                                    }
-                                    OutlinedButton(onClick = { viewModel.deleteLitertModel(model) }) {
-                                        Text("Delete", color = MaterialTheme.colorScheme.error)
-                                    }
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "Not downloaded (~${model.approximateBytes / 1_000_000} MB)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                )
-                                Button(onClick = {
-                                    viewModel.selectLitertModel(model)
-                                    viewModel.downloadLitertModel(model)
-                                }) {
-                                    Text("Download")
-                                }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Not downloaded (~${model.approximateBytes / 1_000_000} MB)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                            Button(onClick = {
+                                viewModel.selectLitertModel(model)
+                                viewModel.downloadLitertModel(model)
+                            }) {
+                                Text("Download")
                             }
                         }
                     }
@@ -579,49 +420,6 @@ fun ModelsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-        }
-
-        // --- SECTION 3: DISK FOOTPRINT ---
-        if (cachedModels.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Cached Models on Disk",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            items(cachedModels) { cached ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = cached.id,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = CleanupModels.sizeLabel(cached.bytes) + if (!cached.inCatalogue) " • uncatalogued spike artifact" else "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(onClick = { viewModel.deleteCachedModel(cached.id) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
             }
         }
     }

@@ -20,16 +20,11 @@ import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.BoundaryState
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.cleanup.CleanupEngine
-import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPipeline
 import fi.ak.smartvoice.cleanup.CleanupPrompt
-import fi.ak.smartvoice.cleanup.CleanupModel
-import fi.ak.smartvoice.cleanup.CleanupModelStore
-import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmModelStore
-import fi.ak.smartvoice.data.CleanupBackend
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
@@ -262,23 +257,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             if (existing.isServing(settings)) return existing
             existing.unload()
         }
-        return if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-            LiteRtLmCleanupEngine(
-                context = this,
-                modelSpec = settings.litertModel,
-                processor = settings.litertProcessor,
-                dictionary = dictionaryStore.getWords(),
-                dictionaryEntries = dictionaryStore.getEntries(),
-            )
-        } else {
-            GenieXCleanupEngine(
-                context = this,
-                model = settings.cleanupModel,
-                computeUnit = GenieXCleanupEngine.COMPUTE_UNIT_NPU,
-                dictionary = dictionaryStore.getWords(),
-                dictionaryEntries = dictionaryStore.getEntries(),
-            )
-        }.also { cleanupEngine = it }
+        return LiteRtLmCleanupEngine(
+            context = this,
+            modelSpec = settings.litertModel,
+            processor = settings.litertProcessor,
+            dictionary = dictionaryStore.getWords(),
+            dictionaryEntries = dictionaryStore.getEntries(),
+        ).also { cleanupEngine = it }
     }
 
     override fun onDestroy() {
@@ -480,16 +465,9 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private fun checkCleanupModelAvailability() {
         scope.launch {
-            val note = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-                if (!LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)) {
-                    "no cleanup model downloaded (${settings.litertModel.label}) — download it in the Models tab"
-                } else null
-            } else {
-                val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
-                if (paths == null) {
-                    "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
-                } else null
-            }
+            val note = if (!LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)) {
+                "no cleanup model downloaded (${settings.litertModel.label}) — download it in the Models tab"
+            } else null
             if (cleanupLoadNote != note && (note != null || cleanupLoadNote?.contains("no cleanup model") == true)) {
                 cleanupLoadNote = note
                 val choice = currentChoice()
@@ -523,11 +501,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             cleanupLoadNote != null ->
                 "cleanup unavailable — $cleanupLoadNote; units are the recogniser's own text"
             cleanupEngine?.isLoaded == true && cleanupEngine?.isServing(settings) == true -> {
-                val label = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-                    "${settings.litertModel.label} on LiteRT-LM (GPU)"
-                } else {
-                    "${settings.cleanupModel.label} on Hexagon NPU"
-                }
+                val label = "${settings.litertModel.label} on LiteRT-LM (${settings.litertProcessor.name})"
                 "cleanup on — $label"
             }
             else -> "cleanup model still loading — the first units are the recogniser's own text"
@@ -715,13 +689,9 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         }
         if (cleanupEngine?.isLoaded == true) return
         scope.launch {
-            val installed = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-                LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)
-            } else {
-                CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel) != null
-            }
+            val installed = LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)
             if (!installed) {
-                val label = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) settings.litertModel.label else settings.cleanupModel.label
+                val label = settings.litertModel.label
                 cleanupLoadNote = "no cleanup model downloaded ($label) — download it in the Models tab"
                 syncPanelSettings()
                 if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
@@ -740,13 +710,9 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * only; the utterance's own units degrade to raw text through [onLocalUnit]'s test.
      */
     private suspend fun loadCleanupModel(): Boolean {
-        val installed = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-            LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)
-        } else {
-            CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel) != null
-        }
+        val installed = LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)
         if (!installed) {
-            val label = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) settings.litertModel.label else settings.cleanupModel.label
+            val label = settings.litertModel.label
             cleanupLoadNote = "no cleanup model downloaded ($label) — download it in the Models tab"
             return false
         }

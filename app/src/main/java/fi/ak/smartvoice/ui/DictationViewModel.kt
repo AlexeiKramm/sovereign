@@ -13,29 +13,19 @@ import fi.ak.smartvoice.asr.ModelDownloadProgress
 import fi.ak.smartvoice.asr.ModelDownloadResult
 import fi.ak.smartvoice.asr.ModelDownloader
 import fi.ak.smartvoice.audio.WavRecorder
-import fi.ak.smartvoice.cleanup.CachedModel
-import fi.ak.smartvoice.cleanup.CleanupModel
-import fi.ak.smartvoice.cleanup.CleanupModelStore
-import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.asr.ListenerTimings
 import fi.ak.smartvoice.cleanup.CleanupEngine
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
-import fi.ak.smartvoice.cleanup.FileBytes
-import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmDownloadProgress
 import fi.ak.smartvoice.cleanup.LiteRtLmDownloadResult
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
 import fi.ak.smartvoice.cleanup.LiteRtLmModelStore
 import fi.ak.smartvoice.cleanup.LiteRtLmModels
-import fi.ak.smartvoice.cleanup.PullProgress
-import fi.ak.smartvoice.cleanup.SdkState
 import fi.ak.smartvoice.cleanup.LiteRtCompatibilityTester
-import com.geniex.sdk.ModelManagerWrapper
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
-import fi.ak.smartvoice.data.CleanupBackend
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.UsageStatsStore
@@ -123,22 +113,7 @@ data class CleanupCase(
  */
 data class TimingField(val text: String, val seconds: Float?, val invalid: Boolean)
 
-/**
- * State of the **cleanup** model, which GenieX's own model manager owns (D-030) — a deliberately
- * separate download path from the ASR model above, because the SDK knows which files its runtime
- * needs for a given GGUF and we do not.
- *
- * `Absent` carries a note rather than a bare flag: during the spike the SDK's `init` callback did
- * not need to be awaited for the manager to work, so "init unconfirmed" is a fact worth showing
- * instead of hiding behind a boolean.
- */
-sealed interface CleanupStatus {
-    data object Checking : CleanupStatus
-    data class Absent(val note: String?) : CleanupStatus
-    data class Pulling(val progress: PullProgress) : CleanupStatus
-    data class Installed(val bytes: Long) : CleanupStatus
-    data class Failed(val message: String) : CleanupStatus
-}
+
 
 class DictationViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -232,11 +207,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _state = MutableStateFlow<DictationUiState>(DictationUiState.Idle)
     val state: StateFlow<DictationUiState> = _state.asStateFlow()
 
-    private val _cleanupStatus = MutableStateFlow<CleanupStatus>(CleanupStatus.Checking)
-    val cleanupStatus: StateFlow<CleanupStatus> = _cleanupStatus.asStateFlow()
-
-    private var cleanupPull: Job? = null
-
     private var cleanupEngine: CleanupEngine? = null
 
     private val _cleanupCases = MutableStateFlow<List<CleanupCase>>(emptyList())
@@ -250,14 +220,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _cleanupLoad = MutableStateFlow<String?>(null)
     val cleanupLoad: StateFlow<String?> = _cleanupLoad.asStateFlow()
 
-    private val _cleanupCache = MutableStateFlow<List<CachedModel>>(emptyList())
-    val cleanupCache: StateFlow<List<CachedModel>> = _cleanupCache.asStateFlow()
-
-    /**
-     * Which editing rules the bench runs under. Exposed because the first device run showed the rules,
-     * not the model, decide how much gets fixed — so comparing them has to be possible without a new
-     * build.
-     */
     private val _cleanupVariant = MutableStateFlow(CleanupPrompt.Variant.DEFAULT)
     val cleanupVariant: StateFlow<CleanupPrompt.Variant> = _cleanupVariant.asStateFlow()
 
@@ -276,37 +238,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _loadProbe.value = ""
     }
 
-    private val _selectedCleanupModel = MutableStateFlow(CleanupModels.byRepository(settings.cleanupModelId))
-    val selectedCleanupModel: StateFlow<CleanupModel> = _selectedCleanupModel.asStateFlow()
-
-    /** The catalogue entry the user picked; unknown or unset means the default (D-029 item 3). */
-    val cleanupModel: CleanupModel get() = _selectedCleanupModel.value
-
-    fun selectCleanupModel(model: CleanupModel) {
-        settings.cleanupModelId = model.repository
-        _selectedCleanupModel.value = model
-        unloadCleanupModel()
-        refreshCleanupStatus()
-    }
-
     init {
-        refreshCleanupStatus()
         refreshLitertInstalled()
         probeHardwareCompatibility()
     }
 
-    // ------------------------------------------------------------------ cleanup backend & litert
-    private val _cleanupBackend = MutableStateFlow(settings.cleanupBackend)
-    val cleanupBackend: StateFlow<CleanupBackend> = _cleanupBackend.asStateFlow()
-
-    fun setCleanupBackend(backend: CleanupBackend) {
-        settings.cleanupBackend = backend
-        _cleanupBackend.value = backend
-        cleanupEngine?.unload()
-        cleanupEngine = null
-        _cleanupLoad.value = "switched to ${backend.label} — model unloaded"
-    }
-
+    // ------------------------------------------------------------------ LLM cleanup (LiteRT-LM)
     val litertCatalog: List<LiteRtLmModelSpec> = LiteRtLmModels.ALL
 
     private val _selectedLitertModel = MutableStateFlow(settings.litertModel)
@@ -325,9 +262,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _litertGpuSupported = MutableStateFlow(settings.litertGpuSupported)
     val litertGpuSupported: StateFlow<Boolean> = _litertGpuSupported.asStateFlow()
 
-    private val _litertNpuSupported = MutableStateFlow(settings.litertNpuSupported)
-    val litertNpuSupported: StateFlow<Boolean> = _litertNpuSupported.asStateFlow()
-
     private val _litertCompatibilityNote = MutableStateFlow(settings.litertCompatibilityNote)
     val litertCompatibilityNote: StateFlow<String> = _litertCompatibilityNote.asStateFlow()
 
@@ -342,7 +276,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val result = LiteRtCompatibilityTester.probe(app, saveToSettings = true)
             _litertGpuSupported.value = result.gpuSupported
-            _litertNpuSupported.value = result.npuSupported
             _litertCompatibilityNote.value = result.summaryNote
         }
     }
@@ -594,155 +527,33 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     // ------------------------------------------------------------------ cleanup model (D-030)
 
-    /**
-     * Asks the SDK what is actually on disk. This is the only honest source: the model manager owns
-     * the files, and it resumes its own downloads.
-     */
-    fun refreshCleanupStatus() {
-        if (_cleanupStatus.value is CleanupStatus.Pulling) return
-        viewModelScope.launch {
-            _cleanupStatus.value = CleanupStatus.Checking
-            _cleanupStatus.value = readCleanupStatus()
-        }
-    }
-
-    private suspend fun readCleanupStatus(): CleanupStatus {
-        val sdk = CleanupModelStore.ensureReady(app)
-        if (sdk is SdkState.NotReady) return CleanupStatus.Failed("GenieX init failed — ${sdk.message}")
-        val note = (sdk as? SdkState.Unconfirmed)?.let {
-            "SDK init: no callback within 10 s, so this proceeds as the spike's probe did (D-029)."
-        }
-        _cleanupCache.value = CleanupModelStore.installedModels(app)
-        val model = cleanupModel
-        return if (CleanupModelStore.paths(app, model) == null) {
-            CleanupStatus.Absent(note)
-        } else {
-            CleanupStatus.Installed(CleanupModelStore.installedBytes(app, model))
-        }
-    }
-
-    /** Deletes anything the manager has, including ids the catalogue does not list. */
-    fun deleteCachedModel(id: String) {
-        viewModelScope.launch {
-            _cleanupBusy.value = "deleting $id…"
-            CleanupModelStore.removeById(app, id).onFailure {
-                _cleanupLoad.value = "delete failed — ${it.message}"
-            }
-            _cleanupStatus.value = CleanupStatus.Checking
-            _cleanupStatus.value = readCleanupStatus()
-            _cleanupBusy.value = null
-        }
-    }
-
-    fun pullCleanupModel() {
-        if (_cleanupStatus.value is CleanupStatus.Pulling) return
-        val model = cleanupModel
-        cleanupPull = viewModelScope.launch {
-            _cleanupStatus.value = CleanupStatus.Pulling(
-                PullProgress(0f, 0L, model.approximateBytes, "", 0, 0),
-            )
-            val sdk = CleanupModelStore.ensureReady(app)
-            if (sdk is SdkState.NotReady) {
-                _cleanupStatus.value = CleanupStatus.Failed("GenieX init failed — ${sdk.message}")
-                return@launch
-            }
-            try {
-                CleanupModelStore.pull(model).collect { event ->
-                    when (event) {
-                        is ModelManagerWrapper.PullEvent.Progress -> {
-                            _cleanupStatus.value = CleanupStatus.Pulling(
-                                CleanupModels.progressOf(
-                                    event.files.map {
-                                        FileBytes(it.file_name, it.downloaded_bytes, it.total_bytes)
-                                    },
-                                ),
-                            )
-                        }
-                        // Not trusted as "installed": the state is re-read from the SDK below, so a
-                        // completion event cannot make the screen claim a file that is not there.
-                        is ModelManagerWrapper.PullEvent.Completed -> Unit
-                        is ModelManagerWrapper.PullEvent.Error -> {
-                            _cleanupStatus.value =
-                                CleanupStatus.Failed("download failed (code ${event.code}) — ${event.message}")
-                        }
-                    }
-                }
-                if (_cleanupStatus.value !is CleanupStatus.Failed) {
-                    _cleanupStatus.value = readCleanupStatus()
-                }
-            } catch (t: Throwable) {
-                if (t is kotlinx.coroutines.CancellationException) throw t
-                _cleanupStatus.value = CleanupStatus.Failed(t.message ?: t::class.java.simpleName)
-            }
-        }
-    }
-
-    /**
-     * Cancels the pull. The SDK's manager keeps what it has already fetched, so the bytes are not
-     * wasted and a later download resumes.
-     */
-    fun cancelCleanupPull() {
-        cleanupPull?.cancel()
-        cleanupPull = null
-        viewModelScope.launch {
-            _cleanupStatus.value = CleanupStatus.Checking
-            _cleanupStatus.value = readCleanupStatus()
-        }
-    }
-
-    fun deleteCleanupModel() {
-        viewModelScope.launch {
-            _cleanupStatus.value = CleanupStatus.Checking
-            _cleanupStatus.value = CleanupModelStore.remove(app, cleanupModel).fold(
-                onSuccess = { readCleanupStatus() },
-                onFailure = { CleanupStatus.Failed(it.message ?: "delete failed") },
-            )
-        }
-    }
-
     // ------------------------------------------------------------------ cleanup test bench
 
     /**
-     * One engine per model, reused across bench runs, so the cold load is paid once — the same
-     * residency rule the streaming pipeline will follow (D-010's lazy-sticky load, D-028's no automatic
-     * unload). Changing the catalogue selection discards the old instance.
+     * One engine per model, reused across bench runs, so the cold load is paid once.
      */
     private fun engine(): CleanupEngine {
         cleanupEngine?.let { existing ->
             if (existing.isServing(settings)) return existing
             existing.unload()
         }
-        return if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-            LiteRtLmCleanupEngine(
-                context = app,
-                modelSpec = settings.litertModel,
-                processor = settings.litertProcessor,
-                dictionary = dictionaryStore.getWords(),
-                dictionaryEntries = dictionaryStore.getEntries(),
-            )
-        } else {
-            GenieXCleanupEngine(
-                context = app,
-                model = cleanupModel,
-                dictionary = dictionaryStore.getWords(),
-                dictionaryEntries = dictionaryStore.getEntries(),
-            )
-        }.also { cleanupEngine = it }
+        return LiteRtLmCleanupEngine(
+            context = app,
+            modelSpec = settings.litertModel,
+            processor = settings.litertProcessor,
+            dictionary = dictionaryStore.getWords(),
+            dictionaryEntries = dictionaryStore.getEntries(),
+        ).also { cleanupEngine = it }
     }
 
-    /** D-010 rule 2's number for the cleanup model: the cold load, measured on the phone. */
     fun loadCleanupModel() {
         if (_cleanupBusy.value != null) return
-        val currentLabel = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
-            "${settings.litertModel.label} (LiteRT-LM)"
-        } else {
-            "${cleanupModel.label} (NPU)"
-        }
+        val currentLabel = "${settings.litertModel.label} (LiteRT-LM ${settings.litertProcessor.name})"
         viewModelScope.launch {
             _cleanupBusy.value = "loading $currentLabel…"
             val engine = engine()
             _cleanupLoad.value = engine.load().fold(
-                onSuccess = { "loaded in ${engine.lastLoadMs} ms — resident until unloaded (D-028)" },
+                onSuccess = { "loaded in ${engine.lastLoadMs} ms — resident until unloaded" },
                 onFailure = { "load failed — ${it.message}" },
             )
             _cleanupBusy.value = null
@@ -1142,7 +953,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         ticker?.cancel()
-        cleanupPull?.cancel()
         litertJob?.cancel()
         // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
         cleanupEngine?.unload()

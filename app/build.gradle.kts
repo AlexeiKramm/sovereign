@@ -46,18 +46,6 @@ android {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
-      // SPIKE ONLY (D-029), and the likely reason the first probe build failed with
-      // "Llm create failed: Invalid plugin": GenieX's plugin registry works by *scanning a
-      // directory* for plugin .so files, and AGP's modern default stores them uncompressed inside
-      // the APK without extracting them — so the native library directory is empty and the scan
-      // finds nothing. Extracting the libraries gives the SDK a real directory to scan.
-      //
-      // The qairt exclusions are deliberately GONE from this build. Guessing which of the 52 native
-      // libraries matter cost one round trip already; the whole 215 MB ships instead, and if the
-      // APK size ever matters again we will filter it from a working baseline rather than into one.
-      jniLibs {
-        useLegacyPackaging = true
-      }
     }
 }
 
@@ -130,10 +118,6 @@ dependencies {
   // see tools/fetch_sherpa_aar.sh, which pins the same version as the catalog entry above.
   implementation(files(sherpaOnnxAar))
 
-  // SPIKE ONLY (branch spike/geniex-npu, D-029): the NPU experiment. GenieX on Maven Central for
-  // the Hexagon NPU. Not decided for chunk 5 — the spike decides that.
-  implementation("com.qualcomm.qti:geniex-android:0.4.0")
-
-  // Dual LLM cleanup runtime backend: Google LiteRT-LM for GPU/CPU/NPU inference
+  // On-device LLM cleanup runtime: Google LiteRT-LM for GPU/CPU inference
   implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.0")
 }

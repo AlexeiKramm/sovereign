@@ -2,7 +2,6 @@ package fi.ak.smartvoice.cleanup
 
 import fi.ak.smartvoice.data.DictionaryEntry
 
-import com.geniex.sdk.bean.ChatMessage
 
 /**
  * The cleanup prompt, as a pure function of (unit, context, dictionary, variant) — so its shape is
@@ -151,21 +150,6 @@ object CleanupPrompt {
         return Messages(system = system, user = user, context = usedContext)
     }
 
-    /** The message list for `applyChatTemplate`, in the order D-015 requires. */
-    fun messages(
-        unit: String,
-        context: String?,
-        dictionary: List<String> = emptyList(),
-        dictionaryEntries: List<DictionaryEntry> = emptyList(),
-        variant: Variant = Variant.DEFAULT,
-        customRules: String? = null,
-    ): Array<ChatMessage> {
-        val built = build(unit, context, dictionary, dictionaryEntries, variant, customRules)
-        return arrayOf(
-            ChatMessage("system", built.system),
-            ChatMessage("user", built.user),
-        )
-    }
 
     /**
      * Lifts the text out of whatever wrapper the model put around it. Deliberately conservative: it

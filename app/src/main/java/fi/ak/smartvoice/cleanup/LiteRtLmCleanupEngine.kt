@@ -45,9 +45,7 @@ class LiteRtLmCleanupEngine(
     fun uses(other: LiteRtLmModelSpec): Boolean = other.id == modelSpec.id
 
     override fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean =
-        settings.cleanupBackend == fi.ak.smartvoice.data.CleanupBackend.LITERT_LM &&
-            uses(settings.litertModel) &&
-            processor == settings.litertProcessor
+        uses(settings.litertModel) && processor == settings.litertProcessor
 
     private suspend fun ensureLoaded(): Result<Engine> = withContext(Dispatchers.IO) {
         runCatching {
@@ -69,17 +67,6 @@ class LiteRtLmCleanupEngine(
                     }
                 }
                 fi.ak.smartvoice.data.LiteRtProcessor.CPU -> Backend.CPU()
-                fi.ak.smartvoice.data.LiteRtProcessor.NPU -> {
-                    try {
-                        Backend.NPU(context.applicationInfo.nativeLibraryDir)
-                    } catch (e: Throwable) {
-                        try {
-                            Backend.GPU()
-                        } catch (e2: Throwable) {
-                            Backend.CPU()
-                        }
-                    }
-                }
             }
 
             val config = EngineConfig(

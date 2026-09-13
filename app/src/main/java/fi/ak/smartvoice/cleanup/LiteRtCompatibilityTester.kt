@@ -9,10 +9,8 @@ import kotlinx.coroutines.withContext
 
 data class LiteRtCompatibilityResult(
     val gpuSupported: Boolean,
-    val npuSupported: Boolean,
     val cpuSupported: Boolean = true,
     val gpuNote: String,
-    val npuNote: String,
     val summaryNote: String,
 )
 
@@ -27,7 +25,7 @@ object LiteRtCompatibilityTester {
             var gpuNote = if (gpuSupported) {
                 "Adreno/Mali GPU with OpenCL verified (optimal latency)"
             } else {
-                "No OpenCL GPU driver detected"
+                "No OpenCL GPU driver detected — will use CPU fallback"
             }
 
             if (gpuSupported) {
@@ -39,51 +37,25 @@ object LiteRtCompatibilityTester {
                 }
             }
 
-            // 2. Check NPU support (Qualcomm QNN / Hexagon)
-            // LiteRT-LM requires QNN host libraries in nativeLibraryDir AND a model compiled with
-            // a context binary for that specific Hexagon SoC generation.
-            var npuSupported = false
-            var npuNote = ""
-
-            if (!hw.isQualcommSnapdragon) {
-                npuSupported = false
-                npuNote = "Unsupported: Qualcomm Hexagon NPU is only available on Snapdragon chipsets"
-            } else if (!hw.hasQnnNpuRuntime) {
-                npuSupported = false
-                npuNote = "Unsupported: Qualcomm QNN runtime libraries missing from device"
-            } else {
-                try {
-                    val npuBackend = Backend.NPU(context.applicationInfo.nativeLibraryDir)
-                    // QNN host libs exist; note that universal models on HF target GPU/CPU
-                    npuSupported = false // Currently shaded out for universal models without SoC context
-                    npuNote = "QNN V81 runtime present, but current .litertlm models target GPU. GPU acceleration is recommended."
-                } catch (t: Throwable) {
-                    npuSupported = false
-                    npuNote = "NPU initialization error: ${t.message}"
-                }
-            }
-
             val summaryNote = buildString {
                 append(hw.chipBrand).append(". ")
                 if (gpuSupported) {
-                    append("GPU acceleration is active & verified. ")
+                    append("GPU acceleration (OpenCL) is active & verified.")
+                } else {
+                    append("Using CPU ARM NEON multi-threaded acceleration.")
                 }
-                append(npuNote)
             }
 
             if (saveToSettings) {
                 val settings = AppSettings(context)
                 settings.litertGpuSupported = gpuSupported
-                settings.litertNpuSupported = npuSupported
                 settings.litertCompatibilityNote = summaryNote
             }
 
             LiteRtCompatibilityResult(
                 gpuSupported = gpuSupported,
-                npuSupported = npuSupported,
                 cpuSupported = true,
                 gpuNote = gpuNote,
-                npuNote = npuNote,
                 summaryNote = summaryNote,
             )
         }

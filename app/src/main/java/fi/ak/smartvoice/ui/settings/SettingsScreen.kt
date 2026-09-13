@@ -41,7 +41,6 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.runtime.remember
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
-import fi.ak.smartvoice.data.CleanupBackend
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.device.DeviceHardware
 import fi.ak.smartvoice.engine.EnginePreference
@@ -55,7 +54,6 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val cleanupBackend by viewModel.cleanupBackend.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
     val stableField by viewModel.stableField.collectAsStateWithLifecycle()
@@ -67,7 +65,6 @@ fun SettingsScreen(
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
     val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
-    val litertNpuSupported by viewModel.litertNpuSupported.collectAsStateWithLifecycle()
     val litertCompatNote by viewModel.litertCompatibilityNote.collectAsStateWithLifecycle()
     val hwProfile = remember { DeviceHardware.getProfile(context) }
 
@@ -123,151 +120,91 @@ fun SettingsScreen(
         }
 
         // --- 2. AI CLEANUP BACKEND ---
+        // --- 2. LLM ACCELERATION ---
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "LLM Cleanup Runtime Backend",
+                    text = "LLM Acceleration",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Select which on-device runtime executes text cleanup and formatting",
+                    text = "Google LiteRT-LM runtime inference processor on ${hwProfile.chipBrand}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                CleanupBackend.entries.forEach { backend ->
-                    val isSelected = cleanupBackend == backend
+                LiteRtProcessor.entries.forEach { proc ->
+                    val isSelected = litertProcessor == proc
+                    val isSupported = when (proc) {
+                        LiteRtProcessor.CPU -> true
+                        LiteRtProcessor.GPU -> litertGpuSupported
+                    }
+                    val containerAlpha = if (isSupported) 1f else 0.45f
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .selectable(selected = isSelected, onClick = { viewModel.setCleanupBackend(backend) }),
+                            .padding(vertical = 4.dp)
+                            .selectable(
+                                selected = isSelected,
+                                enabled = isSupported,
+                                onClick = { if (isSupported) viewModel.setLitertProcessor(proc) },
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(
                             selected = isSelected,
-                            onClick = { viewModel.setCleanupBackend(backend) },
+                            enabled = isSupported,
+                            onClick = { if (isSupported) viewModel.setLitertProcessor(proc) },
                         )
-                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = proc.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = containerAlpha),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                if (proc == LiteRtProcessor.GPU && isSupported) {
+                                    SuggestionChip(
+                                        onClick = {},
+                                        label = {
+                                            Text(
+                                                "Optimal",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        },
+                                    )
+                                }
+                            }
                             Text(
-                                text = backend.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = backend.note,
+                                text = proc.note,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = containerAlpha),
                             )
                         }
                     }
                 }
 
-                if (cleanupBackend == CleanupBackend.LITERT_LM) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-
+                if (litertCompatNote.isNotBlank()) {
                     Text(
-                        text = "LiteRT Preferred Processor",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
+                        text = litertCompatNote,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
                     )
-                    Text(
-                        text = "Device: ${hwProfile.chipBrand}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                    )
+                }
 
-                    LiteRtProcessor.entries.forEach { proc ->
-                        val isSelected = litertProcessor == proc
-                        val isSupported = when (proc) {
-                            LiteRtProcessor.CPU -> true
-                            LiteRtProcessor.GPU -> litertGpuSupported
-                            LiteRtProcessor.NPU -> litertNpuSupported
-                        }
-                        val containerAlpha = if (isSupported) 1f else 0.45f
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .selectable(
-                                    selected = isSelected,
-                                    enabled = isSupported,
-                                    onClick = { if (isSupported) viewModel.setLitertProcessor(proc) },
-                                ),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                enabled = isSupported,
-                                onClick = { if (isSupported) viewModel.setLitertProcessor(proc) },
-                            )
-                            Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = proc.label,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = containerAlpha),
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    if (!isSupported) {
-                                        SuggestionChip(
-                                            onClick = {},
-                                            label = {
-                                                Text(
-                                                    "Unsupported on this device",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.error,
-                                                )
-                                            },
-                                        )
-                                    } else if (proc == LiteRtProcessor.GPU) {
-                                        SuggestionChip(
-                                            onClick = {},
-                                            label = {
-                                                Text(
-                                                    "Optimal",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                )
-                                            },
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = if (isSupported) proc.note else {
-                                        if (proc == LiteRtProcessor.NPU) {
-                                            "This device (${hwProfile.socModel}) requires a model with QNN context binary. Universal .litertlm models require GPU."
-                                        } else {
-                                            "Not supported on current hardware"
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = containerAlpha),
-                                )
-                            }
-                        }
-                    }
-
-                    if (litertCompatNote.isNotBlank()) {
-                        Text(
-                            text = litertCompatNote,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.probeHardwareCompatibility() },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Re-test Hardware Compatibility")
-                    }
+                OutlinedButton(
+                    onClick = { viewModel.probeHardwareCompatibility() },
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("Re-test Compatibility")
                 }
             }
         }

@@ -60,30 +60,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.geniex.sdk.LlmWrapper
-import com.geniex.sdk.bean.GenerationConfig
-import com.geniex.sdk.bean.LlmCreateInput
-import com.geniex.sdk.bean.LlmStreamResult
-import com.geniex.sdk.bean.ModelConfig
-import com.geniex.sdk.bean.ProfilingData
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.OfflineVadAsrEngine
 import fi.ak.smartvoice.audio.WavReader
-import fi.ak.smartvoice.cleanup.CleanupModel
-import fi.ak.smartvoice.cleanup.CleanupModelStore
-import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.CleanupEngine
-import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
 import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.data.AppSettings
-import fi.ak.smartvoice.data.CleanupBackend
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.DictionaryStore
@@ -92,28 +81,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
 
-sealed interface BenchmarkLlmModel {
-    val id: String
-    val label: String
-    val backendName: String
-    val backendBadge: String
-    val approximateBytes: Long
-
-    data class GenieX(val model: CleanupModel) : BenchmarkLlmModel {
-        override val id: String = model.repository
-        override val label: String = model.label
-        override val backendName: String = "GenieX (Hexagon NPU)"
-        override val backendBadge: String = "NPU • GenieX"
-        override val approximateBytes: Long = model.approximateBytes
-    }
-
-    data class LiteRt(val model: LiteRtLmModelSpec) : BenchmarkLlmModel {
-        override val id: String = model.id
-        override val label: String = model.label
-        override val backendName: String = "Google LiteRT-LM"
-        override val backendBadge: String = "LiteRT • GPU"
-        override val approximateBytes: Long = model.approximateBytes
-    }
+data class BenchmarkLlmModel(val model: LiteRtLmModelSpec) {
+    val id: String get() = model.id
+    val label: String get() = model.label
+    val backendName: String get() = "Google LiteRT-LM"
+    val backendBadge: String get() = "LiteRT • GPU/CPU"
+    val approximateBytes: Long get() = model.approximateBytes
 }
 
 data class BenchmarkAudioSample(
@@ -316,9 +289,6 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // Downloaded / Installed Models state
-    var installedCleanupModels by remember { mutableStateOf<List<CleanupModel>>(emptyList()) }
-    var isCheckingInstalledModels by remember { mutableStateOf(true) }
-
     // Audio Pipeline Benchmark State
     var installedAsrModels by remember { mutableStateOf<List<AsrModelSpec>>(emptyList()) }
     var selectedAsrModel by remember { mutableStateOf<AsrModelSpec?>(null) }
@@ -329,14 +299,6 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
     var isCheckingLlmModels by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        val geniexInstalled = withContext(Dispatchers.IO) {
-            CleanupModels.ALL.filter { model ->
-                CleanupModelStore.paths(context, model) != null
-            }
-        }
-        installedCleanupModels = geniexInstalled
-        isCheckingInstalledModels = false
-
         val asrInstalled = withContext(Dispatchers.IO) {
             AsrModels.CATALOG.filter { it.isInstalled(it.directory(context.filesDir)) }
         }
@@ -347,20 +309,16 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
         val litertInstalled = withContext(Dispatchers.IO) {
             LiteRtLmModels.ALL.filter { it.isInstalled(context) }
-                .map { BenchmarkLlmModel.LiteRt(it) }
+                .map { BenchmarkLlmModel(it) }
         }
-        val allLlms = geniexInstalled.map { BenchmarkLlmModel.GenieX(it) } + litertInstalled
-        installedLlmModels = allLlms
+        installedLlmModels = litertInstalled
         isCheckingLlmModels = false
 
-        val initialLlm = if (appSettings.cleanupBackend == CleanupBackend.LITERT_LM) {
-            allLlms.firstOrNull { it.id == appSettings.litertModelId } ?: allLlms.firstOrNull()
-        } else {
-            allLlms.firstOrNull { it.id == appSettings.cleanupModelId } ?: allLlms.firstOrNull()
-        }
+        val initialLlm = litertInstalled.firstOrNull { it.id == appSettings.litertModelId }
+            ?: litertInstalled.firstOrNull()
         selectedPipelineLlmModel = initialLlm
         selectedModel = initialLlm
-        if (initialLlm is BenchmarkLlmModel.LiteRt && selectedComputeUnit == "npu") {
+        if (selectedComputeUnit != "cpu") {
             selectedComputeUnit = "gpu"
         }
     }
@@ -478,37 +436,19 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 val dictionaryEntries = dictionaryStore.getEntries()
 
                 val llmStart = SystemClock.elapsedRealtime()
-                val llmPass: CleanupPass = when (llmModel) {
-                    is BenchmarkLlmModel.GenieX -> {
-                        val engine = GenieXCleanupEngine(
-                            context = context,
-                            model = llmModel.model,
-                            dictionary = dictionary,
-                            dictionaryEntries = dictionaryEntries,
-                        )
-                        engine.clean(
-                            unit = rawAsr,
-                            context = null,
-                            variant = variant,
-                            customRules = customRules,
-                        ).also { engine.unload() }
-                    }
-                    is BenchmarkLlmModel.LiteRt -> {
-                        val engine = LiteRtLmCleanupEngine(
-                            context = context,
-                            modelSpec = llmModel.model,
-                            processor = appSettings.litertProcessor,
-                            dictionary = dictionary,
-                            dictionaryEntries = dictionaryEntries,
-                        )
-                        engine.clean(
-                            unit = rawAsr,
-                            context = null,
-                            variant = variant,
-                            customRules = customRules,
-                        ).also { engine.unload() }
-                    }
-                }
+                val engine = LiteRtLmCleanupEngine(
+                    context = context,
+                    modelSpec = llmModel.model,
+                    processor = appSettings.litertProcessor,
+                    dictionary = dictionary,
+                    dictionaryEntries = dictionaryEntries,
+                )
+                val llmPass: CleanupPass = engine.clean(
+                    unit = rawAsr,
+                    context = null,
+                    variant = variant,
+                    customRules = customRules,
+                ).also { engine.unload() }
                 val llmWallMs = SystemClock.elapsedRealtime() - llmStart
                 val cleanedText = if (llmPass.cleaned && llmPass.text.isNotBlank()) llmPass.text else rawAsr
 
@@ -582,216 +522,94 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
             val dictionaryEntries = dictionaryStore.getEntries()
 
             try {
-                when (model) {
-                    is BenchmarkLlmModel.GenieX -> {
-                        val paths = CleanupModelStore.paths(context, model.model)
-                        if (paths == null) {
-                            withContext(Dispatchers.Main) {
-                                errorMessage = "Model (${model.label}) is not downloaded on device. Please download it in the Models tab first."
-                                isRunning = false
-                            }
-                            return@launch
-                        }
+                val processor = if (selectedComputeUnit == "cpu") LiteRtProcessor.CPU else LiteRtProcessor.GPU
 
-                        var activeWrapper: LlmWrapper? = null
+                var activeEngine: LiteRtLmCleanupEngine? = null
 
-                        suspend fun getOrInitWrapper(): Pair<LlmWrapper, Long> {
-                            if (activeWrapper != null && !coldRunEachTime) {
-                                return Pair(activeWrapper!!, 0L)
-                            }
-                            activeWrapper?.close()
-                            activeWrapper = null
-
-                            val config = ModelConfig(nCtx = 1024, nGpuLayers = -1)
-                            val startLoad = System.currentTimeMillis()
-                            val input = LlmCreateInput(
-                                model_path = paths.model_path,
-                                tokenizer_path = paths.tokenizer_path,
-                                config = config,
-                                runtime_id = paths.runtime_id.ifEmpty { "llama_cpp" },
-                                compute_unit = selectedComputeUnit,
-                            )
-                            val wrapper = LlmWrapper.builder()
-                                .llmCreateInput(input)
-                                .build()
-                                .getOrThrow()
-                            val coldLoad = System.currentTimeMillis() - startLoad
-                            activeWrapper = wrapper
-                            return Pair(wrapper, coldLoad)
-                        }
-
-                        try {
-                            if (warmupFirst) {
-                                currentRun++
-                                withContext(Dispatchers.Main) {
-                                    currentStatusText = "Warmup run (1/1)..."
-                                    currentProgress = currentRun.toFloat() / totalRuns
-                                }
-                                val (wrapper, _) = getOrInitWrapper()
-                                runCatching { wrapper.reset() }
-                                val messages = CleanupPrompt.messages("warmup test", null)
-                                val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
-                                wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = 32)).collect {}
-                                if (coldRunEachTime) {
-                                    activeWrapper?.close()
-                                    activeWrapper = null
-                                }
-                            }
-
-                            for (rep in 1..repetitions) {
-                                currentRun++
-                                withContext(Dispatchers.Main) {
-                                    currentStatusText = "Repetition $rep of $repetitions..."
-                                    currentProgress = currentRun.toFloat() / totalRuns
-                                }
-
-                                val (wrapper, coldLoad) = getOrInitWrapper()
-                                runCatching { wrapper.reset() }
-                                val messages = CleanupPrompt.messages(
-                                    unit = samplePrompt,
-                                    context = null,
-                                    dictionary = dictionary,
-                                    dictionaryEntries = dictionaryEntries,
-                                    variant = variant,
-                                    customRules = customRules,
-                                )
-                                val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
-
-                                val wallStart = System.currentTimeMillis()
-                                var output = ""
-                                var profile: ProfilingData? = null
-
-                                wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = CleanupPrompt.MAX_TOKENS))
-                                    .collect { res ->
-                                        when (res) {
-                                            is LlmStreamResult.Token -> output += res.text
-                                            is LlmStreamResult.Completed -> profile = res.profile
-                                            is LlmStreamResult.Error -> throw res.throwable
-                                        }
-                                    }
-                                val wallMs = System.currentTimeMillis() - wallStart
-
-                                val parsed = CleanupPrompt.parse(output)
-                                recordedResults.add(
-                                    RepetitionResult(
-                                        repIndex = rep,
-                                        isWarmup = false,
-                                        coldLoadMs = coldLoad,
-                                        ttftMs = profile?.ttftMs ?: 0.0,
-                                        prefillSpeed = if ((profile?.promptTimeMs ?: 0.0) > 0.0) ((profile?.promptTokens ?: 0L) * 1000.0) / profile!!.promptTimeMs else 0.0,
-                                        decodeSpeed = if ((profile?.decodeTimeMs ?: 0.0) > 0.0) ((profile?.generatedTokens ?: 0L) * 1000.0) / profile!!.decodeTimeMs else 0.0,
-                                        wallMs = wallMs,
-                                        generatedTokens = profile?.generatedTokens ?: 0L,
-                                        outputText = parsed,
-                                    )
-                                )
-
-                                if (coldRunEachTime) {
-                                    activeWrapper?.close()
-                                    activeWrapper = null
-                                }
-                            }
-                        } finally {
-                            activeWrapper?.close()
-                            activeWrapper = null
-                        }
+                suspend fun getOrInitEngine(): Pair<LiteRtLmCleanupEngine, Long> {
+                    if (activeEngine != null && !coldRunEachTime) {
+                        return Pair(activeEngine!!, 0L)
                     }
+                    activeEngine?.unload()
+                    activeEngine = null
 
-                    is BenchmarkLlmModel.LiteRt -> {
-                        val processor = when (selectedComputeUnit) {
-                            "cpu" -> LiteRtProcessor.CPU
-                            "npu" -> LiteRtProcessor.NPU
-                            else -> LiteRtProcessor.GPU
+                    val startLoad = SystemClock.elapsedRealtime()
+                    val eng = LiteRtLmCleanupEngine(
+                        context = context,
+                        modelSpec = model.model,
+                        processor = processor,
+                        dictionary = dictionary,
+                        dictionaryEntries = dictionaryEntries,
+                    )
+                    eng.load().getOrThrow()
+                    val coldLoad = SystemClock.elapsedRealtime() - startLoad
+                    activeEngine = eng
+                    return Pair(eng, coldLoad)
+                }
+
+                try {
+                    if (warmupFirst) {
+                        currentRun++
+                        withContext(Dispatchers.Main) {
+                            currentStatusText = "Warmup run (1/1)..."
+                            currentProgress = currentRun.toFloat() / totalRuns
                         }
-
-                        var activeEngine: LiteRtLmCleanupEngine? = null
-
-                        suspend fun getOrInitEngine(): Pair<LiteRtLmCleanupEngine, Long> {
-                            if (activeEngine != null && !coldRunEachTime) {
-                                return Pair(activeEngine!!, 0L)
-                            }
-                            activeEngine?.unload()
-                            activeEngine = null
-
-                            val startLoad = SystemClock.elapsedRealtime()
-                            val eng = LiteRtLmCleanupEngine(
-                                context = context,
-                                modelSpec = model.model,
-                                processor = processor,
-                                dictionary = dictionary,
-                                dictionaryEntries = dictionaryEntries,
-                            )
-                            eng.load().getOrThrow()
-                            val coldLoad = SystemClock.elapsedRealtime() - startLoad
-                            activeEngine = eng
-                            return Pair(eng, coldLoad)
-                        }
-
-                        try {
-                            if (warmupFirst) {
-                                currentRun++
-                                withContext(Dispatchers.Main) {
-                                    currentStatusText = "Warmup run (1/1)..."
-                                    currentProgress = currentRun.toFloat() / totalRuns
-                                }
-                                val (eng, _) = getOrInitEngine()
-                                eng.clean(
-                                    unit = "warmup test",
-                                    context = null,
-                                    variant = variant,
-                                    customRules = customRules,
-                                )
-                                if (coldRunEachTime) {
-                                    activeEngine?.unload()
-                                    activeEngine = null
-                                }
-                            }
-
-                            for (rep in 1..repetitions) {
-                                currentRun++
-                                withContext(Dispatchers.Main) {
-                                    currentStatusText = "Repetition $rep of $repetitions..."
-                                    currentProgress = currentRun.toFloat() / totalRuns
-                                }
-
-                                val (eng, coldLoad) = getOrInitEngine()
-                                val wallStart = SystemClock.elapsedRealtime()
-                                val pass = eng.clean(
-                                    unit = samplePrompt,
-                                    context = null,
-                                    variant = variant,
-                                    customRules = customRules,
-                                )
-                                val wallMs = SystemClock.elapsedRealtime() - wallStart
-
-                                val decodeSpeed = if (pass.decodeTimeMs > 0.0) {
-                                    (pass.generatedTokens * 1000.0) / pass.decodeTimeMs
-                                } else 0.0
-
-                                recordedResults.add(
-                                    RepetitionResult(
-                                        repIndex = rep,
-                                        isWarmup = false,
-                                        coldLoadMs = if (coldLoad > 0) coldLoad else pass.loadMs,
-                                        ttftMs = pass.ttftMs,
-                                        prefillSpeed = 0.0,
-                                        decodeSpeed = decodeSpeed,
-                                        wallMs = wallMs,
-                                        generatedTokens = pass.generatedTokens,
-                                        outputText = pass.text,
-                                    )
-                                )
-
-                                if (coldRunEachTime) {
-                                    activeEngine?.unload()
-                                    activeEngine = null
-                                }
-                            }
-                        } finally {
+                        val (eng, _) = getOrInitEngine()
+                        eng.clean(
+                            unit = "warmup test",
+                            context = null,
+                            variant = variant,
+                            customRules = customRules,
+                        )
+                        if (coldRunEachTime) {
                             activeEngine?.unload()
                             activeEngine = null
                         }
                     }
+
+                    for (rep in 1..repetitions) {
+                        currentRun++
+                        withContext(Dispatchers.Main) {
+                            currentStatusText = "Repetition $rep of $repetitions..."
+                            currentProgress = currentRun.toFloat() / totalRuns
+                        }
+
+                        val (eng, coldLoad) = getOrInitEngine()
+                        val wallStart = SystemClock.elapsedRealtime()
+                        val pass = eng.clean(
+                            unit = samplePrompt,
+                            context = null,
+                            variant = variant,
+                            customRules = customRules,
+                        )
+                        val wallMs = SystemClock.elapsedRealtime() - wallStart
+
+                        val decodeSpeed = if (pass.decodeTimeMs > 0.0) {
+                            (pass.generatedTokens * 1000.0) / pass.decodeTimeMs
+                        } else 0.0
+
+                        recordedResults.add(
+                            RepetitionResult(
+                                repIndex = rep,
+                                isWarmup = false,
+                                coldLoadMs = if (coldLoad > 0) coldLoad else pass.loadMs,
+                                ttftMs = pass.ttftMs,
+                                prefillSpeed = 0.0,
+                                decodeSpeed = decodeSpeed,
+                                wallMs = wallMs,
+                                generatedTokens = pass.generatedTokens,
+                                outputText = pass.text,
+                            )
+                        )
+
+                        if (coldRunEachTime) {
+                            activeEngine?.unload()
+                            activeEngine = null
+                        }
+                    }
+                } finally {
+                    activeEngine?.unload()
+                    activeEngine = null
                 }
 
                 val n = recordedResults.size
@@ -1104,30 +922,17 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                         label = "Select Cleanup Model:",
                         installedModels = installedLlmModels,
                         selectedModel = selectedModel,
-                        onModelSelected = { model ->
-                            selectedModel = model
-                            if (model is BenchmarkLlmModel.LiteRt && selectedComputeUnit == "npu") {
-                                selectedComputeUnit = "gpu"
-                            } else if (model is BenchmarkLlmModel.GenieX && selectedComputeUnit != "npu" && selectedComputeUnit != "cpu") {
-                                selectedComputeUnit = "npu"
-                            }
+                        onModelSelected = { m ->
+                            selectedModel = m
                         },
                     )
 
-                    // Compute Unit
-                    Text("Compute Unit:", style = MaterialTheme.typography.labelMedium)
-                    val computeUnits = when (selectedModel) {
-                        is BenchmarkLlmModel.LiteRt -> listOf(
-                            "gpu" to "GPU (OpenCL)",
-                            "cpu" to "CPU",
-                            "npu" to "NPU (Hexagon)",
-                        )
-                        else -> listOf(
-                            "npu" to "Hexagon NPU",
-                            "cpu" to "CPU",
-                            "gpu" to "GPU",
-                        )
-                    }
+                    // Compute Target
+                    Text("Compute Target:", style = MaterialTheme.typography.labelMedium)
+                    val computeUnits = listOf(
+                        "gpu" to "GPU (OpenCL) [Recommended]",
+                        "cpu" to "CPU (ARM NEON)",
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1221,7 +1026,8 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
         }
 
         // Summary Card
-        summaryResult?.let { summary ->
+        val summary = summaryResult
+        if (summary != null) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
