@@ -20,7 +20,7 @@ import java.io.File
 /**
  * Google LiteRT-LM implementation of [CleanupEngine].
  *
- * Runs mobile-optimized `.litertlm` models (Gemma, Qwen, Granite) via the Google AI Edge LiteRT runtime
+ * Runs mobile-optimized `.litertlm` models (Gemma 4 E2B, E4B) via the Google AI Edge LiteRT runtime
  * using GPU acceleration (with CPU fallback).
  */
 class LiteRtLmCleanupEngine(

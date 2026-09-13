@@ -100,7 +100,14 @@ class AppSettings(context: Context) {
      * Which LiteRT-LM model is selected for cleanup.
      */
     var litertModelId: String
-        get() = prefs.getString(KEY_LITERT_MODEL, null) ?: LiteRtLmModels.DEFAULT.id
+        get() {
+            val saved = prefs.getString(KEY_LITERT_MODEL, null)
+            return if (saved != null && LiteRtLmModels.ALL.any { it.id == saved }) {
+                saved
+            } else {
+                LiteRtLmModels.DEFAULT.id
+            }
+        }
         set(value) = prefs.edit { putString(KEY_LITERT_MODEL, value) }
 
     val litertModel: LiteRtLmModelSpec
