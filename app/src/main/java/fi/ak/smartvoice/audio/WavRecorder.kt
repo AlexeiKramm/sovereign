@@ -66,7 +66,10 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
         running = true
         recorder.startRecording()
 
-        val buffer = ByteArray(bufferSize)
+        // Read in responsive 100 ms increments (3,200 bytes @ 16 kHz 16-bit mono)
+        // instead of blocking for a full 1.0 second.
+        val readChunkBytes = sampleRate * BYTES_PER_SAMPLE * READ_CHUNK_MS / 1000
+        val buffer = ByteArray(readChunkBytes)
         val sink = frameSink
         captureThread = Thread({
             while (running) {
@@ -118,6 +121,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
 
     companion object {
         const val SAMPLE_RATE = 16_000
+        const val READ_CHUNK_MS = 100
         private const val BYTES_PER_SAMPLE = 2
         private const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT

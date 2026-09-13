@@ -36,6 +36,8 @@ class LocalAsrSession(
      * unit commits the whole utterance exactly once and in order.
      */
     private val onUnit: (String) -> Unit = {},
+    /** Called whenever recogniser output changes to update UI immediately without polling delay. */
+    private val onBoundaryUpdated: (BoundaryState) -> Unit = {},
     /**
      * The listener's timings, read at the start of each utterance so a settings change takes effect on
      * the next one instead of requiring a new build. Nothing here is read mid-utterance: a threshold
@@ -116,6 +118,7 @@ class LocalAsrSession(
 
         feedJob = scope.launch(dispatcher) {
             engine.startSession(language)
+            var lastText = ""
             for (frames in queue) {
                 val text = engine.accept(frames).orEmpty()
                 if (text.isNotBlank()) {
@@ -131,7 +134,12 @@ class LocalAsrSession(
                     emitUnit(unit)
                 }
                 // The partial is published for the panel's preview only; it is never committed (D-041).
-                boundaryState = boundary.snapshot(quietFor, audioLevel.heardSpeech, text)
+                val newState = boundary.snapshot(quietFor, audioLevel.heardSpeech, text)
+                boundaryState = newState
+                if (text != lastText) {
+                    lastText = text
+                    onBoundaryUpdated(newState)
+                }
             }
         }
         return availability
@@ -182,9 +190,9 @@ class LocalAsrSession(
 
     companion object {
         /**
-         * Buffering capacity for incoming frames (~128 seconds) to prevent microphone dropouts
-         * even when Whisper decodes a large segment on CPU while capture continues uninterrupted.
+         * Buffering capacity for incoming frames (~51.2 seconds @ 100ms frames) to prevent microphone dropouts
+         * even when an offline model decodes a large segment while capture continues uninterrupted.
          */
-        private const val FRAME_QUEUE_CAPACITY = 128
+        private const val FRAME_QUEUE_CAPACITY = 512
     }
 }

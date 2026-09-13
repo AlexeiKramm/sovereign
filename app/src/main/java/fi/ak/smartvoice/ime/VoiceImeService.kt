@@ -177,6 +177,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             onPartialWords = { partialWords = it },
             // Also called on the ASR thread, in order, once per pause-delimited unit (D-032).
             onUnit = ::onLocalUnit,
+            // Reactive push update: renders partial text preview immediately on main thread without waiting for the ticker
+            onBoundaryUpdated = { state ->
+                scope.launch(Dispatchers.Main.immediate) {
+                    if (recorder.isRecording && inFlight == null) {
+                        render(listeningState(currentChoice(), recorder.capturedSeconds, state))
+                    }
+                }
+            },
             // Read at the start of every utterance, so a settings change needs no new build (D-035).
             timings = { settings.listenerTimings() },
         )

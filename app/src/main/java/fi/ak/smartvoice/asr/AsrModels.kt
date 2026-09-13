@@ -121,36 +121,6 @@ object AsrModels {
         ),
     )
 
-    val WHISPER_TINY = AsrModelSpec(
-        id = "whisper-tiny",
-        label = "Whisper Tiny (int8)",
-        description = "Lightweight multilingual offline model • ~103 MB",
-        type = AsrModelType.OFFLINE_WHISPER,
-        repo = "csukuangfj/sherpa-onnx-whisper-tiny",
-        revision = "65176e2deb88badc814a94058666cadccc29b61c",
-        directoryName = "sherpa-onnx-whisper-tiny",
-        encoderFileName = "tiny-encoder.int8.onnx",
-        decoderFileName = "tiny-decoder.int8.onnx",
-        tokensFileName = "tiny-tokens.txt",
-        files = listOf(
-            AsrModelFile(
-                name = "tiny-decoder.int8.onnx",
-                bytes = 89_855_401L,
-                sha256 = "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925",
-            ),
-            AsrModelFile(
-                name = "tiny-encoder.int8.onnx",
-                bytes = 12_937_772L,
-                sha256 = "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434",
-            ),
-            AsrModelFile(
-                name = "tiny-tokens.txt",
-                bytes = 816_730L,
-                sha256 = "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
-            ),
-        ),
-    )
-
     val WHISPER_BASE = AsrModelSpec(
         id = "whisper-base",
         label = "Whisper Base (int8)",
@@ -281,7 +251,6 @@ object AsrModels {
     val CATALOG: List<AsrModelSpec> = listOf(
         NEMOTRON,
         NEMOTRON_320MS,
-        WHISPER_TINY,
         WHISPER_BASE,
         WHISPER_SMALL,
         WHISPER_TURBO,
