@@ -499,9 +499,18 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         }
         _loadProbe.value = "loading…"
         viewModelScope.launch {
-            val availability = withContext(asrDispatcher) { localEngine.load() }
+            var loadTime = 0L
+            val availability = withContext(asrDispatcher) {
+                try {
+                    val res = localEngine.load()
+                    loadTime = localEngine.lastLoadMillis
+                    res
+                } finally {
+                    localEngine.unload()
+                }
+            }
             _loadProbe.value = when (availability) {
-                LocalAsrEngine.Availability.Loaded -> "load check: OK in ${localEngine.lastLoadMillis} ms"
+                LocalAsrEngine.Availability.Loaded -> "load check: OK in $loadTime ms (verified & unloaded)"
                 LocalAsrEngine.Availability.NotInstalled -> "not installed — nothing to load"
                 LocalAsrEngine.Availability.NotLoaded -> "not loaded"
                 is LocalAsrEngine.Availability.Unavailable -> "load check FAILED: ${availability.reason}"
@@ -552,10 +561,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             _cleanupBusy.value = "loading $currentLabel…"
             val engine = engine()
-            _cleanupLoad.value = engine.load().fold(
-                onSuccess = { "loaded in ${engine.lastLoadMs} ms — resident until unloaded" },
+            val res = engine.load()
+            _cleanupLoad.value = res.fold(
+                onSuccess = { "loaded in ${engine.lastLoadMs} ms — verified & unloaded" },
                 onFailure = { "load failed — ${it.message}" },
             )
+            // Immediately unload to ensure GPU memory is not held resident
+            engine.unload()
+            cleanupEngine = null
+            System.gc()
             _cleanupBusy.value = null
         }
     }
@@ -722,6 +736,10 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 ticker = viewModelScope.launch {
                     while (isActive) {
                         delay(TICK_MS)
+                        if (recorder.capturedSeconds >= 300.0) {
+                            stopAndTranscribe()
+                            return@launch
+                        }
                         _state.value = DictationUiState.Recording(recorder.capturedSeconds, choice.engine)
                     }
                 }
@@ -950,6 +968,24 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun client() = TranscribeClient(_serverUrl.value)
+
+    fun onAppBackgrounded() {
+        ticker?.cancel()
+        litertJob?.cancel()
+        if (recorder.isRecording) {
+            recorder.cancel()
+            localSession.abort()
+            _state.value = DictationUiState.Idle
+        }
+        viewModelScope.launch {
+            withContext(asrDispatcher) {
+                localEngine.unload()
+            }
+            cleanupEngine?.unload()
+            cleanupEngine = null
+            System.gc()
+        }
+    }
 
     override fun onCleared() {
         ticker?.cancel()

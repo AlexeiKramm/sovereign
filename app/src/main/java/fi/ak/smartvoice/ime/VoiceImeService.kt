@@ -192,12 +192,15 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val screenFilter = IntentFilter(Intent.ACTION_SCREEN_OFF)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == Intent.ACTION_SCREEN_OFF && settings.unloadOnScreenOff) {
-                    Log.i("SmartVoice", "Screen off: unloading models and releasing capture")
+                if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                    Log.i("SmartVoice", "Screen off: halting active recording")
                     abandonCapture()
-                    scope.launch(Dispatchers.IO) {
-                        localEngine.unload()
-                        cleanupEngine?.unload()
+                    if (settings.unloadOnScreenOff) {
+                        Log.i("SmartVoice", "Screen off: unloading models from RAM/NPU")
+                        scope.launch(Dispatchers.IO) {
+                            localEngine.unload()
+                            cleanupEngine?.unload()
+                        }
                     }
                 }
             }
@@ -331,7 +334,6 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         syncPanelSettings()
         render(idleState())
         prefetchLocalModel()
-        if (settings.cleanupEnabled) prefetchCleanupModel()
     }
 
     /**
@@ -363,6 +365,23 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // Only report if the user has not started dictating in the meantime: the ticker owns the
             // status line from that point.
             if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
+        }
+    }
+
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        if (recorder.isRecording) {
+            Log.i("SmartVoice", "Keyboard window hidden: stopping active recording")
+            abandonCapture()
+        }
+        scheduleIdleTimeout()
+    }
+
+    override fun onFinishInput() {
+        super.onFinishInput()
+        if (recorder.isRecording) {
+            Log.i("SmartVoice", "Input finished: stopping active recording")
+            abandonCapture()
         }
     }
 
@@ -965,6 +984,25 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                         val state = localSession.boundaryState
                         val stopAfterSeconds = settings.stopAfterSilenceSeconds
                         render(listeningState(choice, recorder.capturedSeconds, state))
+
+                        // 1. Initial silence timeout (accidental tap / pocket protection)
+                        if (recorder.capturedSeconds >= INITIAL_SILENCE_TIMEOUT_SECONDS && !state.heardAudio) {
+                            Log.i("SmartVoice", "Initial silence timeout ($INITIAL_SILENCE_TIMEOUT_SECONDS s) reached without speech")
+                            stoppedBySilence = true
+                            abandonCapture()
+                            show("No speech heard — stopped to save battery")
+                            return@launch
+                        }
+
+                        // 2. Hard max ceiling (safety limit against runaway recording)
+                        if (recorder.capturedSeconds >= MAX_RECORDING_SECONDS) {
+                            Log.i("SmartVoice", "Maximum recording duration ($MAX_RECORDING_SECONDS s) reached")
+                            stoppedBySilence = true
+                            stopAndTranscribe()
+                            return@launch
+                        }
+
+                        // 3. Normal speech pause auto-stop
                         // Auto-stop (D-035): the recording ends when the speaker has been silent long
                         // enough *and* has actually said something. Silence before speech must never end
                         // a recording the user has not spoken into yet, and the local tier is where this
@@ -1223,6 +1261,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     companion object {
         private const val TICK_MS = 200L
+        private const val INITIAL_SILENCE_TIMEOUT_SECONDS = 10.0
+        private const val MAX_RECORDING_SECONDS = 300.0
 
         const val SERVICE_ID = "fi.ak.smartvoice/.ime.VoiceImeService"
     }

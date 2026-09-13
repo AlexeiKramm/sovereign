@@ -370,44 +370,51 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 var rawAsr = ""
                 val asrEngineLabel = asrSpec.label
 
-                if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
-                    val asrEngine = LocalAsrEngine(asrModelDir, assetManager = context.assets)
-                    val availability = asrEngine.load()
-                    if (availability is LocalAsrEngine.Availability.Loaded) {
-                        asrEngine.startSession(language = sample.language)
-                        val chunkSize = 1600 // 100ms chunks at 16kHz
-                        for (i in wavAudio.samples.indices step chunkSize) {
-                            val end = minOf(i + chunkSize, wavAudio.samples.size)
-                            val chunk = wavAudio.samples.copyOfRange(i, end)
-                            asrEngine.accept(chunk)
+                var streamingAsr: LocalAsrEngine? = null
+                var offlineAsr: OfflineVadAsrEngine? = null
+                try {
+                    if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
+                        val asrEngine = LocalAsrEngine(asrModelDir, assetManager = context.assets)
+                        streamingAsr = asrEngine
+                        val availability = asrEngine.load()
+                        if (availability is LocalAsrEngine.Availability.Loaded) {
+                            asrEngine.startSession(language = sample.language)
+                            val chunkSize = 1600 // 100ms chunks at 16kHz
+                            for (i in wavAudio.samples.indices step chunkSize) {
+                                val end = minOf(i + chunkSize, wavAudio.samples.size)
+                                val chunk = wavAudio.samples.copyOfRange(i, end)
+                                asrEngine.accept(chunk)
+                            }
+                            rawAsr = asrEngine.finish().trim()
+                        } else {
+                            rawAsr = sample.fallbackRawAsr
                         }
-                        rawAsr = asrEngine.finish().trim()
-                        asrEngine.unload()
                     } else {
-                        rawAsr = sample.fallbackRawAsr
-                    }
-                } else {
-                    // Offline models (Whisper variants or Parakeet v3 TDT)
-                    val offlineEngine = OfflineVadAsrEngine(
-                        modelDirectory = asrModelDir,
-                        spec = asrSpec,
-                        assetManager = context.assets,
-                    )
-                    val availability = offlineEngine.load()
-                    if (availability is LocalAsrEngine.Availability.Loaded) {
-                        offlineEngine.startSession(language = sample.language)
-                        val chunkSize = 1600
-                        for (i in wavAudio.samples.indices step chunkSize) {
-                            val end = minOf(i + chunkSize, wavAudio.samples.size)
-                            val chunk = wavAudio.samples.copyOfRange(i, end)
-                            offlineEngine.accept(chunk)
+                        // Offline models (Whisper variants or Parakeet v3 TDT)
+                        val offlineEngine = OfflineVadAsrEngine(
+                            modelDirectory = asrModelDir,
+                            spec = asrSpec,
+                            assetManager = context.assets,
+                        )
+                        offlineAsr = offlineEngine
+                        val availability = offlineEngine.load()
+                        if (availability is LocalAsrEngine.Availability.Loaded) {
+                            offlineEngine.startSession(language = sample.language)
+                            val chunkSize = 1600
+                            for (i in wavAudio.samples.indices step chunkSize) {
+                                val end = minOf(i + chunkSize, wavAudio.samples.size)
+                                val chunk = wavAudio.samples.copyOfRange(i, end)
+                                offlineEngine.accept(chunk)
+                            }
+                            val text = offlineEngine.finish()
+                            rawAsr = text.trim()
+                        } else {
+                            rawAsr = sample.fallbackRawAsr
                         }
-                        val text = offlineEngine.finish()
-                        rawAsr = text.trim()
-                        offlineEngine.unload()
-                    } else {
-                        rawAsr = sample.fallbackRawAsr
                     }
+                } finally {
+                    streamingAsr?.unload()
+                    offlineAsr?.unload()
                 }
                 val asrWallMs = SystemClock.elapsedRealtime() - asrStart
 
@@ -436,19 +443,26 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 val dictionaryEntries = dictionaryStore.getEntries()
 
                 val llmStart = SystemClock.elapsedRealtime()
-                val engine = LiteRtLmCleanupEngine(
-                    context = context,
-                    modelSpec = llmModel.model,
-                    processor = appSettings.litertProcessor,
-                    dictionary = dictionary,
-                    dictionaryEntries = dictionaryEntries,
-                )
-                val llmPass: CleanupPass = engine.clean(
-                    unit = rawAsr,
-                    context = null,
-                    variant = variant,
-                    customRules = customRules,
-                ).also { engine.unload() }
+                var cleanupEngineInstance: LiteRtLmCleanupEngine? = null
+                val llmPass: CleanupPass = try {
+                    val engine = LiteRtLmCleanupEngine(
+                        context = context,
+                        modelSpec = llmModel.model,
+                        processor = appSettings.litertProcessor,
+                        dictionary = dictionary,
+                        dictionaryEntries = dictionaryEntries,
+                    )
+                    cleanupEngineInstance = engine
+                    engine.clean(
+                        unit = rawAsr,
+                        context = null,
+                        variant = variant,
+                        customRules = customRules,
+                    )
+                } finally {
+                    cleanupEngineInstance?.unload()
+                    System.gc()
+                }
                 val llmWallMs = SystemClock.elapsedRealtime() - llmStart
                 val cleanedText = if (llmPass.cleaned && llmPass.text.isNotBlank()) llmPass.text else rawAsr
 
@@ -541,7 +555,12 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                         dictionary = dictionary,
                         dictionaryEntries = dictionaryEntries,
                     )
-                    eng.load().getOrThrow()
+                    try {
+                        eng.load().getOrThrow()
+                    } catch (t: Throwable) {
+                        eng.unload()
+                        throw t
+                    }
                     val coldLoad = SystemClock.elapsedRealtime() - startLoad
                     activeEngine = eng
                     return Pair(eng, coldLoad)
@@ -610,6 +629,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 } finally {
                     activeEngine?.unload()
                     activeEngine = null
+                    System.gc()
                 }
 
                 val n = recordedResults.size
