@@ -85,9 +85,10 @@ class AsrModelsTest {
     @Test
     fun `catalog contains all supported streaming and offline models`() {
         val catalog = AsrModels.CATALOG
-        assertEquals(6, catalog.size)
+        assertEquals(7, catalog.size)
         val ids = catalog.map { it.id }
-        assertTrue("contains nemotron", ids.contains("nemotron-3.5-streaming"))
+        assertTrue("contains nemotron 560ms", ids.contains("nemotron-3.5-streaming"))
+        assertTrue("contains nemotron 320ms", ids.contains("nemotron-3.5-streaming-320ms"))
         assertTrue("contains whisper-tiny", ids.contains("whisper-tiny"))
         assertTrue("contains whisper-base", ids.contains("whisper-base"))
         assertTrue("contains whisper-small", ids.contains("whisper-small"))
@@ -105,6 +106,7 @@ class AsrModelsTest {
 
     @Test
     fun `byId finds each model and falls back to default`() {
+        assertEquals("nemotron-3.5-streaming-320ms", AsrModels.byId("nemotron-3.5-streaming-320ms").id)
         assertEquals("whisper-turbo", AsrModels.byId("whisper-turbo").id)
         assertEquals("parakeet-tdt-v3", AsrModels.byId("parakeet-tdt-v3").id)
         assertEquals(AsrModels.DEFAULT_MODEL_ID, AsrModels.byId("non-existent-id").id)

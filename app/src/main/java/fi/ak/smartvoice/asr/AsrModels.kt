@@ -51,7 +51,7 @@ object AsrModels {
 
     val NEMOTRON = AsrModelSpec(
         id = DEFAULT_MODEL_ID,
-        label = "Nemotron 3.5 Streaming (0.6B int8)",
+        label = "Nemotron 3.5 Streaming (560ms, 0.6B int8)",
         description = "560 ms chunks • ~682 MB, 4 files • Streaming transducer",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11",
@@ -66,6 +66,42 @@ object AsrModels {
                 name = "encoder.int8.onnx",
                 bytes = 657_601_403L,
                 sha256 = "012e9321373af99021415e0b0eb3ec827b4be3153be6f30d9b448fe65e896e68",
+            ),
+            AsrModelFile(
+                name = "decoder.int8.onnx",
+                bytes = 14_978_075L,
+                sha256 = "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0",
+            ),
+            AsrModelFile(
+                name = "joiner.int8.onnx",
+                bytes = 9_504_438L,
+                sha256 = "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce",
+            ),
+            AsrModelFile(
+                name = "tokens.txt",
+                bytes = 131_440L,
+                sha256 = "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a",
+            ),
+        ),
+    )
+
+    val NEMOTRON_320MS = AsrModelSpec(
+        id = "nemotron-3.5-streaming-320ms",
+        label = "Nemotron 3.5 Streaming (320ms, 0.6B int8)",
+        description = "320 ms chunks (lower latency) • ~682 MB, 4 files • Streaming transducer",
+        type = AsrModelType.STREAMING_TRANSDUCER,
+        repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-320ms-int8-2026-06-11",
+        revision = "424ce58898995b713f84341f2e1492f9207a26aa",
+        directoryName = "nemotron-3.5-streaming-0.6b-320ms-int8",
+        encoderFileName = "encoder.int8.onnx",
+        decoderFileName = "decoder.int8.onnx",
+        joinerFileName = "joiner.int8.onnx",
+        tokensFileName = "tokens.txt",
+        files = listOf(
+            AsrModelFile(
+                name = "encoder.int8.onnx",
+                bytes = 657_601_518L,
+                sha256 = "f79c3fcc149f268b54b7d5754bdc2ba5c47c16b1fc70d15728a56f6efbf60ca5",
             ),
             AsrModelFile(
                 name = "decoder.int8.onnx",
@@ -244,6 +280,7 @@ object AsrModels {
 
     val CATALOG: List<AsrModelSpec> = listOf(
         NEMOTRON,
+        NEMOTRON_320MS,
         WHISPER_TINY,
         WHISPER_BASE,
         WHISPER_SMALL,
