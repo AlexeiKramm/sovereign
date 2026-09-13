@@ -2,10 +2,31 @@ package fi.ak.smartvoice.data
 
 import android.content.Context
 import androidx.core.content.edit
+import fi.ak.smartvoice.asr.AsrModelSpec
+import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.ListenerTimings
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
+import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.engine.EnginePreference
+
+enum class CleanupBackend(val id: String, val label: String, val note: String) {
+    GENIEX_NPU("geniex_npu", "GenieX (Hexagon NPU)", "llama_cpp on Qualcomm Hexagon NPU (Q4_0 GGUF)"),
+    LITERT_LM("litert_lm", "Google LiteRT-LM", "Google AI Edge runtime for GPU/CPU (.litertlm models)"),
+}
+
+enum class LiteRtProcessor(val id: String, val label: String, val note: String) {
+    GPU("gpu", "GPU (OpenCL / Vulkan)", "Accelerated via mobile GPU (recommended)"),
+    CPU("cpu", "CPU", "ARM NEON multi-threaded (universal fallback)"),
+    NPU("npu", "NPU (Qualcomm Hexagon)", "Qualcomm QNN neural processing unit"),
+}
+
+enum class AppThemeMode(val id: String, val label: String) {
+    SYSTEM("system", "System Default"),
+    LIGHT("light", "Light Theme"),
+    DARK("dark", "Dark Theme"),
+}
 
 /**
  * The one place the app's settings are read and written.
@@ -74,6 +95,16 @@ class AppSettings(context: Context) {
     )
 
     /**
+     * Which ASR model the local tier runs (Nemotron streaming or offline Whisper/Parakeet).
+     */
+    var asrModelId: String
+        get() = prefs.getString(KEY_ASR_MODEL, null) ?: AsrModels.DEFAULT_MODEL_ID
+        set(value) = prefs.edit { putString(KEY_ASR_MODEL, value) }
+
+    val asrModel: AsrModelSpec
+        get() = AsrModels.byId(asrModelId)
+
+    /**
      * Which cleanup model the local tier runs (D-029 item 3's catalogue). Stored as the repository
      * id, not an index: reordering or extending the catalogue must not silently switch the model.
      */
@@ -83,6 +114,60 @@ class AppSettings(context: Context) {
 
     val cleanupModel: CleanupModel
         get() = CleanupModels.byRepository(cleanupModelId)
+
+    /**
+     * Which LLM cleanup engine backend runs: GenieX (Hexagon NPU) or LiteRT-LM (Google).
+     */
+    var cleanupBackend: CleanupBackend
+        get() = when (prefs.getString(KEY_CLEANUP_BACKEND, null)) {
+            CleanupBackend.LITERT_LM.id -> CleanupBackend.LITERT_LM
+            else -> CleanupBackend.GENIEX_NPU
+        }
+        set(value) = prefs.edit { putString(KEY_CLEANUP_BACKEND, value.id) }
+
+    /**
+     * Which LiteRT-LM model is selected when using the LiteRT-LM backend.
+     */
+    var litertModelId: String
+        get() = prefs.getString(KEY_LITERT_MODEL, null) ?: LiteRtLmModels.DEFAULT.id
+        set(value) = prefs.edit { putString(KEY_LITERT_MODEL, value) }
+
+    val litertModel: LiteRtLmModelSpec
+        get() = LiteRtLmModels.byId(litertModelId)
+
+    /**
+     * Preferred processor for LiteRT-LM (GPU, CPU, or NPU).
+     */
+    var litertProcessor: LiteRtProcessor
+        get() = when (prefs.getString(KEY_LITERT_PROCESSOR, null)) {
+            LiteRtProcessor.CPU.id -> LiteRtProcessor.CPU
+            LiteRtProcessor.NPU.id -> LiteRtProcessor.NPU
+            else -> LiteRtProcessor.GPU
+        }
+        set(value) = prefs.edit { putString(KEY_LITERT_PROCESSOR, value.id) }
+
+    var litertGpuSupported: Boolean
+        get() = prefs.getBoolean(KEY_LITERT_GPU_SUPPORTED, true)
+        set(value) = prefs.edit { putBoolean(KEY_LITERT_GPU_SUPPORTED, value) }
+
+    var litertNpuSupported: Boolean
+        get() = prefs.getBoolean(KEY_LITERT_NPU_SUPPORTED, false)
+        set(value) = prefs.edit { putBoolean(KEY_LITERT_NPU_SUPPORTED, value) }
+
+    var litertCompatibilityNote: String
+        get() = prefs.getString(KEY_LITERT_COMPAT_NOTE, "").orEmpty()
+        set(value) = prefs.edit { putString(KEY_LITERT_COMPAT_NOTE, value) }
+
+    /**
+     * Theme preference: System default, Light theme, or Dark theme.
+     */
+    var themeMode: AppThemeMode
+        get() = when (prefs.getString(KEY_THEME_MODE, null)) {
+            AppThemeMode.LIGHT.id -> AppThemeMode.LIGHT
+            AppThemeMode.DARK.id -> AppThemeMode.DARK
+            else -> AppThemeMode.SYSTEM
+        }
+        set(value) = prefs.edit { putString(KEY_THEME_MODE, value.id) }
 
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"
@@ -114,7 +199,15 @@ class AppSettings(context: Context) {
         private const val KEY_CLEANUP = "cleanup_enabled"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_ENGINE = "engine_preference"
+        private const val KEY_ASR_MODEL = "asr_model_id"
         private const val KEY_CLEANUP_MODEL = "cleanup_model_id"
+        private const val KEY_CLEANUP_BACKEND = "cleanup_backend"
+        private const val KEY_LITERT_MODEL = "litert_model_id"
+        private const val KEY_LITERT_PROCESSOR = "litert_processor"
+        private const val KEY_LITERT_GPU_SUPPORTED = "litert_gpu_supported"
+        private const val KEY_LITERT_NPU_SUPPORTED = "litert_npu_supported"
+        private const val KEY_LITERT_COMPAT_NOTE = "litert_compat_note"
+        private const val KEY_THEME_MODE = "theme_mode"
         // Seconds-valued keys, deliberately new names: the earlier millisecond keys hold Ints, and
         // reading one of those back as a Float throws. The old keys are simply abandoned.
         private const val KEY_PAUSE_SILENCE_S = "pause_silence_s"

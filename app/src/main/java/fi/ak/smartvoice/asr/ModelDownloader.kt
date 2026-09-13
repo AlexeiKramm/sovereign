@@ -24,6 +24,7 @@ import java.net.URL
  */
 class ModelDownloader(
     private val directory: File,
+    private val spec: AsrModelSpec = AsrModels.NEMOTRON,
     private val onProgress: (ModelDownloadProgress) -> Unit = {},
 ) {
 
@@ -33,7 +34,7 @@ class ModelDownloader(
         }
 
         var completedBytes = 0L
-        AsrModels.FILES.forEachIndexed { index, file ->
+        spec.files.forEachIndexed { index, file ->
             val target = File(directory, file.name)
 
             // Already there and the right length: a re-run after an interrupted download must not
@@ -53,7 +54,7 @@ class ModelDownloader(
             report(completedBytes, 0, index, file)
         }
 
-        val incomplete = AsrModels.incomplete(directory)
+        val incomplete = spec.incomplete(directory)
         return if (incomplete.isEmpty()) {
             ModelDownloadResult.Complete
         } else {
@@ -70,7 +71,7 @@ class ModelDownloader(
         isCancelled: () -> Boolean,
     ): ModelDownloadResult {
         val offset = DownloadPolicy.resumeOffset(part.length(), file.bytes)
-        val connection = (URL(AsrModels.downloadUrl(file)).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(spec.downloadUrl(file)).openConnection() as HttpURLConnection).apply {
             connectTimeout = CONNECT_TIMEOUT_MS
             readTimeout = READ_TIMEOUT_MS
             instanceFollowRedirects = true
@@ -136,11 +137,11 @@ class ModelDownloader(
     private fun report(completedBytes: Long, currentFileBytes: Long, index: Int, file: AsrModelFile) {
         onProgress(
             ModelDownloadProgress(
-                overall = DownloadPolicy.overallProgress(completedBytes, currentFileBytes, AsrModels.TOTAL_BYTES),
+                overall = DownloadPolicy.overallProgress(completedBytes, currentFileBytes, spec.totalBytes),
                 fileIndex = index,
                 fileName = file.name,
-                completedFiles = AsrModels.FILES.count { f -> File(directory, f.name).length() == f.bytes },
-                totalFiles = AsrModels.FILES.size,
+                completedFiles = spec.files.count { f -> File(directory, f.name).length() == f.bytes },
+                totalFiles = spec.files.size,
             ),
         )
     }

@@ -4,6 +4,8 @@ import android.app.Application
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import fi.ak.smartvoice.asr.AsrModelFile
+import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
@@ -16,14 +18,26 @@ import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.CleanupModels
 import fi.ak.smartvoice.asr.ListenerTimings
+import fi.ak.smartvoice.cleanup.CleanupEngine
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.FileBytes
 import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
+import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
+import fi.ak.smartvoice.cleanup.LiteRtLmDownloadProgress
+import fi.ak.smartvoice.cleanup.LiteRtLmDownloadResult
+import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
+import fi.ak.smartvoice.cleanup.LiteRtLmModelStore
+import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.cleanup.PullProgress
 import fi.ak.smartvoice.cleanup.SdkState
+import fi.ak.smartvoice.cleanup.LiteRtCompatibilityTester
 import com.geniex.sdk.ModelManagerWrapper
 import fi.ak.smartvoice.data.AppSettings
+import fi.ak.smartvoice.data.AppThemeMode
+import fi.ak.smartvoice.data.CleanupBackend
+import fi.ak.smartvoice.data.LiteRtProcessor
+import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.engine.DictationOutcome
@@ -64,7 +78,12 @@ sealed interface DictationUiState {
     data object Idle : DictationUiState
     data class Recording(val seconds: Double, val engine: Engine) : DictationUiState
     data class Working(val stage: String, val engine: Engine) : DictationUiState
-    data class Done(val outcome: DictationOutcome, val roundTripMs: Long?) : DictationUiState
+    data class Done(
+        val outcome: DictationOutcome,
+        val roundTripMs: Long?,
+        val rawText: String? = null,
+        val diff: fi.ak.smartvoice.data.WordDiffResult? = null,
+    ) : DictationUiState
     data class Failed(val code: String, val message: String) : DictationUiState
 }
 
@@ -125,6 +144,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val app: Application = application
     private val settings = AppSettings(application)
+    private val dictionaryStore = DictionaryStore(application)
     private val recorder = WavRecorder()
     private var ticker: Job? = null
 
@@ -133,7 +153,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         Thread(runnable, "smartvoice-asr")
     }.asCoroutineDispatcher()
 
-    private val modelDirectory = AsrModels.directory(application.filesDir)
+    val asrCatalog: List<AsrModelSpec> = AsrModels.CATALOG
+
+    private val _selectedAsrModel = MutableStateFlow(settings.asrModel)
+    val selectedAsrModel: StateFlow<AsrModelSpec> = _selectedAsrModel.asStateFlow()
+
+    val currentAsrModel: AsrModelSpec get() = _selectedAsrModel.value
+
+    private val modelDirectory: File
+        get() = _selectedAsrModel.value.directory(app.filesDir)
 
     /**
      * The pause threshold is *part of the recogniser's config*, so it is passed at construction and
@@ -141,8 +169,10 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
      * software rule and needs no rebuild.
      */
     private val localEngine = LocalAsrEngine(
-        modelDirectory = modelDirectory,
+        modelDirectory = settings.asrModel.directory(app.filesDir),
         pauseSilenceSeconds = settings.pauseSilenceSeconds,
+        modelSpec = settings.asrModel,
+        assetManager = app.assets,
     )
     private val localSession = LocalAsrSession(
         engine = localEngine,
@@ -207,7 +237,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     private var cleanupPull: Job? = null
 
-    private var cleanupEngine: GenieXCleanupEngine? = null
+    private var cleanupEngine: CleanupEngine? = null
 
     private val _cleanupCases = MutableStateFlow<List<CleanupCase>>(emptyList())
     val cleanupCases: StateFlow<List<CleanupCase>> = _cleanupCases.asStateFlow()
@@ -235,7 +265,16 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _cleanupCustomUnit = MutableStateFlow("")
     val cleanupCustomUnit: StateFlow<String> = _cleanupCustomUnit.asStateFlow()
 
-    val modelBytes: Long get() = AsrModels.TOTAL_BYTES
+    val modelBytes: Long get() = _selectedAsrModel.value.totalBytes
+
+    fun selectAsrModel(spec: AsrModelSpec) {
+        if (spec.id == _selectedAsrModel.value.id) return
+        settings.asrModelId = spec.id
+        _selectedAsrModel.value = spec
+        localEngine.applyModel(spec, app.filesDir)
+        _modelStatus.value = currentModelStatus()
+        _loadProbe.value = ""
+    }
 
     private val _selectedCleanupModel = MutableStateFlow(CleanupModels.byRepository(settings.cleanupModelId))
     val selectedCleanupModel: StateFlow<CleanupModel> = _selectedCleanupModel.asStateFlow()
@@ -252,6 +291,130 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         refreshCleanupStatus()
+        refreshLitertInstalled()
+        probeHardwareCompatibility()
+    }
+
+    // ------------------------------------------------------------------ cleanup backend & litert
+    private val _cleanupBackend = MutableStateFlow(settings.cleanupBackend)
+    val cleanupBackend: StateFlow<CleanupBackend> = _cleanupBackend.asStateFlow()
+
+    fun setCleanupBackend(backend: CleanupBackend) {
+        settings.cleanupBackend = backend
+        _cleanupBackend.value = backend
+        cleanupEngine?.unload()
+        cleanupEngine = null
+        _cleanupLoad.value = "switched to ${backend.label} — model unloaded"
+    }
+
+    val litertCatalog: List<LiteRtLmModelSpec> = LiteRtLmModels.ALL
+
+    private val _selectedLitertModel = MutableStateFlow(settings.litertModel)
+    val selectedLitertModel: StateFlow<LiteRtLmModelSpec> = _selectedLitertModel.asStateFlow()
+
+    fun selectLitertModel(spec: LiteRtLmModelSpec) {
+        settings.litertModelId = spec.id
+        _selectedLitertModel.value = spec
+        cleanupEngine?.unload()
+        cleanupEngine = null
+    }
+
+    private val _litertProcessor = MutableStateFlow(settings.litertProcessor)
+    val litertProcessor: StateFlow<LiteRtProcessor> = _litertProcessor.asStateFlow()
+
+    private val _litertGpuSupported = MutableStateFlow(settings.litertGpuSupported)
+    val litertGpuSupported: StateFlow<Boolean> = _litertGpuSupported.asStateFlow()
+
+    private val _litertNpuSupported = MutableStateFlow(settings.litertNpuSupported)
+    val litertNpuSupported: StateFlow<Boolean> = _litertNpuSupported.asStateFlow()
+
+    private val _litertCompatibilityNote = MutableStateFlow(settings.litertCompatibilityNote)
+    val litertCompatibilityNote: StateFlow<String> = _litertCompatibilityNote.asStateFlow()
+
+    fun setLitertProcessor(processor: LiteRtProcessor) {
+        settings.litertProcessor = processor
+        _litertProcessor.value = processor
+        cleanupEngine?.unload()
+        cleanupEngine = null
+    }
+
+    fun probeHardwareCompatibility() {
+        viewModelScope.launch {
+            val result = LiteRtCompatibilityTester.probe(app, saveToSettings = true)
+            _litertGpuSupported.value = result.gpuSupported
+            _litertNpuSupported.value = result.npuSupported
+            _litertCompatibilityNote.value = result.summaryNote
+        }
+    }
+
+    private val _litertInstalled = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val litertInstalled: StateFlow<Map<String, Boolean>> = _litertInstalled.asStateFlow()
+
+    private val _litertPulling = MutableStateFlow<String?>(null)
+    val litertPulling: StateFlow<String?> = _litertPulling.asStateFlow()
+
+    private val _litertProgress = MutableStateFlow<LiteRtLmDownloadProgress?>(null)
+    val litertProgress: StateFlow<LiteRtLmDownloadProgress?> = _litertProgress.asStateFlow()
+
+    private var litertJob: Job? = null
+
+    fun refreshLitertInstalled() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val map = LiteRtLmModels.ALL.associate { it.id to LiteRtLmModelStore.isInstalled(app, it) }
+            _litertInstalled.value = map
+        }
+    }
+
+    fun downloadLitertModel(spec: LiteRtLmModelSpec) {
+        if (_litertPulling.value != null) return
+        litertJob = viewModelScope.launch {
+            _litertPulling.value = spec.id
+            _litertProgress.value = null
+            LiteRtLmModelStore.downloadFlow(app, spec, isCancelled = { litertJob?.isCancelled == true })
+                .collect { (progress, result) ->
+                    _litertProgress.value = progress
+                    when (result) {
+                        LiteRtLmDownloadResult.Complete -> {
+                            _litertPulling.value = null
+                            refreshLitertInstalled()
+                        }
+                        is LiteRtLmDownloadResult.Failed -> {
+                            _litertPulling.value = null
+                            _cleanupLoad.value = "LiteRT download failed: ${result.reason}"
+                        }
+                        LiteRtLmDownloadResult.Cancelled -> {
+                            _litertPulling.value = null
+                        }
+                        null -> {}
+                    }
+                }
+        }
+    }
+
+    fun deleteLitertModel(spec: LiteRtLmModelSpec) {
+        viewModelScope.launch {
+            LiteRtLmModelStore.remove(app, spec)
+            if (cleanupEngine?.isServing(settings) == true) {
+                cleanupEngine?.unload()
+                cleanupEngine = null
+            }
+            refreshLitertInstalled()
+        }
+    }
+
+    fun cancelLitertDownload() {
+        litertJob?.cancel()
+        _litertPulling.value = null
+        _litertProgress.value = null
+    }
+
+    // ------------------------------------------------------------------ theming
+    private val _themeMode = MutableStateFlow(settings.themeMode)
+    val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: AppThemeMode) {
+        settings.themeMode = mode
+        _themeMode.value = mode
     }
 
     // ------------------------------------------------------------------ settings
@@ -353,18 +516,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     // ------------------------------------------------------------------ model download
 
     private fun currentModelStatus(): ModelStatus =
-        if (AsrModels.isInstalled(modelDirectory)) ModelStatus.Installed else ModelStatus.Missing
+        if (_selectedAsrModel.value.isInstalled(modelDirectory)) ModelStatus.Installed else ModelStatus.Missing
 
-    fun downloadModel() {
+    fun downloadModel(spec: AsrModelSpec = _selectedAsrModel.value) {
         if ((_modelStatus.value as? ModelStatus.Downloading) != null) return
         cancelDownload = false
 
         viewModelScope.launch {
+            val dir = spec.directory(app.filesDir)
             _modelStatus.value = ModelStatus.Downloading(
-                ModelDownloadProgress(0f, 0, AsrModels.FILES.first().name, 0, AsrModels.FILES.size),
+                ModelDownloadProgress(0f, 0, spec.files.first().name, 0, spec.files.size),
             )
             val result = withContext(Dispatchers.IO) {
-                ModelDownloader(modelDirectory) { progress -> _modelStatus.value = ModelStatus.Downloading(progress) }
+                ModelDownloader(dir, spec) { progress -> _modelStatus.value = ModelStatus.Downloading(progress) }
                     .download(isCancelled = { cancelDownload })
             }
             _modelStatus.value = when (result) {
@@ -374,7 +538,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     ModelStatus.Installed
                 }
                 is ModelDownloadResult.Cancelled ->
-                    if (AsrModels.isInstalled(modelDirectory)) {
+                    if (spec.isInstalled(dir)) {
                         ModelStatus.Installed
                     } else {
                         // The .part files are kept, so resuming does not re-download what is done.
@@ -394,7 +558,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
      * dictation takes, so a green result here means the model loads, not merely that it downloaded.
      */
     fun probeLocalEngine() {
-        if (!AsrModels.isInstalled(modelDirectory)) {
+        val spec = _selectedAsrModel.value
+        val dir = spec.directory(app.filesDir)
+        if (!spec.isInstalled(dir)) {
             _loadProbe.value = "not installed — nothing to load"
             return
         }
@@ -411,17 +577,18 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Frees ~681 MB. Honest about what it costs: the next local utterance pays the download again,
-     * and the engine must be unloaded first or the runtime keeps reading deleted files.
+     * Frees model storage and unloads resident instances.
      */
-    fun deleteModel() {
+    fun deleteModel(spec: AsrModelSpec = _selectedAsrModel.value) {
         viewModelScope.launch {
-            withContext(asrDispatcher) { localEngine.unload() }
-            withContext(Dispatchers.IO) {
-                File(modelDirectory, "").listFiles()?.forEach { it.delete() }
+            if (spec.id == _selectedAsrModel.value.id) {
+                withContext(asrDispatcher) { localEngine.unload() }
             }
-            _loadProbe.value = null
+            withContext(Dispatchers.IO) {
+                spec.directory(app.filesDir).deleteRecursively()
+            }
             _modelStatus.value = currentModelStatus()
+            _loadProbe.value = ""
         }
     }
 
@@ -540,20 +707,39 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
      * residency rule the streaming pipeline will follow (D-010's lazy-sticky load, D-028's no automatic
      * unload). Changing the catalogue selection discards the old instance.
      */
-    private fun engine(): GenieXCleanupEngine {
-        val wanted = cleanupModel
+    private fun engine(): CleanupEngine {
         cleanupEngine?.let { existing ->
-            if (existing.uses(wanted)) return existing
+            if (existing.isServing(settings)) return existing
             existing.unload()
         }
-        return GenieXCleanupEngine(app, wanted).also { cleanupEngine = it }
+        return if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+            LiteRtLmCleanupEngine(
+                context = app,
+                modelSpec = settings.litertModel,
+                processor = settings.litertProcessor,
+                dictionary = dictionaryStore.getWords(),
+                dictionaryEntries = dictionaryStore.getEntries(),
+            )
+        } else {
+            GenieXCleanupEngine(
+                context = app,
+                model = cleanupModel,
+                dictionary = dictionaryStore.getWords(),
+                dictionaryEntries = dictionaryStore.getEntries(),
+            )
+        }.also { cleanupEngine = it }
     }
 
     /** D-010 rule 2's number for the cleanup model: the cold load, measured on the phone. */
     fun loadCleanupModel() {
         if (_cleanupBusy.value != null) return
+        val currentLabel = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+            "${settings.litertModel.label} (LiteRT-LM)"
+        } else {
+            "${cleanupModel.label} (NPU)"
+        }
         viewModelScope.launch {
-            _cleanupBusy.value = "loading ${cleanupModel.label} on the NPU…"
+            _cleanupBusy.value = "loading $currentLabel…"
             val engine = engine()
             _cleanupLoad.value = engine.load().fold(
                 onSuccess = { "loaded in ${engine.lastLoadMs} ms — resident until unloaded (D-028)" },
@@ -870,11 +1056,94 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _state.value = DictationUiState.Idle
     }
 
+    /**
+     * Transcribes an audio file on-device using the selected ASR model and cleans it with the LLM backend.
+     */
+    fun transcribeAudioFile(samples: FloatArray, fileName: String, audioDurationSec: Float) {
+        if (_state.value is DictationUiState.Working || _state.value is DictationUiState.Recording) return
+        _state.value = DictationUiState.Working("Transcribing audio file: $fileName…", Engine.LOCAL)
+        viewModelScope.launch {
+            try {
+                val asrStart = SystemClock.elapsedRealtime()
+                withContext(asrDispatcher) {
+                    localEngine.load()
+                    localEngine.startSession(settings.language)
+                    val chunkSize = 16000 // 1 second chunks
+                    for (i in samples.indices step chunkSize) {
+                        val end = minOf(i + chunkSize, samples.size)
+                        val chunk = samples.copyOfRange(i, end)
+                        localEngine.accept(chunk)
+                    }
+                }
+                val rawText = withContext(asrDispatcher) { localEngine.finish().trim() }
+                val asrMs = SystemClock.elapsedRealtime() - asrStart
+
+                if (rawText.isBlank()) {
+                    _state.value = DictationUiState.Done(
+                        outcome = DictationOutcome(
+                            text = "(no speech detected in file)",
+                            engine = Engine.LOCAL,
+                            note = "Audio file decoded ($audioDurationSec s) but no speech recognized",
+                            audioSeconds = audioDurationSec.toDouble(),
+                            elapsedMs = asrMs,
+                        ),
+                        roundTripMs = null,
+                        rawText = "",
+                        diff = null,
+                    )
+                    return@launch
+                }
+
+                if (settings.cleanupEnabled) {
+                    _state.value = DictationUiState.Working("Cleaning up transcription with LLM…", Engine.LOCAL)
+                    val cleanupEngine = engine()
+                    val pass = cleanupEngine.clean(
+                        unit = rawText,
+                        context = null,
+                        variant = _cleanupVariant.value,
+                    )
+                    val totalMs = SystemClock.elapsedRealtime() - asrStart
+                    val diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = pass.text)
+
+                    _state.value = DictationUiState.Done(
+                        outcome = DictationOutcome(
+                            text = pass.text,
+                            engine = Engine.LOCAL,
+                            note = "File: $fileName ($audioDurationSec s) · ASR: $asrMs ms · LLM: %.0f ms".format(pass.ttftMs),
+                            audioSeconds = audioDurationSec.toDouble(),
+                            elapsedMs = totalMs,
+                        ),
+                        roundTripMs = null,
+                        rawText = rawText,
+                        diff = diff,
+                    )
+                } else {
+                    val diff = WordDiffCalculator.verbatim(rawText)
+                    _state.value = DictationUiState.Done(
+                        outcome = DictationOutcome(
+                            text = rawText,
+                            engine = Engine.LOCAL,
+                            note = "File: $fileName ($audioDurationSec s) · ASR: $asrMs ms (cleanup off)",
+                            audioSeconds = audioDurationSec.toDouble(),
+                            elapsedMs = asrMs,
+                        ),
+                        roundTripMs = null,
+                        rawText = rawText,
+                        diff = diff,
+                    )
+                }
+            } catch (e: Exception) {
+                _state.value = DictationUiState.Failed("file_transcribe", e.message ?: "Failed to transcribe audio file")
+            }
+        }
+    }
+
     private fun client() = TranscribeClient(_serverUrl.value)
 
     override fun onCleared() {
         ticker?.cancel()
         cleanupPull?.cancel()
+        litertJob?.cancel()
         // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
         cleanupEngine?.unload()
         cleanupEngine = null

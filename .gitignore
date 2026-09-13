@@ -16,11 +16,15 @@ captures/
 .DS_Store
 
 # Model artifacts (downloaded, not source)
-models/
+/models/
 *.onnx
 *.gguf
 *.tflite
 *.bin
+
+# Local scratch and extracted binaries
+scratch/
+jni/
 
 # Native runtime AAR: 48 MB binary, fetched and sha256-verified by tools/fetch_sherpa_aar.sh
 app/libs/*.aar

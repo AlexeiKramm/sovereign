@@ -51,6 +51,9 @@ class GenieXCleanupEngine(
     /** True when this instance already serves the given catalogue entry. */
     fun uses(other: CleanupModel): Boolean = other.repository == model.repository
 
+    override fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean =
+        settings.cleanupBackend == fi.ak.smartvoice.data.CleanupBackend.GENIEX_NPU && uses(settings.cleanupModel)
+
     override suspend fun load(): Result<Unit> = lock.withLock { ensureLoaded().map { } }
 
     private suspend fun ensureLoaded(): Result<LlmWrapper> {

@@ -81,4 +81,33 @@ class AsrModelsTest {
             AsrModels.sha256(file),
         )
     }
+
+    @Test
+    fun `catalog contains all supported streaming and offline models`() {
+        val catalog = AsrModels.CATALOG
+        assertEquals(6, catalog.size)
+        val ids = catalog.map { it.id }
+        assertTrue("contains nemotron", ids.contains("nemotron-3.5-streaming"))
+        assertTrue("contains whisper-tiny", ids.contains("whisper-tiny"))
+        assertTrue("contains whisper-base", ids.contains("whisper-base"))
+        assertTrue("contains whisper-small", ids.contains("whisper-small"))
+        assertTrue("contains whisper-turbo", ids.contains("whisper-turbo"))
+        assertTrue("contains parakeet-tdt-v3", ids.contains("parakeet-tdt-v3"))
+
+        catalog.forEach { model ->
+            assertTrue("${model.id} has files", model.files.isNotEmpty())
+            assertTrue("${model.id} totalBytes > 0", model.totalBytes > 0)
+            model.files.forEach { file ->
+                assertEquals("${model.id} file ${file.name} sha256 length", 64, file.sha256.length)
+            }
+        }
+    }
+
+    @Test
+    fun `byId finds each model and falls back to default`() {
+        assertEquals("whisper-turbo", AsrModels.byId("whisper-turbo").id)
+        assertEquals("parakeet-tdt-v3", AsrModels.byId("parakeet-tdt-v3").id)
+        assertEquals(AsrModels.DEFAULT_MODEL_ID, AsrModels.byId("non-existent-id").id)
+    }
 }
+

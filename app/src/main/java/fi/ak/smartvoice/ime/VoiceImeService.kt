@@ -27,6 +27,9 @@ import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
+import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
+import fi.ak.smartvoice.cleanup.LiteRtLmModelStore
+import fi.ak.smartvoice.data.CleanupBackend
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
@@ -117,7 +120,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     private var rawWordsCount: Int = 0
 
     /** The engine for the catalogue's current selection; rebuilt only when that selection changes. */
-    private var cleanupEngine: GenieXCleanupEngine? = null
+    private var cleanupEngine: CleanupEngine? = null
 
     /**
      * Whether the cleanup pipeline is engaged for this utterance. It can engage *mid-utterance*, as soon as
@@ -166,7 +169,11 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         // Model directory comes from the app's private files dir; nothing here loads the model.
         // The recogniser is created on the first local utterance (D-010) — a keyboard appearing
         // must not cost 681 MB of reads.
-        localEngine = LocalAsrEngine(AsrModels.directory(filesDir))
+        localEngine = LocalAsrEngine(
+            modelDirectory = settings.asrModel.directory(filesDir),
+            modelSpec = settings.asrModel,
+            assetManager = assets,
+        )
         localSession = LocalAsrSession(
             engine = localEngine,
             dispatcher = asrDispatcher,
@@ -250,19 +257,28 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     }
 
     /** The engine for the model the settings currently select, rebuilt only when that model changes. */
-    private fun engineForUtterance(): GenieXCleanupEngine {
-        val wanted = settings.cleanupModel
+    private fun engineForUtterance(): CleanupEngine {
         cleanupEngine?.let { existing ->
-            if (existing.uses(wanted)) return existing
+            if (existing.isServing(settings)) return existing
             existing.unload()
         }
-        return GenieXCleanupEngine(
-            context = this,
-            model = wanted,
-            computeUnit = GenieXCleanupEngine.COMPUTE_UNIT_NPU,
-            dictionary = dictionaryStore.getWords(),
-            dictionaryEntries = dictionaryStore.getEntries(),
-        ).also { cleanupEngine = it }
+        return if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+            LiteRtLmCleanupEngine(
+                context = this,
+                modelSpec = settings.litertModel,
+                processor = settings.litertProcessor,
+                dictionary = dictionaryStore.getWords(),
+                dictionaryEntries = dictionaryStore.getEntries(),
+            )
+        } else {
+            GenieXCleanupEngine(
+                context = this,
+                model = settings.cleanupModel,
+                computeUnit = GenieXCleanupEngine.COMPUTE_UNIT_NPU,
+                dictionary = dictionaryStore.getWords(),
+                dictionaryEntries = dictionaryStore.getEntries(),
+            )
+        }.also { cleanupEngine = it }
     }
 
     override fun onDestroy() {
@@ -448,7 +464,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     private fun syncPanelSettings() {
         val choice = currentChoice()
         cleanupEngine?.let { existing ->
-            if (!existing.uses(settings.cleanupModel)) {
+            if (!existing.isServing(settings)) {
                 existing.unload()
                 cleanupEngine = null
             }
@@ -464,10 +480,16 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     private fun checkCleanupModelAvailability() {
         scope.launch {
-            val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
-            val note = if (paths == null) {
-                "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
-            } else null
+            val note = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+                if (!LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)) {
+                    "no cleanup model downloaded (${settings.litertModel.label}) — download it in the Models tab"
+                } else null
+            } else {
+                val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
+                if (paths == null) {
+                    "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
+                } else null
+            }
             if (cleanupLoadNote != note && (note != null || cleanupLoadNote?.contains("no cleanup model") == true)) {
                 cleanupLoadNote = note
                 val choice = currentChoice()
@@ -487,7 +509,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val profileName = profileStore.activeProfile().name
         return when (choice.engine) {
             Engine.LOCAL -> when {
-                cleanupEngine?.isLoaded == true && cleanupEngine?.uses(settings.cleanupModel) == true -> "\u2728 $profileName"
+                cleanupEngine?.isLoaded == true && cleanupEngine?.isServing(settings) == true -> "\u2728 $profileName"
                 cleanupLoadNote != null -> "\u26A0\uFE0F $profileName"
                 else -> "\u23F3 $profileName"
             }
@@ -500,8 +522,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 "cleanup off — units reach the cursor as the recogniser heard them"
             cleanupLoadNote != null ->
                 "cleanup unavailable — $cleanupLoadNote; units are the recogniser's own text"
-            cleanupEngine?.isLoaded == true && cleanupEngine?.uses(settings.cleanupModel) == true ->
-                "cleanup on — ${settings.cleanupModel.label} on the Hexagon NPU"
+            cleanupEngine?.isLoaded == true && cleanupEngine?.isServing(settings) == true -> {
+                val label = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+                    "${settings.litertModel.label} on LiteRT-LM (GPU)"
+                } else {
+                    "${settings.cleanupModel.label} on Hexagon NPU"
+                }
+                "cleanup on — $label"
+            }
             else -> "cleanup model still loading — the first units are the recogniser's own text"
         }
         Engine.REMOTE -> if (settings.cleanupEnabled) "cleanup full (server)" else "cleanup off (server)"
@@ -571,6 +599,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val paysColdLoad = localEngine.availability() != LocalAsrEngine.Availability.Loaded
         coldLoadMs = 0L
 
+        localEngine.applyModel(settings.asrModel, filesDir)
         localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
 
         // Cleanup is decided per unit, not per utterance (D-037): if the model finishes loading while the
@@ -679,16 +708,21 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
     private fun prefetchCleanupModel() {
         if (!settings.cleanupEnabled) return
         cleanupEngine?.let { existing ->
-            if (!existing.uses(settings.cleanupModel)) {
+            if (!existing.isServing(settings)) {
                 existing.unload()
                 cleanupEngine = null
             }
         }
         if (cleanupEngine?.isLoaded == true) return
         scope.launch {
-            val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
-            if (paths == null) {
-                cleanupLoadNote = "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
+            val installed = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+                LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)
+            } else {
+                CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel) != null
+            }
+            if (!installed) {
+                val label = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) settings.litertModel.label else settings.cleanupModel.label
+                cleanupLoadNote = "no cleanup model downloaded ($label) — download it in the Models tab"
                 syncPanelSettings()
                 if (!recorder.isRecording && inFlight?.isActive != true) render(idleState())
                 return@launch
@@ -706,9 +740,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * only; the utterance's own units degrade to raw text through [onLocalUnit]'s test.
      */
     private suspend fun loadCleanupModel(): Boolean {
-        val paths = CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel)
-        if (paths == null) {
-            cleanupLoadNote = "no cleanup model downloaded (${settings.cleanupModel.label}) — download it in the Models tab"
+        val installed = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) {
+            LiteRtLmModelStore.isInstalled(this@VoiceImeService, settings.litertModel)
+        } else {
+            CleanupModelStore.paths(this@VoiceImeService, settings.cleanupModel) != null
+        }
+        if (!installed) {
+            val label = if (settings.cleanupBackend == CleanupBackend.LITERT_LM) settings.litertModel.label else settings.cleanupModel.label
+            cleanupLoadNote = "no cleanup model downloaded ($label) — download it in the Models tab"
             return false
         }
         val result = runCatching { engineForUtterance().load() }

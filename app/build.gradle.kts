@@ -133,4 +133,7 @@ dependencies {
   // SPIKE ONLY (branch spike/geniex-npu, D-029): the NPU experiment. GenieX on Maven Central for
   // the Hexagon NPU. Not decided for chunk 5 — the spike decides that.
   implementation("com.qualcomm.qti:geniex-android:0.4.0")
+
+  // Dual LLM cleanup runtime backend: Google LiteRT-LM for GPU/CPU/NPU inference
+  implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.0")
 }

@@ -182,10 +182,9 @@ class LocalAsrSession(
 
     companion object {
         /**
-         * A few seconds of audio even at the recorder's ~1 s read size. Big enough to absorb the
-         * first-load pause, small enough that "the engine cannot keep up" surfaces as a number
-         * instead of as growing memory.
+         * Buffering capacity for incoming frames (~128 seconds) to prevent microphone dropouts
+         * even when Whisper decodes a large segment on CPU while capture continues uninterrupted.
          */
-        private const val FRAME_QUEUE_CAPACITY = 64
+        private const val FRAME_QUEUE_CAPACITY = 128
     }
 }

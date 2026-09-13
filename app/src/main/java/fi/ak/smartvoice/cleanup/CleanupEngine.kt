@@ -60,4 +60,7 @@ interface CleanupEngine {
 
     /** Releases the model. Called on teardown and by the settings screen's explicit release. */
     fun unload()
+
+    /** True when this engine instance serves the model and backend requested in settings. */
+    fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean = true
 }

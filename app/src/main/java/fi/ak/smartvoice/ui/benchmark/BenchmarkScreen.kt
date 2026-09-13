@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -65,21 +66,55 @@ import com.geniex.sdk.bean.LlmCreateInput
 import com.geniex.sdk.bean.LlmStreamResult
 import com.geniex.sdk.bean.ModelConfig
 import com.geniex.sdk.bean.ProfilingData
+import fi.ak.smartvoice.asr.AsrModelSpec
+import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.LocalAsrEngine
+import fi.ak.smartvoice.asr.OfflineVadAsrEngine
 import fi.ak.smartvoice.audio.WavReader
 import fi.ak.smartvoice.cleanup.CleanupModel
 import fi.ak.smartvoice.cleanup.CleanupModelStore
 import fi.ak.smartvoice.cleanup.CleanupModels
+import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
+import fi.ak.smartvoice.cleanup.CleanupEngine
 import fi.ak.smartvoice.cleanup.GenieXCleanupEngine
+import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
+import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
+import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.data.AppSettings
+import fi.ak.smartvoice.data.CleanupBackend
+import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.DictionaryStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
+
+sealed interface BenchmarkLlmModel {
+    val id: String
+    val label: String
+    val backendName: String
+    val backendBadge: String
+    val approximateBytes: Long
+
+    data class GenieX(val model: CleanupModel) : BenchmarkLlmModel {
+        override val id: String = model.repository
+        override val label: String = model.label
+        override val backendName: String = "GenieX (Hexagon NPU)"
+        override val backendBadge: String = "NPU • GenieX"
+        override val approximateBytes: Long = model.approximateBytes
+    }
+
+    data class LiteRt(val model: LiteRtLmModelSpec) : BenchmarkLlmModel {
+        override val id: String = model.id
+        override val label: String = model.label
+        override val backendName: String = "Google LiteRT-LM"
+        override val backendBadge: String = "LiteRT • GPU"
+        override val approximateBytes: Long = model.approximateBytes
+    }
+}
 
 data class BenchmarkAudioSample(
     val id: String,
@@ -262,7 +297,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val appSettings = remember { AppSettings(context) }
 
-    var selectedModel by remember { mutableStateOf<CleanupModel>(appSettings.cleanupModel) }
+    var selectedModel by remember { mutableStateOf<BenchmarkLlmModel?>(null) }
     var selectedComputeUnit by remember { mutableStateOf("npu") }
     var repetitions by remember { mutableIntStateOf(3) }
     var warmupFirst by remember { mutableStateOf(true) }
@@ -284,16 +319,49 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
     var installedCleanupModels by remember { mutableStateOf<List<CleanupModel>>(emptyList()) }
     var isCheckingInstalledModels by remember { mutableStateOf(true) }
 
+    // Audio Pipeline Benchmark State
+    var installedAsrModels by remember { mutableStateOf<List<AsrModelSpec>>(emptyList()) }
+    var selectedAsrModel by remember { mutableStateOf<AsrModelSpec?>(null) }
+    var isCheckingAsrModels by remember { mutableStateOf(true) }
+
+    var installedLlmModels by remember { mutableStateOf<List<BenchmarkLlmModel>>(emptyList()) }
+    var selectedPipelineLlmModel by remember { mutableStateOf<BenchmarkLlmModel?>(null) }
+    var isCheckingLlmModels by remember { mutableStateOf(true) }
+
     LaunchedEffect(Unit) {
-        val installed = withContext(Dispatchers.IO) {
+        val geniexInstalled = withContext(Dispatchers.IO) {
             CleanupModels.ALL.filter { model ->
                 CleanupModelStore.paths(context, model) != null
             }
         }
-        installedCleanupModels = installed
+        installedCleanupModels = geniexInstalled
         isCheckingInstalledModels = false
-        if (installed.isNotEmpty() && installed.none { it.repository == selectedModel.repository }) {
-            selectedModel = installed.first()
+
+        val asrInstalled = withContext(Dispatchers.IO) {
+            AsrModels.CATALOG.filter { it.isInstalled(it.directory(context.filesDir)) }
+        }
+        installedAsrModels = asrInstalled
+        isCheckingAsrModels = false
+        selectedAsrModel = asrInstalled.firstOrNull { it.id == appSettings.asrModelId }
+            ?: asrInstalled.firstOrNull()
+
+        val litertInstalled = withContext(Dispatchers.IO) {
+            LiteRtLmModels.ALL.filter { it.isInstalled(context) }
+                .map { BenchmarkLlmModel.LiteRt(it) }
+        }
+        val allLlms = geniexInstalled.map { BenchmarkLlmModel.GenieX(it) } + litertInstalled
+        installedLlmModels = allLlms
+        isCheckingLlmModels = false
+
+        val initialLlm = if (appSettings.cleanupBackend == CleanupBackend.LITERT_LM) {
+            allLlms.firstOrNull { it.id == appSettings.litertModelId } ?: allLlms.firstOrNull()
+        } else {
+            allLlms.firstOrNull { it.id == appSettings.cleanupModelId } ?: allLlms.firstOrNull()
+        }
+        selectedPipelineLlmModel = initialLlm
+        selectedModel = initialLlm
+        if (initialLlm is BenchmarkLlmModel.LiteRt && selectedComputeUnit == "npu") {
+            selectedComputeUnit = "gpu"
         }
     }
 
@@ -311,6 +379,17 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
     fun runAudioPipelineBenchmark() {
         if (isPipelineRunning) return
+        val asrSpec = selectedAsrModel
+        if (asrSpec == null) {
+            errorMessage = "No ASR model downloaded or selected. Please visit the Models tab to download an ASR model."
+            return
+        }
+        val llmModel = selectedPipelineLlmModel
+        if (llmModel == null) {
+            errorMessage = "No LLM cleanup model downloaded or selected. Please visit the Models tab to download an LLM model."
+            return
+        }
+
         audioPlayer.stop()
         isPipelineRunning = true
         pipelineStatusText = "Reading audio asset..."
@@ -325,28 +404,52 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
                 // 1. ASR Stage
                 withContext(Dispatchers.Main) {
-                    pipelineStatusText = "Running ASR speech recognition..."
+                    pipelineStatusText = "Running ASR (${asrSpec.label})..."
                 }
 
-                val asrEngine = LocalAsrEngine(AsrModels.directory(context.filesDir))
+                val asrModelDir = asrSpec.directory(context.filesDir)
                 val asrStart = SystemClock.elapsedRealtime()
                 var rawAsr = ""
-                var asrEngineLabel = "Local Sherpa-ONNX (Streaming)"
+                val asrEngineLabel = asrSpec.label
 
-                val availability = asrEngine.load()
-                if (availability is LocalAsrEngine.Availability.Loaded) {
-                    asrEngine.startSession(language = sample.language)
-                    val chunkSize = 1600 // 100ms chunks at 16kHz
-                    for (i in wavAudio.samples.indices step chunkSize) {
-                        val end = minOf(i + chunkSize, wavAudio.samples.size)
-                        val chunk = wavAudio.samples.copyOfRange(i, end)
-                        asrEngine.accept(chunk)
+                if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
+                    val asrEngine = LocalAsrEngine(asrModelDir)
+                    val availability = asrEngine.load()
+                    if (availability is LocalAsrEngine.Availability.Loaded) {
+                        asrEngine.startSession(language = sample.language)
+                        val chunkSize = 1600 // 100ms chunks at 16kHz
+                        for (i in wavAudio.samples.indices step chunkSize) {
+                            val end = minOf(i + chunkSize, wavAudio.samples.size)
+                            val chunk = wavAudio.samples.copyOfRange(i, end)
+                            asrEngine.accept(chunk)
+                        }
+                        rawAsr = asrEngine.finish().trim()
+                        asrEngine.unload()
+                    } else {
+                        rawAsr = sample.fallbackRawAsr
                     }
-                    rawAsr = asrEngine.finish().trim()
-                    asrEngine.unload()
                 } else {
-                    asrEngineLabel = "Simulated Raw ASR (Model not on device)"
-                    rawAsr = sample.fallbackRawAsr
+                    // Offline models (Whisper variants or Parakeet v3 TDT)
+                    val offlineEngine = OfflineVadAsrEngine(
+                        modelDirectory = asrModelDir,
+                        spec = asrSpec,
+                        assetManager = context.assets,
+                    )
+                    val availability = offlineEngine.load()
+                    if (availability is LocalAsrEngine.Availability.Loaded) {
+                        offlineEngine.startSession(language = sample.language)
+                        val chunkSize = 1600
+                        for (i in wavAudio.samples.indices step chunkSize) {
+                            val end = minOf(i + chunkSize, wavAudio.samples.size)
+                            val chunk = wavAudio.samples.copyOfRange(i, end)
+                            offlineEngine.accept(chunk)
+                        }
+                        val text = offlineEngine.finish()
+                        rawAsr = text.trim()
+                        offlineEngine.unload()
+                    } else {
+                        rawAsr = sample.fallbackRawAsr
+                    }
                 }
                 val asrWallMs = SystemClock.elapsedRealtime() - asrStart
 
@@ -359,18 +462,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
                 // 2. LLM Cleanup Stage
                 withContext(Dispatchers.Main) {
-                    pipelineStatusText = "Running LLM cleanup (${selectedModel.label})..."
-                }
-
-                val model = selectedModel
-                val paths = CleanupModelStore.paths(context, model)
-                if (paths == null) {
-                    withContext(Dispatchers.Main) {
-                        errorMessage = "Model (${model.label}) is not downloaded on device. Please select an installed model or download it in the Models tab."
-                        isPipelineRunning = false
-                        pipelineStatusText = ""
-                    }
-                    return@launch
+                    pipelineStatusText = "Running LLM cleanup (${llmModel.label} • ${llmModel.backendBadge})..."
                 }
 
                 val profileStore = ProfileStore(context)
@@ -385,53 +477,47 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 val dictionary = dictionaryStore.getWords()
                 val dictionaryEntries = dictionaryStore.getEntries()
 
-                val messages = CleanupPrompt.messages(
-                    unit = rawAsr,
-                    context = null,
-                    dictionary = dictionary,
-                    dictionaryEntries = dictionaryEntries,
-                    variant = variant,
-                    customRules = customRules,
-                )
-
-                val config = ModelConfig(nCtx = 1024, nGpuLayers = -1)
-                val input = LlmCreateInput(
-                    model_path = paths.model_path,
-                    tokenizer_path = paths.tokenizer_path,
-                    config = config,
-                    runtime_id = paths.runtime_id.ifEmpty { "llama_cpp" },
-                    compute_unit = selectedComputeUnit,
-                )
-                val wrapper = LlmWrapper.builder()
-                    .llmCreateInput(input)
-                    .build()
-                    .getOrThrow()
-
-                runCatching { wrapper.reset() }
-                val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
-
                 val llmStart = SystemClock.elapsedRealtime()
-                var genText = ""
-                var profile: ProfilingData? = null
-
-                wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = CleanupPrompt.MAX_TOKENS))
-                    .collect { res ->
-                        when (res) {
-                            is LlmStreamResult.Token -> genText += res.text
-                            is LlmStreamResult.Completed -> profile = res.profile
-                            is LlmStreamResult.Error -> throw res.throwable
-                        }
+                val llmPass: CleanupPass = when (llmModel) {
+                    is BenchmarkLlmModel.GenieX -> {
+                        val engine = GenieXCleanupEngine(
+                            context = context,
+                            model = llmModel.model,
+                            dictionary = dictionary,
+                            dictionaryEntries = dictionaryEntries,
+                        )
+                        engine.clean(
+                            unit = rawAsr,
+                            context = null,
+                            variant = variant,
+                            customRules = customRules,
+                        ).also { engine.unload() }
                     }
+                    is BenchmarkLlmModel.LiteRt -> {
+                        val engine = LiteRtLmCleanupEngine(
+                            context = context,
+                            modelSpec = llmModel.model,
+                            processor = appSettings.litertProcessor,
+                            dictionary = dictionary,
+                            dictionaryEntries = dictionaryEntries,
+                        )
+                        engine.clean(
+                            unit = rawAsr,
+                            context = null,
+                            variant = variant,
+                            customRules = customRules,
+                        ).also { engine.unload() }
+                    }
+                }
                 val llmWallMs = SystemClock.elapsedRealtime() - llmStart
-                val llmTtftMs = profile?.ttftMs ?: 0.0
-                val decMs = profile?.decodeTimeMs ?: 0.0
-                val genTokens = profile?.generatedTokens ?: 0L
-                val llmDecodeSpeed = if (decMs > 0.0) (genTokens * 1000.0) / decMs else 0.0
-                val cleanedText = CleanupPrompt.parse(genText)
-                wrapper.close()
+                val cleanedText = if (llmPass.cleaned && llmPass.text.isNotBlank()) llmPass.text else rawAsr
 
                 val cleanedWer = WerCalculator.calculateWer(sample.groundTruth, cleanedText)
                 val cleanedCer = WerCalculator.calculateCer(sample.groundTruth, cleanedText)
+
+                val decodeSpeed = if (llmPass.decodeTimeMs > 0.0) {
+                    (llmPass.generatedTokens * 1000.0) / llmPass.decodeTimeMs
+                } else 0.0
 
                 val result = PipelineBenchmarkResult(
                     sampleName = sample.name,
@@ -442,10 +528,10 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                     rawAsrText = rawAsr,
                     rawWer = rawWer,
                     rawCer = rawCer,
-                    llmModelUsed = "${model.label} (${selectedComputeUnit.uppercase()})",
+                    llmModelUsed = "${llmModel.label} (${llmModel.backendBadge})",
                     llmProfileUsed = activeProfile.name,
-                    llmTtftMs = llmTtftMs,
-                    llmDecodeTokPerSec = llmDecodeSpeed,
+                    llmTtftMs = llmPass.ttftMs,
+                    llmDecodeTokPerSec = decodeSpeed,
                     llmWallMs = llmWallMs,
                     cleanedText = cleanedText,
                     cleanedWer = cleanedWer,
@@ -455,7 +541,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 withContext(Dispatchers.Main) {
                     pipelineResult = result
                     isPipelineRunning = false
-                    pipelineStatusText = ""
+                    pipelineStatusText = "Pipeline benchmark completed."
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -469,130 +555,242 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
     fun runBenchmark() {
         if (isRunning) return
+        val model = selectedModel
+        if (model == null) {
+            errorMessage = "No LLM model selected. Please download or select an LLM model first."
+            return
+        }
         isRunning = true
         errorMessage = null
         summaryResult = null
 
         scope.launch(Dispatchers.IO) {
-            val model = selectedModel
-            val paths = CleanupModelStore.paths(context, model)
-            if (paths == null) {
-                withContext(Dispatchers.Main) {
-                    errorMessage = "Model (${model.label}) is not downloaded on device. Please download it in the Models tab first."
-                    isRunning = false
-                }
-                return@launch
-            }
-
             val recordedResults = mutableListOf<RepetitionResult>()
             val totalRuns = (if (warmupFirst) 1 else 0) + repetitions
             var currentRun = 0
 
-            var activeWrapper: LlmWrapper? = null
-
-            suspend fun getOrInitWrapper(): Pair<LlmWrapper, Long> {
-                if (activeWrapper != null && !coldRunEachTime) {
-                    return Pair(activeWrapper!!, 0L)
-                }
-                activeWrapper?.close()
-                activeWrapper = null
-
-                val config = ModelConfig(nCtx = 1024, nGpuLayers = -1)
-                val startLoad = System.currentTimeMillis()
-                val input = LlmCreateInput(
-                    model_path = paths.model_path,
-                    tokenizer_path = paths.tokenizer_path,
-                    config = config,
-                    runtime_id = paths.runtime_id.ifEmpty { "llama_cpp" },
-                    compute_unit = selectedComputeUnit,
-                )
-                val wrapper = LlmWrapper.builder()
-                    .llmCreateInput(input)
-                    .build()
-                    .getOrThrow()
-                val coldLoad = System.currentTimeMillis() - startLoad
-                activeWrapper = wrapper
-                return Pair(wrapper, coldLoad)
+            val profileStore = ProfileStore(context)
+            val dictionaryStore = DictionaryStore(context)
+            val activeProfile = profileStore.activeProfile()
+            val variant = when (activeProfile.id) {
+                "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
+                "repairing" -> CleanupPrompt.Variant.REPAIRING
+                else -> CleanupPrompt.Variant.STANDARD
             }
+            val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
+            val dictionary = dictionaryStore.getWords()
+            val dictionaryEntries = dictionaryStore.getEntries()
 
             try {
-                if (warmupFirst) {
-                    currentRun++
-                    withContext(Dispatchers.Main) {
-                        currentStatusText = "Warmup run (1/1)..."
-                        currentProgress = currentRun.toFloat() / totalRuns
-                    }
-                    val (wrapper, coldLoad) = getOrInitWrapper()
-                    runCatching { wrapper.reset() }
-                    val messages = CleanupPrompt.messages("warmup test", null)
-                    val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
-                    wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = 32)).collect {}
-                    if (coldRunEachTime) {
-                        activeWrapper?.close()
-                        activeWrapper = null
-                    }
-                }
-
-                for (rep in 1..repetitions) {
-                    currentRun++
-                    withContext(Dispatchers.Main) {
-                        currentStatusText = "Repetition $rep of $repetitions..."
-                        currentProgress = currentRun.toFloat() / totalRuns
-                    }
-
-                    val (wrapper, coldLoad) = getOrInitWrapper()
-                    runCatching { wrapper.reset() }
-                    val profileStore = ProfileStore(context)
-                    val dictionaryStore = DictionaryStore(context)
-                    val activeProfile = profileStore.activeProfile()
-                    val variant = when (activeProfile.id) {
-                        "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
-                        "repairing" -> CleanupPrompt.Variant.REPAIRING
-                        else -> CleanupPrompt.Variant.STANDARD
-                    }
-                    val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
-                    val messages = CleanupPrompt.messages(
-                        unit = samplePrompt,
-                        context = null,
-                        dictionary = dictionaryStore.getWords(),
-                        dictionaryEntries = dictionaryStore.getEntries(),
-                        variant = variant,
-                        customRules = customRules,
-                    )
-                    val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
-
-                    val wallStart = System.currentTimeMillis()
-                    var output = ""
-                    var profile: ProfilingData? = null
-
-                    wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = CleanupPrompt.MAX_TOKENS))
-                        .collect { res ->
-                            when (res) {
-                                is LlmStreamResult.Token -> output += res.text
-                                is LlmStreamResult.Completed -> profile = res.profile
-                                is LlmStreamResult.Error -> throw res.throwable
+                when (model) {
+                    is BenchmarkLlmModel.GenieX -> {
+                        val paths = CleanupModelStore.paths(context, model.model)
+                        if (paths == null) {
+                            withContext(Dispatchers.Main) {
+                                errorMessage = "Model (${model.label}) is not downloaded on device. Please download it in the Models tab first."
+                                isRunning = false
                             }
+                            return@launch
                         }
-                    val wallMs = System.currentTimeMillis() - wallStart
 
-                    val parsed = CleanupPrompt.parse(output)
-                    recordedResults.add(
-                        RepetitionResult(
-                            repIndex = rep,
-                            isWarmup = false,
-                            coldLoadMs = coldLoad,
-                            ttftMs = profile?.ttftMs ?: 0.0,
-                            prefillSpeed = if ((profile?.promptTimeMs ?: 0.0) > 0.0) ((profile?.promptTokens ?: 0L) * 1000.0) / profile!!.promptTimeMs else 0.0,
-                            decodeSpeed = if ((profile?.decodeTimeMs ?: 0.0) > 0.0) ((profile?.generatedTokens ?: 0L) * 1000.0) / profile!!.decodeTimeMs else 0.0,
-                            wallMs = wallMs,
-                            generatedTokens = profile?.generatedTokens ?: 0L,
-                            outputText = parsed,
-                        )
-                    )
+                        var activeWrapper: LlmWrapper? = null
 
-                    if (coldRunEachTime) {
-                        activeWrapper?.close()
-                        activeWrapper = null
+                        suspend fun getOrInitWrapper(): Pair<LlmWrapper, Long> {
+                            if (activeWrapper != null && !coldRunEachTime) {
+                                return Pair(activeWrapper!!, 0L)
+                            }
+                            activeWrapper?.close()
+                            activeWrapper = null
+
+                            val config = ModelConfig(nCtx = 1024, nGpuLayers = -1)
+                            val startLoad = System.currentTimeMillis()
+                            val input = LlmCreateInput(
+                                model_path = paths.model_path,
+                                tokenizer_path = paths.tokenizer_path,
+                                config = config,
+                                runtime_id = paths.runtime_id.ifEmpty { "llama_cpp" },
+                                compute_unit = selectedComputeUnit,
+                            )
+                            val wrapper = LlmWrapper.builder()
+                                .llmCreateInput(input)
+                                .build()
+                                .getOrThrow()
+                            val coldLoad = System.currentTimeMillis() - startLoad
+                            activeWrapper = wrapper
+                            return Pair(wrapper, coldLoad)
+                        }
+
+                        try {
+                            if (warmupFirst) {
+                                currentRun++
+                                withContext(Dispatchers.Main) {
+                                    currentStatusText = "Warmup run (1/1)..."
+                                    currentProgress = currentRun.toFloat() / totalRuns
+                                }
+                                val (wrapper, _) = getOrInitWrapper()
+                                runCatching { wrapper.reset() }
+                                val messages = CleanupPrompt.messages("warmup test", null)
+                                val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
+                                wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = 32)).collect {}
+                                if (coldRunEachTime) {
+                                    activeWrapper?.close()
+                                    activeWrapper = null
+                                }
+                            }
+
+                            for (rep in 1..repetitions) {
+                                currentRun++
+                                withContext(Dispatchers.Main) {
+                                    currentStatusText = "Repetition $rep of $repetitions..."
+                                    currentProgress = currentRun.toFloat() / totalRuns
+                                }
+
+                                val (wrapper, coldLoad) = getOrInitWrapper()
+                                runCatching { wrapper.reset() }
+                                val messages = CleanupPrompt.messages(
+                                    unit = samplePrompt,
+                                    context = null,
+                                    dictionary = dictionary,
+                                    dictionaryEntries = dictionaryEntries,
+                                    variant = variant,
+                                    customRules = customRules,
+                                )
+                                val templated = wrapper.applyChatTemplate(messages, null, false).getOrThrow()
+
+                                val wallStart = System.currentTimeMillis()
+                                var output = ""
+                                var profile: ProfilingData? = null
+
+                                wrapper.generateStreamFlow(templated.formattedText, GenerationConfig(maxTokens = CleanupPrompt.MAX_TOKENS))
+                                    .collect { res ->
+                                        when (res) {
+                                            is LlmStreamResult.Token -> output += res.text
+                                            is LlmStreamResult.Completed -> profile = res.profile
+                                            is LlmStreamResult.Error -> throw res.throwable
+                                        }
+                                    }
+                                val wallMs = System.currentTimeMillis() - wallStart
+
+                                val parsed = CleanupPrompt.parse(output)
+                                recordedResults.add(
+                                    RepetitionResult(
+                                        repIndex = rep,
+                                        isWarmup = false,
+                                        coldLoadMs = coldLoad,
+                                        ttftMs = profile?.ttftMs ?: 0.0,
+                                        prefillSpeed = if ((profile?.promptTimeMs ?: 0.0) > 0.0) ((profile?.promptTokens ?: 0L) * 1000.0) / profile!!.promptTimeMs else 0.0,
+                                        decodeSpeed = if ((profile?.decodeTimeMs ?: 0.0) > 0.0) ((profile?.generatedTokens ?: 0L) * 1000.0) / profile!!.decodeTimeMs else 0.0,
+                                        wallMs = wallMs,
+                                        generatedTokens = profile?.generatedTokens ?: 0L,
+                                        outputText = parsed,
+                                    )
+                                )
+
+                                if (coldRunEachTime) {
+                                    activeWrapper?.close()
+                                    activeWrapper = null
+                                }
+                            }
+                        } finally {
+                            activeWrapper?.close()
+                            activeWrapper = null
+                        }
+                    }
+
+                    is BenchmarkLlmModel.LiteRt -> {
+                        val processor = when (selectedComputeUnit) {
+                            "cpu" -> LiteRtProcessor.CPU
+                            "npu" -> LiteRtProcessor.NPU
+                            else -> LiteRtProcessor.GPU
+                        }
+
+                        var activeEngine: LiteRtLmCleanupEngine? = null
+
+                        suspend fun getOrInitEngine(): Pair<LiteRtLmCleanupEngine, Long> {
+                            if (activeEngine != null && !coldRunEachTime) {
+                                return Pair(activeEngine!!, 0L)
+                            }
+                            activeEngine?.unload()
+                            activeEngine = null
+
+                            val startLoad = SystemClock.elapsedRealtime()
+                            val eng = LiteRtLmCleanupEngine(
+                                context = context,
+                                modelSpec = model.model,
+                                processor = processor,
+                                dictionary = dictionary,
+                                dictionaryEntries = dictionaryEntries,
+                            )
+                            eng.load().getOrThrow()
+                            val coldLoad = SystemClock.elapsedRealtime() - startLoad
+                            activeEngine = eng
+                            return Pair(eng, coldLoad)
+                        }
+
+                        try {
+                            if (warmupFirst) {
+                                currentRun++
+                                withContext(Dispatchers.Main) {
+                                    currentStatusText = "Warmup run (1/1)..."
+                                    currentProgress = currentRun.toFloat() / totalRuns
+                                }
+                                val (eng, _) = getOrInitEngine()
+                                eng.clean(
+                                    unit = "warmup test",
+                                    context = null,
+                                    variant = variant,
+                                    customRules = customRules,
+                                )
+                                if (coldRunEachTime) {
+                                    activeEngine?.unload()
+                                    activeEngine = null
+                                }
+                            }
+
+                            for (rep in 1..repetitions) {
+                                currentRun++
+                                withContext(Dispatchers.Main) {
+                                    currentStatusText = "Repetition $rep of $repetitions..."
+                                    currentProgress = currentRun.toFloat() / totalRuns
+                                }
+
+                                val (eng, coldLoad) = getOrInitEngine()
+                                val wallStart = SystemClock.elapsedRealtime()
+                                val pass = eng.clean(
+                                    unit = samplePrompt,
+                                    context = null,
+                                    variant = variant,
+                                    customRules = customRules,
+                                )
+                                val wallMs = SystemClock.elapsedRealtime() - wallStart
+
+                                val decodeSpeed = if (pass.decodeTimeMs > 0.0) {
+                                    (pass.generatedTokens * 1000.0) / pass.decodeTimeMs
+                                } else 0.0
+
+                                recordedResults.add(
+                                    RepetitionResult(
+                                        repIndex = rep,
+                                        isWarmup = false,
+                                        coldLoadMs = if (coldLoad > 0) coldLoad else pass.loadMs,
+                                        ttftMs = pass.ttftMs,
+                                        prefillSpeed = 0.0,
+                                        decodeSpeed = decodeSpeed,
+                                        wallMs = wallMs,
+                                        generatedTokens = pass.generatedTokens,
+                                        outputText = pass.text,
+                                    )
+                                )
+
+                                if (coldRunEachTime) {
+                                    activeEngine?.unload()
+                                    activeEngine = null
+                                }
+                            }
+                        } finally {
+                            activeEngine?.unload()
+                            activeEngine = null
+                        }
                     }
                 }
 
@@ -634,9 +832,6 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                     errorMessage = t.message ?: t.toString()
                     isRunning = false
                 }
-            } finally {
-                activeWrapper?.close()
-                activeWrapper = null
             }
         }
     }
@@ -718,12 +913,19 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                         }
                     }
 
-                    // Dropdown selector for installed models
-                    CleanupModelDropdownSelector(
-                        label = "Select Cleanup Model for Pipeline:",
-                        installedModels = installedCleanupModels,
-                        selectedModel = selectedModel,
-                        onModelSelected = { selectedModel = it },
+                    // Dropdown selectors for installed ASR and LLM models
+                    AsrModelDropdownSelector(
+                        label = "Select ASR Model for Pipeline:",
+                        installedModels = installedAsrModels,
+                        selectedModel = selectedAsrModel,
+                        onModelSelected = { selectedAsrModel = it },
+                    )
+
+                    LlmModelDropdownSelector(
+                        label = "Select LLM Cleanup Model for Pipeline:",
+                        installedModels = installedLlmModels,
+                        selectedModel = selectedPipelineLlmModel,
+                        onModelSelected = { selectedPipelineLlmModel = it },
                     )
 
                     val activeAppProfile = remember { ProfileStore(context).activeProfile() }
@@ -767,7 +969,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
                     Button(
                         onClick = { runAudioPipelineBenchmark() },
-                        enabled = !isPipelineRunning && !isRunning && installedCleanupModels.isNotEmpty(),
+                        enabled = !isPipelineRunning && !isRunning && selectedAsrModel != null && selectedPipelineLlmModel != null,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (isPipelineRunning) {
@@ -898,20 +1100,39 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                     )
 
                     // Dropdown selector for installed models
-                    CleanupModelDropdownSelector(
+                    LlmModelDropdownSelector(
                         label = "Select Cleanup Model:",
-                        installedModels = installedCleanupModels,
+                        installedModels = installedLlmModels,
                         selectedModel = selectedModel,
-                        onModelSelected = { selectedModel = it },
+                        onModelSelected = { model ->
+                            selectedModel = model
+                            if (model is BenchmarkLlmModel.LiteRt && selectedComputeUnit == "npu") {
+                                selectedComputeUnit = "gpu"
+                            } else if (model is BenchmarkLlmModel.GenieX && selectedComputeUnit != "npu" && selectedComputeUnit != "cpu") {
+                                selectedComputeUnit = "npu"
+                            }
+                        },
                     )
 
                     // Compute Unit
                     Text("Compute Unit:", style = MaterialTheme.typography.labelMedium)
+                    val computeUnits = when (selectedModel) {
+                        is BenchmarkLlmModel.LiteRt -> listOf(
+                            "gpu" to "GPU (OpenCL)",
+                            "cpu" to "CPU",
+                            "npu" to "NPU (Hexagon)",
+                        )
+                        else -> listOf(
+                            "npu" to "Hexagon NPU",
+                            "cpu" to "CPU",
+                            "gpu" to "GPU",
+                        )
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        listOf("npu" to "Hexagon NPU", "cpu" to "CPU", "gpu" to "GPU").forEach { (id, label) ->
+                        computeUnits.forEach { (id, label) ->
                             FilterChip(
                                 selected = selectedComputeUnit == id,
                                 onClick = { selectedComputeUnit = id },
@@ -963,7 +1184,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
 
                     Button(
                         onClick = { runBenchmark() },
-                        enabled = !isRunning && !isPipelineRunning && installedCleanupModels.isNotEmpty(),
+                        enabled = !isRunning && !isPipelineRunning && selectedModel != null,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (isRunning) {
@@ -1027,13 +1248,15 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                             )
                         }
 
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Prefill Speed:", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "%.1f ± %.1f tok/s".format(summary.prefillMean, summary.prefillStdDev),
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                            )
+                        if (summary.prefillMean > 0.0) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Prefill Speed:", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "%.1f ± %.1f tok/s".format(summary.prefillMean, summary.prefillStdDev),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
                         }
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1093,108 +1316,6 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-private fun CleanupModelDropdownSelector(
-    label: String,
-    installedModels: List<CleanupModel>,
-    selectedModel: CleanupModel,
-    onModelSelected: (CleanupModel) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var cardWidthDp by remember { mutableStateOf(0.dp) }
-    val density = LocalDensity.current
-
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        if (installedModels.isEmpty()) {
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                ),
-            ) {
-                Text(
-                    text = "No models downloaded (download in Models tab)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(14.dp),
-                )
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedCard(
-                    onClick = { expanded = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onGloballyPositioned { coordinates ->
-                            cardWidthDp = with(density) { coordinates.size.width.toDp() }
-                        },
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                selectedModel.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                "Precision: ${selectedModel.precision} • ${CleanupModels.sizeLabel(selectedModel.approximateBytes)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select model",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false },
-                    modifier = Modifier
-                        .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                ) {
-                    installedModels.forEach { model ->
-                        val isSelected = model.repository == selectedModel.repository
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(
-                                        model.label,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        "${model.precision} • ${CleanupModels.sizeLabel(model.approximateBytes)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            },
-                            onClick = {
-                                onModelSelected(model)
-                                expanded = false
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun RepetitionsDropdownSelector(
@@ -1284,6 +1405,239 @@ private fun RepetitionsDropdownSelector(
                             expanded = false
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AsrModelDropdownSelector(
+    label: String,
+    installedModels: List<AsrModelSpec>,
+    selectedModel: AsrModelSpec?,
+    onModelSelected: (AsrModelSpec) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var cardWidthDp by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        if (installedModels.isEmpty()) {
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                ),
+            ) {
+                Text(
+                    text = "No ASR models are downloaded. Please go to Models page and download an ASR model.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(14.dp),
+                )
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedCard(
+                    onClick = { expanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coordinates ->
+                            cardWidthDp = with(density) { coordinates.size.width.toDp() }
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                selectedModel?.label ?: "Select an ASR model",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            val badge = when (selectedModel?.type) {
+                                AsrModelType.STREAMING_TRANSDUCER -> "Streaming Transducer"
+                                AsrModelType.OFFLINE_WHISPER -> "Offline Whisper"
+                                AsrModelType.OFFLINE_TRANSDUCER -> "Offline Transducer (TDT)"
+                                AsrModelType.OFFLINE_CTC -> "Offline CTC"
+                                null -> ""
+                            }
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select ASR model",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier
+                        .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                ) {
+                    installedModels.forEach { model ->
+                        val isSelected = model.id == selectedModel?.id
+                        val badge = when (model.type) {
+                            AsrModelType.STREAMING_TRANSDUCER -> "Streaming Transducer"
+                            AsrModelType.OFFLINE_WHISPER -> "Offline Whisper"
+                            AsrModelType.OFFLINE_TRANSDUCER -> "Offline Transducer (TDT)"
+                            AsrModelType.OFFLINE_CTC -> "Offline CTC"
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        model.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        "$badge • ${model.totalBytes / 1_000_000} MB",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onModelSelected(model)
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LlmModelDropdownSelector(
+    label: String,
+    installedModels: List<BenchmarkLlmModel>,
+    selectedModel: BenchmarkLlmModel?,
+    onModelSelected: (BenchmarkLlmModel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var cardWidthDp by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        if (installedModels.isEmpty()) {
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                ),
+            ) {
+                Text(
+                    text = "No LLM models are downloaded. Please go to Models page and download a cleanup model.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(14.dp),
+                )
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedCard(
+                    onClick = { expanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { coordinates ->
+                            cardWidthDp = with(density) { coordinates.size.width.toDp() }
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                selectedModel?.label ?: "Select an LLM model",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "${selectedModel?.backendName ?: ""} • ${selectedModel?.backendBadge ?: ""}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select LLM model",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier
+                        .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                ) {
+                    installedModels.forEach { item ->
+                        val isSelected = item.id == selectedModel?.id
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            item.label,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                        ) {
+                                            Text(
+                                                item.backendBadge,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        "${item.backendName} • ${item.approximateBytes / 1_000_000} MB",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onModelSelected(item)
+                                expanded = false
+                            },
+                        )
+                    }
                 }
             }
         }
