@@ -10,6 +10,9 @@ import com.k2fsa.sherpa.onnx.OnlineRecognizer
 import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OnlineStream
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
+import com.k2fsa.sherpa.onnx.SileroVadModelConfig
+import com.k2fsa.sherpa.onnx.Vad
+import com.k2fsa.sherpa.onnx.VadModelConfig
 import java.io.File
 
 /**
@@ -89,6 +92,8 @@ class LocalAsrEngine(
     // Streaming transducer state
     private var recognizer: OnlineRecognizer? = null
     private var stream: OnlineStream? = null
+    private var vad: Vad? = null
+    private var pendingEndpoint: Boolean = false
     private var failure: String? = null
 
     @Volatile
@@ -143,11 +148,29 @@ class LocalAsrEngine(
                     provider = "cpu",
                     modelType = "",
                 ),
-                enableEndpoint = true,
-                endpointConfig = EndpointRules.forPause(pauseSilenceSeconds).toSherpaConfig(),
+                enableEndpoint = false,
             )
             val created = OnlineRecognizer(assetManager = null, config = config)
             recognizer = created
+
+            if (assetManager != null) {
+                val sileroConfig = SileroVadModelConfig(
+                    model = "silero_vad.onnx",
+                    threshold = 0.5f,
+                    minSilenceDuration = pauseSilenceSeconds,
+                    minSpeechDuration = 0.25f,
+                    windowSize = 512,
+                    maxSpeechDuration = 30.0f,
+                )
+                val vadConfig = VadModelConfig(
+                    sileroVadModelConfig = sileroConfig,
+                    sampleRate = AsrModels.SAMPLE_RATE,
+                    numThreads = 1,
+                    provider = "cpu",
+                )
+                vad = Vad(assetManager = assetManager, config = vadConfig)
+            }
+
             streamingLoadMillis = SystemClock.elapsedRealtime() - startedAt
             Availability.Loaded
         } catch (t: Throwable) {
@@ -169,6 +192,8 @@ class LocalAsrEngine(
         val created = recognizer!!.createStream(hotwords)
         created.setOption("language", language)
         stream = created
+        vad?.reset()
+        pendingEndpoint = false
     }
 
     fun accept(samples: FloatArray, count: Int = samples.size): String? {
@@ -179,6 +204,16 @@ class LocalAsrEngine(
         val effectiveSamples = if (count == samples.size) samples else samples.copyOf(count)
         active.acceptWaveform(effectiveSamples, AsrModels.SAMPLE_RATE)
         drain()
+
+        val v = vad
+        if (v != null) {
+            v.acceptWaveform(effectiveSamples)
+            if (!v.empty()) {
+                v.pop()
+                pendingEndpoint = true
+            }
+        }
+
         return recognizer?.getResult(active)?.text
     }
 
@@ -197,21 +232,34 @@ class LocalAsrEngine(
         }
         val active = stream ?: return
         recognizer?.reset(active)
+        pendingEndpoint = false
     }
 
     fun isEndpoint(): Boolean {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().isEndpoint()
         }
-        val active = stream ?: return false
-        val engine = recognizer ?: return false
-        return engine.isEndpoint(active)
+        val endpoint = pendingEndpoint
+        pendingEndpoint = false
+        return endpoint
+    }
+
+    fun isSpeechDetected(): Boolean {
+        return if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
+            offlineEngine?.isSpeechDetected() == true
+        } else {
+            vad?.isSpeechDetected() == true
+        }
     }
 
     fun finish(): String {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().finish()
         }
+        vad?.flush()
+        vad?.reset()
+        pendingEndpoint = false
+
         val active = stream ?: return ""
         val engine = recognizer ?: return ""
         active.inputFinished()
@@ -234,6 +282,8 @@ class LocalAsrEngine(
         }
         stream?.release()
         stream = null
+        vad?.clear()
+        pendingEndpoint = false
     }
 
     fun unload() {
@@ -242,6 +292,9 @@ class LocalAsrEngine(
         abort()
         recognizer?.release()
         recognizer = null
+        vad?.release()
+        vad = null
+        pendingEndpoint = false
         failure = null
     }
 

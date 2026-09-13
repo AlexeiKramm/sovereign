@@ -282,6 +282,8 @@ class OfflineVadAsrEngine(
 
     fun isEndpoint(): Boolean = pendingUnit != null
 
+    fun isSpeechDetected(): Boolean = vad?.isSpeechDetected() ?: false
+
     fun result(): String = pendingUnit.orEmpty()
 
     fun resetSegment() {

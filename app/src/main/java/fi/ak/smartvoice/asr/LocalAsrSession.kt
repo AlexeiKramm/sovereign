@@ -68,10 +68,11 @@ class LocalAsrSession(
     private val boundary = UnitBoundary()
 
     /**
-     * The audio-level measurement (D-038). It is what separates "the speaker paused" from "the recogniser
-     * is behind": text that stops growing means either, and only the audio can tell them apart.
+     * Continuous silence duration and speech presence measured by Silero VAD.
+     * Replaces naive RMS energy math so speech presence is determined by vocal tract activity.
      */
-    private val audioLevel = AudioLevel()
+    private var heardSpeech: Boolean = false
+    private var quietSeconds: Double = 0.0
 
     /**
      * The boundary's counters, published for the UI thread after every frame. The worker owns the
@@ -95,10 +96,11 @@ class LocalAsrSession(
         droppedFrames = 0
         utterance.clear()
         unitCount = 0
+        heardSpeech = false
+        quietSeconds = 0.0
         boundary.reset()
-        audioLevel.reset()
         boundary.configureFallback(timings().fallbackQuietSeconds)
-        boundaryState = boundary.snapshot(audioLevel.quietFor, audioLevel.heardSpeech)
+        boundaryState = boundary.snapshot(audioQuietFor = 0.0, heardAudio = false)
     }
 
     /** The timings this utterance is running with, for the status line and the report. */
@@ -124,17 +126,24 @@ class LocalAsrSession(
                 if (text.isNotBlank()) {
                     onPartialWords(text.count { it == ' ' } + 1)
                 }
-                // The pause boundary (D-032). Two signals: the recogniser's own endpoint detector,
-                // and text stability as the fallback — see UnitBoundary for why both exist.
-                val quietFor = audioLevel.onFrame(frames)
-                if (boundary.onFrame(frames.size, text, engine.isEndpoint(), quietFor)) {
+                val isSpeech = engine.isSpeechDetected()
+                val frameDuration = if (frames.isNotEmpty()) frames.size.toDouble() / AsrModels.SAMPLE_RATE else 0.0
+                if (isSpeech) {
+                    heardSpeech = true
+                    quietSeconds = 0.0
+                } else {
+                    quietSeconds += frameDuration
+                }
+
+                // The pause boundary (D-032). Evaluates Silero VAD endpoint and text stability fallback
+                if (boundary.onFrame(frames.size, text, engine.isEndpoint(), quietSeconds)) {
                     val unit = engine.result()
                     engine.resetSegment()
                     boundary.markCut()
                     emitUnit(unit)
                 }
                 // The partial is published for the panel's preview only; it is never committed (D-041).
-                val newState = boundary.snapshot(quietFor, audioLevel.heardSpeech, text)
+                val newState = boundary.snapshot(quietSeconds, heardSpeech, text)
                 boundaryState = newState
                 if (text != lastText) {
                     lastText = text

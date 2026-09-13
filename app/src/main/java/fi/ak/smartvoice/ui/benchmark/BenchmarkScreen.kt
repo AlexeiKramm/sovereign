@@ -371,7 +371,7 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 val asrEngineLabel = asrSpec.label
 
                 if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
-                    val asrEngine = LocalAsrEngine(asrModelDir)
+                    val asrEngine = LocalAsrEngine(asrModelDir, assetManager = context.assets)
                     val availability = asrEngine.load()
                     if (availability is LocalAsrEngine.Availability.Loaded) {
                         asrEngine.startSession(language = sample.language)
