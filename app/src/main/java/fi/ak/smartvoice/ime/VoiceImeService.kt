@@ -222,7 +222,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 // The pipeline runs on its own thread; an InputConnection belongs to the main one. The
                 // order is preserved because the worker commits serially and the looper runs posted
                 // tasks in order.
-                scope.launch(Dispatchers.Main.immediate) {
+                withContext(Dispatchers.Main.immediate) {
                     commitUnit(commit.text, if (commit.cleaned) null else commit.note)
                 }
             },
@@ -256,6 +256,17 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
         override fun unload() {
             cleanupEngine?.unload()
+        }
+
+        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
+            val engine = cleanupEngine ?: return
+            val active = profileStore.activeProfile()
+            val effectiveRules = customRules ?: if (!active.isBuiltin) active.rules else null
+            engine.startSession(variant, effectiveRules)
+        }
+
+        override fun closeSession() {
+            cleanupEngine?.closeSession()
         }
     }
 
@@ -624,10 +635,50 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // until the queue is empty. This is the tail D-032 priced (~0.4-1.3 s for a few seconds of
             // speech, more for one long unbroken unit).
             if (cleanupEngaged) cleanupPipeline.drain()
+            finalizeUtterancePunctuation()
             val tailMs = SystemClock.elapsedRealtime() - stoppedAt
 
             reportLocal(audioSeconds, tailMs, whole)
             scheduleIdleTimeout()
+        }
+    }
+
+    /**
+     * Session Finalizer: Ensures the completed utterance ends with proper terminal punctuation.
+     * Replaces trailing comma with a period, or appends a period if missing.
+     */
+    private suspend fun finalizeUtterancePunctuation() {
+        val action = UtteranceFinalizer.resolve(committedText)
+        if (action == UtteranceFinalizer.Action.NOOP) return
+
+        withContext(Dispatchers.Main.immediate) {
+            val connection = currentInputConnection ?: return@withContext
+            when (action) {
+                UtteranceFinalizer.Action.REPLACE_COMMA -> {
+                    val before = connection.getTextBeforeCursor(2, 0)?.toString() ?: ""
+                    when {
+                        before.endsWith(", ") -> {
+                            connection.deleteSurroundingText(2, 0)
+                            connection.commitText(".", 1)
+                        }
+                        before.endsWith(",") -> {
+                            connection.deleteSurroundingText(1, 0)
+                            connection.commitText(".", 1)
+                        }
+                        else -> {
+                            connection.commitText(".", 1)
+                        }
+                    }
+                    val trimLen = committedText.trimEnd().length
+                    committedText.setLength(trimLen - 1)
+                    committedText.append('.')
+                }
+                UtteranceFinalizer.Action.APPEND_PERIOD -> {
+                    connection.commitText(".", 1)
+                    committedText.append('.')
+                }
+                UtteranceFinalizer.Action.NOOP -> Unit
+            }
         }
     }
 

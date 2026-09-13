@@ -37,6 +37,12 @@ class LiteRtLmCleanupEngine(
     private var engine: Engine? = null
 
     @Volatile
+    private var sessionConversation: Conversation? = null
+
+    @Volatile
+    private var sessionTurns: Int = 0
+
+    @Volatile
     override var lastLoadMs: Long = 0L
         private set
 
@@ -85,6 +91,42 @@ class LiteRtLmCleanupEngine(
         ensureLoaded().map { }
     }
 
+    override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
+        closeSession()
+        sessionTurns = 0
+        val eng = engine ?: return
+        try {
+            val promptData = CleanupPrompt.build(
+                unit = "",
+                context = null,
+                dictionary = dictionary,
+                dictionaryEntries = dictionaryEntries,
+                variant = variant,
+                customRules = customRules,
+            )
+            val convConfig = ConversationConfig(
+                systemInstruction = Contents.Companion.of(promptData.system),
+                samplerConfig = SamplerConfig(
+                    topK = 40,
+                    topP = 0.95,
+                    temperature = 0.1,
+                    seed = 0,
+                ),
+                maxOutputToken = CleanupPrompt.MAX_TOKENS,
+            )
+            sessionConversation = eng.createConversation(convConfig)
+        } catch (_: Throwable) {
+            sessionConversation = null
+        }
+    }
+
+    override fun closeSession() {
+        val conv = sessionConversation
+        sessionConversation = null
+        sessionTurns = 0
+        conv?.let { runCatching { it.close() } }
+    }
+
     override suspend fun clean(
         unit: String,
         context: String?,
@@ -109,8 +151,9 @@ class LiteRtLmCleanupEngine(
         )
 
         withContext(Dispatchers.IO) {
-            var conversation: Conversation? = null
-            try {
+            val activeConv = sessionConversation
+            val isSession = activeConv != null
+            val conversation = activeConv ?: run {
                 val convConfig = ConversationConfig(
                     systemInstruction = Contents.Companion.of(promptData.system),
                     samplerConfig = SamplerConfig(
@@ -121,15 +164,28 @@ class LiteRtLmCleanupEngine(
                     ),
                     maxOutputToken = CleanupPrompt.MAX_TOKENS,
                 )
-                conversation = eng.createConversation(convConfig)
+                eng.createConversation(convConfig)
+            }
 
+            // In an active session, system instructions & dictionary are already in the KV cache
+            val messageToSend = if (isSession) {
+                if (sessionTurns == 0 && !context.isNullOrBlank()) {
+                    "Already cleaned (context — do not repeat it or clean it again):\n$context\n\nClean this segment:\n$unit"
+                } else {
+                    "Clean this segment:\n$unit"
+                }
+            } else {
+                promptData.user
+            }
+
+            try {
                 val started = SystemClock.elapsedRealtime()
                 var ttftMs = 0.0
                 var firstToken = true
                 val textBuilder = StringBuilder()
                 var generatedTokens = 0L
 
-                val messageFlow = conversation.sendMessageAsync(promptData.user)
+                val messageFlow = conversation.sendMessageAsync(messageToSend)
                 messageFlow.collect { msg ->
                     val textContent = msg.contents.contents
                         .filterIsInstance<Content.Text>()
@@ -149,30 +205,41 @@ class LiteRtLmCleanupEngine(
                 val cleaned = CleanupPrompt.parse(rawText)
 
                 if (cleaned.isBlank()) {
-                    return@withContext CleanupPass.failed(unit, "LiteRT-LM returned empty response", promptData.user)
+                    return@withContext CleanupPass.failed(unit, "LiteRT-LM returned empty response", messageToSend)
+                }
+
+                if (isSession) {
+                    sessionTurns++
                 }
 
                 val backendLabel = processor.label
+                val cacheTag = if (isSession) " [cached]" else ""
                 CleanupPass(
                     unit = unit,
                     text = cleaned,
                     cleaned = true,
-                    note = "cleaned on LiteRT-LM ($backendLabel) · rules: ${variant.name.lowercase()}",
+                    note = "cleaned on LiteRT-LM ($backendLabel)$cacheTag · rules: ${variant.name.lowercase()}",
                     loadMs = loadMs,
                     ttftMs = ttftMs,
                     decodeTimeMs = totalDecodeTimeMs,
                     generatedTokens = generatedTokens,
-                    promptSent = promptData.user,
+                    promptSent = messageToSend,
                 )
             } catch (e: Exception) {
-                CleanupPass.failed(unit, "LiteRT-LM error: ${e.message}", promptData.user)
+                if (isSession) {
+                    closeSession()
+                }
+                CleanupPass.failed(unit, "LiteRT-LM error: ${e.message}", messageToSend)
             } finally {
-                runCatching { conversation?.close() }
+                if (!isSession) {
+                    runCatching { conversation.close() }
+                }
             }
         }
     }
 
     override fun unload() {
+        closeSession()
         runCatching { engine?.close() }
         engine = null
         System.gc()

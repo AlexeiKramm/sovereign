@@ -63,4 +63,10 @@ interface CleanupEngine {
 
     /** True when this engine instance serves the model and backend requested in settings. */
     fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean = true
+
+    /** Optional: opens a session for the current utterance to reuse KV cache across units. */
+    fun startSession(variant: CleanupPrompt.Variant = CleanupPrompt.Variant.DEFAULT, customRules: String? = null) {}
+
+    /** Optional: closes the session and releases conversation KV cache. */
+    fun closeSession() {}
 }

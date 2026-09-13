@@ -28,7 +28,7 @@ class CleanupPipeline(
     /** Read per unit, so a settings change applies without a rebuild. */
     private val rules: () -> CleanupPrompt.Variant,
     /** Called on [dispatcher], in order, once per unit. */
-    private val onCommitted: (CleanupCommit) -> Unit,
+    private val onCommitted: suspend (CleanupCommit) -> Unit,
 ) {
 
     private var queue: Channel<String>? = null
@@ -63,6 +63,7 @@ class CleanupPipeline(
         state.seed(initialTail)
         lastPass = null
         submitted = 0
+        engine.startSession(rules())
         val channel = Channel<String>(Channel.UNLIMITED)
         queue = channel
         worker = scope.launch(dispatcher) {
@@ -107,10 +108,12 @@ class CleanupPipeline(
         worker?.join()
         worker = null
         pending.set(0)
+        engine.closeSession()
     }
 
     /** Drops the queue without cleaning it. Nothing is committed, which is what cancel means. */
     fun abort() {
+        val wasActive = queue != null || worker != null
         queue?.close()
         queue = null
         worker?.cancel()
@@ -118,6 +121,9 @@ class CleanupPipeline(
         pending.set(0)
         submitted = 0
         lastPass = null
+        if (wasActive) {
+            engine.closeSession()
+        }
         state.reset()
     }
 }
