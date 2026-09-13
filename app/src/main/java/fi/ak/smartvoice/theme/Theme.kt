@@ -13,7 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import fi.ak.smartvoice.data.AppThemeMode
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryIndigo,
+    primary = PrimaryBlue,
     onPrimary = Color.White,
     primaryContainer = DarkPrimaryContainer,
     onPrimaryContainer = DarkOnPrimaryContainer,
@@ -25,12 +25,15 @@ private val DarkColorScheme = darkColorScheme(
     surface = DarkSurface,
     onSurface = DarkOnSurface,
     surfaceContainer = DarkSurfaceContainer,
+    surfaceContainerHigh = DarkSurfaceContainerHigh,
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
+    outline = SettingsDarkBorder,
+    outlineVariant = SettingsDarkDivider,
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = PrimaryIndigoLight,
+    primary = PrimaryBlueLight,
     onPrimary = Color.White,
     primaryContainer = LightPrimaryContainer,
     onPrimaryContainer = LightOnPrimaryContainer,
@@ -49,7 +52,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun SmartVoiceTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {

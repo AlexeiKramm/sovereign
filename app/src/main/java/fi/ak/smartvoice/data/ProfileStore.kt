@@ -1,4 +1,4 @@
-﻿package fi.ak.smartvoice.data
+package fi.ak.smartvoice.data
 
 import android.content.Context
 import fi.ak.smartvoice.cleanup.CleanupPrompt
@@ -31,21 +31,21 @@ class ProfileStore(private val filesDir: File) {
         CleaningProfile(
             id = "standard",
             name = "Standard",
-            description = "Drops fillers & stutters, adds full punctuation.",
+            description = "Removes fillers and stutters, adds punctuation.",
             rules = CleanupPrompt.Variant.STANDARD.rules,
             isBuiltin = true,
         ),
         CleaningProfile(
             id = "conservative",
             name = "Conservative",
-            description = "Punctuation and capitalisation only; preserves every word.",
+            description = "Adds punctuation and capitals without changing words.",
             rules = CleanupPrompt.Variant.CONSERVATIVE.rules,
             isBuiltin = true,
         ),
         CleaningProfile(
             id = "repairing",
             name = "Repairing",
-            description = "Fixes slips, misheard proper nouns, compounds, drops fillers.",
+            description = "Fixes slips, misheard words, and removes fillers.",
             rules = CleanupPrompt.Variant.REPAIRING.rules,
             isBuiltin = true,
         ),

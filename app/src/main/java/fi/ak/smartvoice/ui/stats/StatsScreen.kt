@@ -6,6 +6,8 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,19 +16,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,12 +41,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.UtteranceRecord
+import fi.ak.smartvoice.theme.BadgeBlue
+import fi.ak.smartvoice.theme.BadgeCyan
+import fi.ak.smartvoice.theme.BadgeGreen
+import fi.ak.smartvoice.theme.BadgeOrange
+import fi.ak.smartvoice.theme.BadgeSlate
+import fi.ak.smartvoice.theme.BadgeViolet
+import fi.ak.smartvoice.theme.SettingsDarkBorder
+import fi.ak.smartvoice.theme.SettingsDarkCard
+import fi.ak.smartvoice.theme.SettingsDarkSurface
+import fi.ak.smartvoice.ui.components.SettingsDivider
+import fi.ak.smartvoice.ui.components.SettingsGroupCard
+import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,8 +84,22 @@ fun StatsScreen(modifier: Modifier = Modifier) {
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("Reset Statistics") },
-            text = { Text("Are you sure you want to reset all tracked dictation and audio metrics? This action cannot be undone.") },
+            title = {
+                Text(
+                    text = "Reset Statistics",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            containerColor = SettingsDarkCard,
+            shape = RoundedCornerShape(20.dp),
+            text = {
+                Text(
+                    text = "Are you sure you want to reset all tracked dictation and audio metrics? This action cannot be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -77,7 +108,7 @@ fun StatsScreen(modifier: Modifier = Modifier) {
                         showResetDialog = false
                     }
                 ) {
-                    Text("Reset", color = MaterialTheme.colorScheme.error)
+                    Text("Reset", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -105,20 +136,29 @@ fun StatsScreen(modifier: Modifier = Modifier) {
                         text = "Usage Statistics",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Insights from your dictation & cleanup sessions",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "Summary of your dictation time and words saved",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Row {
                     IconButton(onClick = { refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                     if (stats.totalUtterances > 0) {
                         IconButton(onClick = { showResetDialog = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Reset Stats", tint = MaterialTheme.colorScheme.error)
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Reset Stats",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }
@@ -127,67 +167,79 @@ fun StatsScreen(modifier: Modifier = Modifier) {
 
         item {
             // High-level overview cards (2x2 grid style)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     StatMetricCard(
                         modifier = Modifier.weight(1f),
                         title = "Audio Recorded",
                         value = formatDuration(stats.totalAudioSeconds),
                         subtitle = "${stats.totalUtterances} utterances",
+                        accentColor = BadgeBlue,
                     )
                     StatMetricCard(
                         modifier = Modifier.weight(1f),
                         title = "Time Saved Typing",
                         value = "%.1f min".format(stats.typingMinutesSaved),
-                        subtitle = "at ~40 WPM typing speed",
+                        subtitle = "based on 40 WPM typing speed",
+                        accentColor = BadgeGreen,
                     )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     StatMetricCard(
                         modifier = Modifier.weight(1f),
                         title = "Words Spoken",
                         value = "${stats.totalRawWords}",
-                        subtitle = "raw ASR output",
+                        subtitle = "total spoken",
+                        accentColor = BadgeCyan,
                     )
                     StatMetricCard(
                         modifier = Modifier.weight(1f),
                         title = "Words Cleaned",
                         value = "${stats.totalWordsCleaned}",
                         subtitle = if (stats.totalWordsRemoved > 0 || stats.totalWordsChanged > 0) "${stats.totalWordsRemoved} removed • ${stats.totalWordsChanged} fixed" else if (stats.totalWordsCleaned > 0) "${stats.totalWordsCleaned} modified" else "no edits required",
+                        accentColor = BadgeViolet,
                     )
                 }
             }
         }
 
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-            ) {
+            SettingsGroupCard {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Voice Cleanup Impact",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val ratioText = if (stats.totalRawWords > 0) {
-                        val pct = ((stats.totalWordsCleaned.toDouble() / stats.totalRawWords) * 100).toInt()
-                        "$pct% of spoken words modified by cleanup (${stats.totalWordsRemoved} fillers removed, ${stats.totalWordsChanged} grammar/word fixes, ${stats.totalWordsAdded} words inserted)."
-                    } else {
-                        "Start dictating to see cleanup metrics."
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.AutoAwesome,
+                            badgeColor = BadgeViolet,
+                            contentDescription = "AI Impact",
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "AI Polish Impact",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            val ratioText = if (stats.totalRawWords > 0) {
+                                val pct = ((stats.totalWordsCleaned.toDouble() / stats.totalRawWords) * 100).toInt()
+                                "$pct% of spoken words improved (${stats.totalWordsRemoved} fillers removed, ${stats.totalWordsChanged} grammar fixes, ${stats.totalWordsAdded} words added)."
+                            } else {
+                                "Start dictating to see cleanup metrics."
+                            }
+                            Text(
+                                text = ratioText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    Text(
-                        text = ratioText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -197,25 +249,44 @@ fun StatsScreen(modifier: Modifier = Modifier) {
         }
 
         item {
-            Text(
-                text = "Recent Dictations",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        if (stats.recentRecords.isEmpty()) {
-            item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                SettingsIconBadge(
+                    icon = Icons.Default.History,
+                    badgeColor = BadgeSlate,
+                    contentDescription = "Recent Dictations",
+                )
+                Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "No recorded dictations yet. Tap the microphone on your keyboard or test screen to start.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 12.dp),
+                    text = "Recent Dictations",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-        } else {
-            items(stats.recentRecords) { record ->
-                UtteranceRecordItem(record = record)
+        }
+
+        item {
+            if (stats.recentRecords.isEmpty()) {
+                Text(
+                    text = "No recorded dictations yet. Tap the microphone on your keyboard or test screen to start.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            } else {
+                SettingsGroupCard {
+                    stats.recentRecords.forEachIndexed { index, record ->
+                        UtteranceRecordRow(record = record)
+                        if (index < stats.recentRecords.lastIndex) {
+                            SettingsDivider(startIndent = 16.dp)
+                        }
+                    }
+                }
             }
         }
     }
@@ -227,15 +298,19 @@ private fun StatMetricCard(
     value: String,
     subtitle: String,
     modifier: Modifier = Modifier,
+    accentColor: Color = BadgeBlue,
 ) {
     Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, SettingsDarkBorder, RoundedCornerShape(18.dp)),
+        colors = CardDefaults.cardColors(containerColor = SettingsDarkCard),
+        shape = RoundedCornerShape(18.dp),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -243,7 +318,7 @@ private fun StatMetricCard(
                 text = value,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+                color = accentColor,
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
@@ -256,53 +331,49 @@ private fun StatMetricCard(
 }
 
 @Composable
-private fun UtteranceRecordItem(record: UtteranceRecord) {
+private fun UtteranceRecordRow(record: UtteranceRecord) {
     val dateFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     val timeStr = remember(record.timestampMs) { dateFormat.format(Date(record.timestampMs)) }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${record.engine}  •  %.1f s audio".format(record.durationSeconds),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                val detailsText = if (record.wordsCleaned > 0) {
-                    val breakdown = buildList {
-                        if (record.wordsRemoved > 0) add("${record.wordsRemoved} removed")
-                        if (record.wordsChanged > 0) add("${record.wordsChanged} fixed")
-                        if (record.wordsAdded > 0) add("${record.wordsAdded} added")
-                    }.joinToString(", ")
-                    if (breakdown.isNotEmpty()) {
-                        "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned ($breakdown)"
-                    } else {
-                        "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned"
-                    }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "${record.engine}  •  %.1f s audio".format(record.durationSeconds),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            val detailsText = if (record.wordsCleaned > 0) {
+                val breakdown = buildList {
+                    if (record.wordsRemoved > 0) add("${record.wordsRemoved} removed")
+                    if (record.wordsChanged > 0) add("${record.wordsChanged} fixed")
+                    if (record.wordsAdded > 0) add("${record.wordsAdded} added")
+                }.joinToString(", ")
+                if (breakdown.isNotEmpty()) {
+                    "${record.rawWords} words spoken  •  $breakdown"
                 } else {
-                    "${record.rawWords} words spoken  •  verbatim"
+                    "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned"
                 }
-                Text(
-                    text = detailsText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            } else {
+                "${record.rawWords} words spoken  •  No edits needed"
             }
             Text(
-                text = timeStr,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                text = detailsText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Text(
+            text = timeStr,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
     }
 }
 
@@ -315,15 +386,6 @@ private fun formatDuration(seconds: Double): String {
         hours > 0 -> "${hours}h ${minutes}m"
         minutes > 0 -> "${minutes}m ${secs}s"
         else -> "${secs}s"
-    }
-}
-
-private fun formatWordDelta(raw: Int, clean: Int): String {
-    val diff = clean - raw
-    return when {
-        diff > 0 -> "+$diff words (expanded/punctuated)"
-        diff < 0 -> "${diff} words (fillers removed)"
-        else -> "exact word parity"
     }
 }
 
@@ -390,52 +452,63 @@ fun readDevicePowerState(context: Context): DevicePowerState {
 
 @Composable
 fun PowerDiagnosticsCard(powerState: DevicePowerState, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-    ) {
+    SettingsGroupCard(modifier = modifier) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "Live Device Power & Thermals",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Monitors hardware thermal headroom and battery temperature to ensure background coolness.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SettingsIconBadge(
+                    icon = Icons.Default.BatteryChargingFull,
+                    badgeColor = BadgeGreen,
+                    contentDescription = "Battery & Power",
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Device Battery & Temperature",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Real-time battery and hardware status during dictation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 StatMetricCard(
                     modifier = Modifier.weight(1f),
                     title = "Battery Level",
                     value = if (powerState.batteryPct >= 0) "${powerState.batteryPct}%" else "--",
                     subtitle = powerState.chargeType,
+                    accentColor = BadgeGreen,
                 )
                 StatMetricCard(
                     modifier = Modifier.weight(1f),
                     title = "Battery Temp",
                     value = if (powerState.batteryTempC > 0) "%.1f°C".format(powerState.batteryTempC) else "--",
                     subtitle = if (powerState.batteryTempC < 37f) "Cool & optimal" else "Warm",
+                    accentColor = BadgeGreen,
                 )
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 StatMetricCard(
                     modifier = Modifier.weight(1f),
                     title = "Thermal Status",
                     value = powerState.thermalStatus,
-                    subtitle = "SoC governor state",
+                    subtitle = "System state",
+                    accentColor = BadgeOrange,
                 )
                 StatMetricCard(
                     modifier = Modifier.weight(1f),
@@ -445,7 +518,8 @@ fun PowerDiagnosticsCard(powerState: DevicePowerState, modifier: Modifier = Modi
                     } else {
                         "Nominal"
                     },
-                    subtitle = "hardware headroom",
+                    subtitle = "Thermal safety margin",
+                    accentColor = BadgeOrange,
                 )
             }
         }

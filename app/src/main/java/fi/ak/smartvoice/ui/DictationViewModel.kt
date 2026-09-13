@@ -510,10 +510,10 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
             _loadProbe.value = when (availability) {
-                LocalAsrEngine.Availability.Loaded -> "load check: OK in $loadTime ms (verified & unloaded)"
-                LocalAsrEngine.Availability.NotInstalled -> "not installed — nothing to load"
+                LocalAsrEngine.Availability.Loaded -> "Verified in ${loadTime} ms (unloaded)"
+                LocalAsrEngine.Availability.NotInstalled -> "not downloaded"
                 LocalAsrEngine.Availability.NotLoaded -> "not loaded"
-                is LocalAsrEngine.Availability.Unavailable -> "load check FAILED: ${availability.reason}"
+                is LocalAsrEngine.Availability.Unavailable -> "Verification failed: ${availability.reason}"
             }
         }
     }
@@ -563,8 +563,8 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             val engine = engine()
             val res = engine.load()
             _cleanupLoad.value = res.fold(
-                onSuccess = { "loaded in ${engine.lastLoadMs} ms — verified & unloaded" },
-                onFailure = { "load failed — ${it.message}" },
+                onSuccess = { "Verified in ${engine.lastLoadMs} ms (unloaded)" },
+                onFailure = { "Verification failed: ${it.message}" },
             )
             // Immediately unload to ensure GPU memory is not held resident
             engine.unload()

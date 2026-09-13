@@ -1,22 +1,30 @@
 package fi.ak.smartvoice.ui.models
 
-import fi.ak.smartvoice.asr.AsrModelType
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,22 +34,32 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
-import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
+import fi.ak.smartvoice.asr.AsrModelType
+import fi.ak.smartvoice.theme.BadgeBlue
+import fi.ak.smartvoice.theme.BadgeGreen
+import fi.ak.smartvoice.theme.BadgeViolet
+import fi.ak.smartvoice.theme.PrimaryBlue
+import fi.ak.smartvoice.theme.SettingsDarkBorder
+import fi.ak.smartvoice.theme.SettingsDarkCard
+import fi.ak.smartvoice.theme.SettingsDarkCardElevated
+import fi.ak.smartvoice.theme.SettingsDarkSurface
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ModelStatus
+import fi.ak.smartvoice.ui.components.SettingsIconBadge
 
 @Composable
 fun ModelsScreen(
@@ -66,7 +84,7 @@ fun ModelsScreen(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Row(
@@ -79,51 +97,78 @@ fun ModelsScreen(
                         text = "On-Device Models",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Speech recognition and LLM cleanup models on this phone",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "Manage on-device speech and AI models",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 IconButton(onClick = { viewModel.refreshLitertInstalled() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh models")
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh models",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }
 
         // --- SECTION 1: ASR MODELS CATALOG ---
         item {
-            Text(
-                text = "1. Speech Recognition (ASR) Models",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                SettingsIconBadge(
+                    icon = Icons.Default.Mic,
+                    badgeColor = BadgeBlue,
+                    contentDescription = "Voice Models",
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Speech Recognition (Voice)",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Choose streaming or offline speech-to-text models",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         items(viewModel.asrCatalog, key = { it.id }) { model ->
             val isSelected = model.id == selectedAsrModel.id
             val isInstalled = model.isInstalled(model.directory(context.filesDir))
             val isDownloadingThis = (asrStatus as? ModelStatus.Downloading)?.let {
-                // If downloading, check if it's currently downloading this model
                 model.incomplete(model.directory(context.filesDir)).isNotEmpty() && isSelected
             } ?: false
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (isSelected) PrimaryBlue else SettingsDarkBorder,
+                        shape = RoundedCornerShape(18.dp),
+                    )
                     .clickable {
                         if (isInstalled) {
                             viewModel.selectAsrModel(model)
                         }
                     },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    },
+                    containerColor = if (isSelected) SettingsDarkCardElevated else SettingsDarkCard,
                 ),
+                shape = RoundedCornerShape(18.dp),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -143,6 +188,10 @@ fun ModelsScreen(
                                     }
                                 },
                                 enabled = isInstalled,
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = PrimaryBlue,
+                                    unselectedColor = MaterialTheme.colorScheme.outline,
+                                ),
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
@@ -150,6 +199,7 @@ fun ModelsScreen(
                                     text = model.label,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
                                     text = model.description,
@@ -165,13 +215,23 @@ fun ModelsScreen(
                             AsrModelType.OFFLINE_TRANSDUCER -> "Offline Transducer"
                             AsrModelType.OFFLINE_CTC -> "Offline CTC"
                         }
-                        SuggestionChip(
-                            onClick = {},
-                            label = { Text(chipLabel, style = MaterialTheme.typography.labelSmall) },
-                        )
+                        Surface(
+                            color = SettingsDarkSurface,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, SettingsDarkBorder),
+                            modifier = Modifier.padding(start = 8.dp),
+                        ) {
+                            Text(
+                                text = chipLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PrimaryBlue,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (isDownloadingThis) {
                         val status = asrStatus as ModelStatus.Downloading
@@ -179,21 +239,34 @@ fun ModelsScreen(
                         Text(
                             text = "Downloading: ${p.fileName} (${p.fileIndex + 1}/${p.totalFiles})",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         LinearProgressIndicator(
                             progress = { p.overall },
+                            color = PrimaryBlue,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp)),
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "${(p.overall * 100).toInt()}% completed",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(onClick = { viewModel.cancelModelDownload() }) {
-                            Text("Cancel")
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${(p.overall * 100).toInt()}% completed",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedButton(
+                                onClick = { viewModel.cancelModelDownload() },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, SettingsDarkBorder),
+                            ) {
+                                Text("Cancel", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     } else if (isInstalled) {
                         Row(
@@ -202,35 +275,56 @@ fun ModelsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = if (isSelected) "Active engine" else "Downloaded and verified",
+                                text = if (isSelected) "Active" else "Downloaded",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) PrimaryBlue else BadgeGreen,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             )
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (!isSelected) {
-                                    Button(onClick = { viewModel.selectAsrModel(model) }) {
-                                        Text("Select")
+                                    Button(
+                                        onClick = { viewModel.selectAsrModel(model) },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                                    ) {
+                                        Text("Select", fontWeight = FontWeight.SemiBold)
                                     }
                                 } else {
-                                    OutlinedButton(onClick = { viewModel.probeLocalEngine() }) {
-                                        Text("Test Load")
+                                    OutlinedButton(
+                                        onClick = { viewModel.probeLocalEngine() },
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, SettingsDarkBorder),
+                                    ) {
+                                        Text("Verify Model", style = MaterialTheme.typography.labelMedium)
                                     }
                                 }
-                                OutlinedButton(onClick = { viewModel.deleteModel(model) }) {
-                                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                                OutlinedButton(
+                                    onClick = { viewModel.deleteModel(model) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, SettingsDarkBorder),
+                                ) {
+                                    Text("Delete", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
 
                         if (isSelected && !loadProbe.isNullOrEmpty()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = loadProbe!!,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(SettingsDarkSurface)
+                                    .border(1.dp, SettingsDarkBorder, RoundedCornerShape(10.dp))
+                                    .padding(10.dp),
+                            ) {
+                                Text(
+                                    text = loadProbe!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     } else {
                         Row(
@@ -239,15 +333,19 @@ fun ModelsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = "Not installed (~${model.totalBytes / 1_000_000} MB)",
+                                text = "Not downloaded (~${model.totalBytes / 1_000_000} MB)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Button(onClick = {
-                                viewModel.selectAsrModel(model)
-                                viewModel.downloadModel(model)
-                            }) {
-                                Text("Download")
+                            Button(
+                                onClick = {
+                                    viewModel.selectAsrModel(model)
+                                    viewModel.downloadModel(model)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                            ) {
+                                Text("Download", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -257,18 +355,31 @@ fun ModelsScreen(
 
         // --- SECTION 2: LLM CLEANUP MODELS ---
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "2. LLM Cleanup Models",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+            ) {
+                SettingsIconBadge(
+                    icon = Icons.Default.AutoAwesome,
+                    badgeColor = BadgeViolet,
+                    contentDescription = "AI Cleanup",
                 )
-                Text(
-                    text = "On-device LiteRT-LM models with mobile GPU acceleration (and CPU fallback):",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "AI Cleanup Models",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "On-device models that format and polish speech",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -282,11 +393,16 @@ fun ModelsScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (isSelected) BadgeViolet else SettingsDarkBorder,
+                        shape = RoundedCornerShape(18.dp),
+                    )
                     .clickable { viewModel.selectLitertModel(model) },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    containerColor = if (isSelected) SettingsDarkCardElevated else SettingsDarkCard,
                 ),
+                shape = RoundedCornerShape(18.dp),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -298,13 +414,18 @@ fun ModelsScreen(
                             RadioButton(
                                 selected = isSelected,
                                 onClick = { viewModel.selectLitertModel(model) },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = BadgeViolet,
+                                    unselectedColor = MaterialTheme.colorScheme.outline,
+                                ),
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
                                     text = model.label,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
                                     text = "${model.approximateBytes / 1_000_000} MB • LiteRT-LM (.litertlm)",
@@ -313,10 +434,20 @@ fun ModelsScreen(
                                 )
                             }
                         }
-                        SuggestionChip(
-                            onClick = {},
-                            label = { Text(model.targetHardware, style = MaterialTheme.typography.labelSmall) },
-                        )
+                        Surface(
+                            color = SettingsDarkSurface,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, SettingsDarkBorder),
+                            modifier = Modifier.padding(start = 8.dp),
+                        ) {
+                            Text(
+                                text = model.targetHardware,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = BadgeViolet,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -326,19 +457,23 @@ fun ModelsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (isPulling && progress != null) {
                         Text(
                             text = "Downloading: ${model.fileName}",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         LinearProgressIndicator(
                             progress = { progress.percent },
-                            modifier = Modifier.fillMaxWidth(),
+                            color = BadgeViolet,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp)),
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -349,8 +484,12 @@ fun ModelsScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            OutlinedButton(onClick = { viewModel.cancelLitertDownload() }) {
-                                Text("Cancel")
+                            OutlinedButton(
+                                onClick = { viewModel.cancelLitertDownload() },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, SettingsDarkBorder),
+                            ) {
+                                Text("Cancel", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     } else if (isInstalled) {
@@ -360,23 +499,35 @@ fun ModelsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = if (isSelected) "Active LLM engine" else "Ready on disk",
+                                text = if (isSelected) "Active" else "Downloaded",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) BadgeViolet else BadgeGreen,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (!isSelected) {
-                                    Button(onClick = { viewModel.selectLitertModel(model) }) {
-                                        Text("Select")
+                                    Button(
+                                        onClick = { viewModel.selectLitertModel(model) },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
+                                    ) {
+                                        Text("Select", fontWeight = FontWeight.SemiBold)
                                     }
                                 } else {
-                                    OutlinedButton(onClick = { viewModel.loadCleanupModel() }) {
-                                        Text("Test Load")
+                                    OutlinedButton(
+                                        onClick = { viewModel.loadCleanupModel() },
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, SettingsDarkBorder),
+                                    ) {
+                                        Text("Verify Model", style = MaterialTheme.typography.labelMedium)
                                     }
                                 }
-                                OutlinedButton(onClick = { viewModel.deleteLitertModel(model) }) {
-                                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                                OutlinedButton(
+                                    onClick = { viewModel.deleteLitertModel(model) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, SettingsDarkBorder),
+                                ) {
+                                    Text("Delete", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
@@ -391,11 +542,15 @@ fun ModelsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline,
                             )
-                            Button(onClick = {
-                                viewModel.selectLitertModel(model)
-                                viewModel.downloadLitertModel(model)
-                            }) {
-                                Text("Download")
+                            Button(
+                                onClick = {
+                                    viewModel.selectLitertModel(model)
+                                    viewModel.downloadLitertModel(model)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
+                            ) {
+                                Text("Download", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -405,21 +560,41 @@ fun ModelsScreen(
 
         cleanupBusy?.let { busy ->
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = busy, style = MaterialTheme.typography.bodySmall)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = BadgeViolet,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = busy,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
             }
         }
 
         cleanupLoadNote?.let { note ->
             item {
-                Text(
-                    text = note,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SettingsDarkSurface)
+                        .border(1.dp, SettingsDarkBorder, RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        text = note,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

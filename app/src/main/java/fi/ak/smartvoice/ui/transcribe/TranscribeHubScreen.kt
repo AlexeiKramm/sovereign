@@ -39,6 +39,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -84,8 +86,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.audio.AudioDecoder
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.engine.Engine
+import fi.ak.smartvoice.theme.BadgeBlue
+import fi.ak.smartvoice.theme.BadgeCyan
+import fi.ak.smartvoice.theme.BadgeGreen
+import fi.ak.smartvoice.theme.BadgeViolet
 import fi.ak.smartvoice.ui.DictationUiState
 import fi.ak.smartvoice.ui.DictationViewModel
+import fi.ak.smartvoice.ui.components.SettingsGroupCard
+import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -150,41 +158,99 @@ fun TranscribeHubScreen(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Fast local voice transcription and AI cleanup",
+                text = "Private on-device voice dictation and AI cleanup",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                SuggestionChip(
-                    onClick = {},
-                    label = { Text("ASR: ${selectedAsrModel.label}") },
-                )
-                SuggestionChip(
-                    onClick = {},
-                    label = { Text("LLM: ${selectedLitertModel.label}") },
-                )
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.PlayArrow,
+                            badgeColor = BadgeBlue,
+                            size = 28.dp,
+                            iconSize = 16.dp,
+                        )
+                        Column {
+                            Text("Voice", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                selectedAsrModel.label.substringBefore("(").trim(),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.Edit,
+                            badgeColor = BadgeViolet,
+                            size = 28.dp,
+                            iconSize = 16.dp,
+                        )
+                        Column {
+                            Text("AI Cleanup", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                selectedLitertModel.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
             }
         }
 
         // --- PROFILE QUICK SWITCHER ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = "Prompt Rules & Cleanup Profile",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
+        SettingsGroupCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Edit,
+                        badgeColor = BadgeViolet,
+                    )
+                    Column {
+                        Text(
+                            text = "Cleanup Style",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Choose rewrite aggressiveness",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -197,6 +263,7 @@ fun TranscribeHubScreen(
                                 Text(
                                     variant.name.lowercase().replaceFirstChar { it.uppercase() },
                                     style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = if (cleanupVariant == variant) FontWeight.Bold else FontWeight.Normal,
                                 )
                             },
                         )
@@ -221,12 +288,18 @@ fun TranscribeHubScreen(
         )
 
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    1.dp,
+                    if (isRecording) Color(0xFFFF3B30).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
+                    RoundedCornerShape(24.dp),
+                ),
             colors = CardDefaults.cardColors(
                 containerColor = if (isRecording) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    Color(0xFF2A1215)
                 } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
+                    MaterialTheme.colorScheme.surfaceContainer
                 },
             ),
             shape = RoundedCornerShape(24.dp),
@@ -251,7 +324,7 @@ fun TranscribeHubScreen(
                             color = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            text = "Listening… Tap stop when finished",
+                            text = "Listening… Tap to stop",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -286,7 +359,7 @@ fun TranscribeHubScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                         )
                         Text(
-                            text = "Tap the microphone to dictate",
+                            text = "Tap the microphone to speak",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -316,9 +389,9 @@ fun TranscribeHubScreen(
                                 }
                             },
                         color = if (isRecording) {
-                            MaterialTheme.colorScheme.error
+                            Color(0xFFFF3B30)
                         } else {
-                            MaterialTheme.colorScheme.primary
+                            BadgeBlue
                         },
                         shadowElevation = 8.dp,
                     ) {
@@ -352,26 +425,32 @@ fun TranscribeHubScreen(
         }
 
         // --- LOCAL AUDIO FILE PICKER CARD ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
+        SettingsGroupCard {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = "Transcribe Local Audio File",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "Pick any audio file (WAV, M4A, MP3, AAC, FLAC) to transcribe and clean offline",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SettingsIconBadge(
+                        icon = Icons.Default.PlayArrow,
+                        badgeColor = BadgeCyan,
+                    )
+                    Column {
+                        Text(
+                            text = "Transcribe Audio File",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Select any audio recording to transcribe and polish on device",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -382,7 +461,7 @@ fun TranscribeHubScreen(
                         onClick = { audioPickerLauncher.launch("audio/*") },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text(if (pickedAudioName != null) "Change File" else "Choose Audio File")
+                        Text(if (pickedAudioName != null) "Change File" else "Select Audio File")
                     }
 
                     if (pickedAudioUri != null && !isDecodingAudio && !isWorking) {
@@ -425,7 +504,7 @@ fun TranscribeHubScreen(
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp))
                         Text(
-                            text = "Decoding audio to 16kHz PCM…",
+                            text = "Preparing audio file…",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -441,12 +520,7 @@ fun TranscribeHubScreen(
             val rawText = doneState.rawText ?: outcome.text
             val diff = doneState.diff
 
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            ) {
+            SettingsGroupCard {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -456,11 +530,20 @@ fun TranscribeHubScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = "Transcription Result",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            SettingsIconBadge(
+                                icon = Icons.Default.Check,
+                                badgeColor = BadgeGreen,
+                            )
+                            Text(
+                                text = "Transcription Result",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             // Copy button
                             IconButton(onClick = {
@@ -487,12 +570,12 @@ fun TranscribeHubScreen(
                         Tab(
                             selected = selectedResultTab == 1,
                             onClick = { selectedResultTab = 1 },
-                            text = { Text("Raw ASR") },
+                            text = { Text("Raw Speech") },
                         )
                         Tab(
                             selected = selectedResultTab == 2,
                             onClick = { selectedResultTab = 2 },
-                            text = { Text("Changes (${diff?.wordsChanged ?: 0})") },
+                            text = { Text("Edits (${diff?.wordsChanged ?: 0})") },
                         )
                     }
 
@@ -526,11 +609,11 @@ fun TranscribeHubScreen(
                                                 horizontalArrangement = Arrangement.SpaceAround,
                                             ) {
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Raw", style = MaterialTheme.typography.labelSmall)
+                                                    Text("Spoken", style = MaterialTheme.typography.labelSmall)
                                                     Text("${diff.rawWords} w", fontWeight = FontWeight.Bold)
                                                 }
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Final", style = MaterialTheme.typography.labelSmall)
+                                                    Text("Polished", style = MaterialTheme.typography.labelSmall)
                                                     Text("${diff.deliveredWords} w", fontWeight = FontWeight.Bold)
                                                 }
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -538,21 +621,21 @@ fun TranscribeHubScreen(
                                                     Text("${diff.wordsRemoved}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                                                 }
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Changed", style = MaterialTheme.typography.labelSmall)
+                                                    Text("Corrected", style = MaterialTheme.typography.labelSmall)
                                                     Text("${diff.wordsChanged}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                                 }
                                             }
                                         }
 
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text("Raw Speech (ASR):", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                                            Text("Original Speech:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                                             Text(
                                                 text = rawText.ifBlank { "(empty)" },
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                             Spacer(modifier = Modifier.height(6.dp))
-                                            Text("Cleaned Output (LLM):", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                            Text("Cleaned Text:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                             Text(
                                                 text = cleanedText.ifBlank { "(empty)" },
                                                 style = MaterialTheme.typography.bodyMedium,
@@ -561,7 +644,7 @@ fun TranscribeHubScreen(
                                         }
                                     } else {
                                         Text(
-                                            text = "No diff metrics recorded for this run.",
+                                            text = "No edits were needed for this run.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )

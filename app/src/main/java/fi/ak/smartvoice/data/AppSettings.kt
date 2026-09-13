@@ -10,8 +10,8 @@ import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.engine.EnginePreference
 
 enum class LiteRtProcessor(val id: String, val label: String, val note: String) {
-    GPU("gpu", "GPU (OpenCL / Vulkan)", "Accelerated via mobile GPU (recommended)"),
-    CPU("cpu", "CPU", "ARM NEON multi-threaded (universal fallback)"),
+    GPU("gpu", "GPU (OpenCL / Vulkan)", "Fastest performance (Recommended)"),
+    CPU("cpu", "CPU", "Standard processor fallback"),
 }
 
 enum class AppThemeMode(val id: String, val label: String) {

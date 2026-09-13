@@ -52,7 +52,7 @@ object AsrModels {
     val NEMOTRON = AsrModelSpec(
         id = DEFAULT_MODEL_ID,
         label = "Nemotron 3.5 Streaming (560ms, 0.6B int8)",
-        description = "560 ms chunks • ~682 MB, 4 files • Streaming transducer",
+        description = "Standard streaming • Balanced accuracy & speed (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11",
         revision = "ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
@@ -88,7 +88,7 @@ object AsrModels {
     val NEMOTRON_320MS = AsrModelSpec(
         id = "nemotron-3.5-streaming-320ms",
         label = "Nemotron 3.5 Streaming (320ms, 0.6B int8)",
-        description = "320 ms chunks (lower latency) • ~682 MB, 4 files • Streaming transducer",
+        description = "Ultra-fast streaming • Lowest dictation latency (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-320ms-int8-2026-06-11",
         revision = "424ce58898995b713f84341f2e1492f9207a26aa",
@@ -124,7 +124,7 @@ object AsrModels {
     val WHISPER_BASE = AsrModelSpec(
         id = "whisper-base",
         label = "Whisper Base (int8)",
-        description = "Balanced multilingual offline model • ~160 MB",
+        description = "Multilingual • Lightweight offline model (~160 MB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-base",
         revision = "bb53ee204431c90d314c1cc08d28d23e5b7927cc",
@@ -154,7 +154,7 @@ object AsrModels {
     val WHISPER_SMALL = AsrModelSpec(
         id = "whisper-small",
         label = "Whisper Small (int8)",
-        description = "High accuracy multilingual offline model • ~375 MB",
+        description = "Multilingual • High accuracy offline model (~375 MB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-small",
         revision = "8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
@@ -184,7 +184,7 @@ object AsrModels {
     val WHISPER_TURBO = AsrModelSpec(
         id = "whisper-turbo",
         label = "Whisper Large-v3-Turbo (int8)",
-        description = "State-of-the-art multilingual accuracy & speed • ~1.03 GB",
+        description = "Highest accuracy • Best for long dictation (~1.0 GB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-turbo",
         revision = "2ca6ff69fc878651b770880507669577ac41c2ff",
@@ -214,7 +214,7 @@ object AsrModels {
     val PARAKEET_TDT_V3 = AsrModelSpec(
         id = "parakeet-tdt-v3",
         label = "Parakeet TDT 0.6B v3 (int8)",
-        description = "Latest NVIDIA NeMo Parakeet v3 TDT Transducer • ~670 MB",
+        description = "Fast English dictation • High accuracy offline (~670 MB)",
         type = AsrModelType.OFFLINE_TRANSDUCER,
         repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
         revision = "2bda32ec70b097a55adaa07d9a7173915b43cc78",
