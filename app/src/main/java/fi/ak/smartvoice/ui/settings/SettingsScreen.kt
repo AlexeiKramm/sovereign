@@ -19,6 +19,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -113,10 +122,10 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
-    val stableField by viewModel.stableField.collectAsStateWithLifecycle()
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
     val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
     val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
+    val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
     val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
     val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
@@ -388,25 +397,8 @@ fun SettingsScreen(
                     value = pauseField.text,
                     onValueChange = viewModel::onPauseFieldChange,
                     label = { Text("Sentence Pause (seconds)") },
-                    supportingText = { Text("Pause duration before formatting a sentence (default: 2.0s)") },
+                    supportingText = { Text("Pause duration before finalizing a sentence and sending it to cleanup (default: 2.0s)") },
                     isError = pauseField.invalid,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = stableField.text,
-                    onValueChange = viewModel::onStableFieldChange,
-                    label = { Text("Recognition Steady State (seconds)") },
-                    supportingText = { Text("Time without transcript changes before accepting segment (default: 1.0s)") },
-                    isError = stableField.invalid,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -422,7 +414,7 @@ fun SettingsScreen(
                     value = stopField.text,
                     onValueChange = viewModel::onStopFieldChange,
                     label = { Text("Auto-Stop Silence (seconds)") },
-                    supportingText = { Text("Long silence before automatically ending session (default: 4.0s)") },
+                    supportingText = { Text("Continuous silence before automatically turning off the microphone (default: 6.0s, 0 = off)") },
                     isError = stopField.invalid,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     shape = RoundedCornerShape(12.dp),
@@ -515,6 +507,36 @@ fun SettingsScreen(
 
                 SettingsDivider(startIndent = 0.dp)
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Unload Models on Keyboard Close",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Frees RAM immediately when the keyboard is dismissed (requires ~1.5s reload on next tap)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = unloadOnKeyboardClose,
+                        onCheckedChange = { viewModel.onUnloadOnKeyboardCloseChange(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+                }
+
+                SettingsDivider(startIndent = 0.dp)
+
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "Idle Memory Timeout",
@@ -523,22 +545,14 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Unload models from memory after:",
+                        text = "Automatically unload models after a period of inactivity:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        AppSettings.IDLE_TIMEOUT_OPTIONS.forEach { mins ->
-                            androidx.compose.material3.FilterChip(
-                                selected = idleTimeoutMinutes == mins,
-                                onClick = { viewModel.onModelIdleTimeoutMinutesChange(mins) },
-                                label = { Text(if (mins == 0) "Never" else "$mins min") },
-                            )
-                        }
-                    }
+                    IdleTimeoutDropdownSelector(
+                        selectedMinutes = idleTimeoutMinutes,
+                        onMinutesSelected = { viewModel.onModelIdleTimeoutMinutesChange(it) },
+                    )
                 }
             }
         }
@@ -680,4 +694,102 @@ private fun buildVersion(context: Context): String = try {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
 } catch (_: PackageManager.NameNotFoundException) {
     "dev"
+}
+
+@Composable
+private fun IdleTimeoutDropdownSelector(
+    selectedMinutes: Int,
+    onMinutesSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var cardWidthDp by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+
+    val timeoutOptions = listOf(
+        0 to ("Never" to "Keep models in memory indefinitely"),
+        1 to ("1 minute" to "Aggressive memory saving"),
+        2 to ("2 minutes" to "Fast unload after use"),
+        5 to ("5 minutes" to "Balanced memory & latency"),
+        10 to ("10 minutes (Recommended)" to "Good balance for typical usage"),
+        15 to ("15 minutes" to "Maximum responsiveness"),
+    )
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        OutlinedCard(
+            onClick = { expanded = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coordinates ->
+                    cardWidthDp = with(density) { coordinates.size.width.toDp() }
+                },
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    val currentOption = timeoutOptions.firstOrNull { it.first == selectedMinutes }
+                    val currentTitle = currentOption?.second?.first ?: if (selectedMinutes == 0) "Never" else "$selectedMinutes minutes"
+                    val currentDesc = currentOption?.second?.second ?: "Unload after $selectedMinutes minutes"
+                    Text(
+                        currentTitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        currentDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = "Select idle timeout",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            timeoutOptions.forEach { (minutes, info) ->
+                val (title, desc) = info
+                val isSelected = minutes == selectedMinutes
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                desc,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    onClick = {
+                        onMinutesSelected(minutes)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
 }

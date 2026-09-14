@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
@@ -374,6 +375,13 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             Log.i("SmartVoice", "Keyboard window hidden: stopping active recording")
             abandonCapture()
         }
+        if (settings.unloadOnKeyboardClose) {
+            Log.i("SmartVoice", "Keyboard closed: unloading models from RAM/NPU per setting")
+            scope.launch(Dispatchers.IO) {
+                localEngine.unload()
+                cleanupEngine?.unload()
+            }
+        }
         scheduleIdleTimeout()
     }
 
@@ -387,6 +395,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         abandonCapture()
+        if (settings.unloadOnKeyboardClose) {
+            scope.launch(Dispatchers.IO) {
+                localEngine.unload()
+                cleanupEngine?.unload()
+            }
+        }
         scheduleIdleTimeout()
         super.onFinishInputView(finishingInput)
     }
@@ -834,21 +848,15 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             append("committed · local · %.1f s audio · tail %d ms".format(audioSeconds, tailMs))
             append(" · ${localSession.unitCount} unit(s)")
             if (boundary.cuts == 0) {
-                // The whole utterance was one unit. Say which signals were tried and what to change,
-                // because "no boundary fired" and "your pauses are too short" look identical otherwise.
-                append(" · NO pause boundary fired (model 0, text-stability 0): the whole utterance " +
-                    "was a single unit. Pause ~1.5 s between thoughts, and if this repeats, the " +
-                    "boundary signal itself is the bug.")
+                append(" · single unit (no pause boundary fired)")
             } else {
-                append(
-                    " · pauses: ${boundary.cutsByModel} by the model, ${boundary.cutsByTextStability} by the fallback",
-                )
-                if (boundary.cuts > 0) {
-                    append(" · last cut at %.1f s of quiet audio".format(boundary.quietAtLastCut))
+                append(" · ${boundary.cuts} pause(s)")
+                if (boundary.quietAtLastCut > 0.0) {
+                    append(" (last cut at %.1f s silence)".format(boundary.quietAtLastCut))
                 }
-            append(" · settings: pause %.2f s, stop after %.2f s".format(
-                settings.pauseSilenceSeconds, settings.stopAfterSilenceSeconds,
-            ))
+                append(" · pause %.1f s, stop %.1f s".format(
+                    settings.pauseSilenceSeconds, settings.stopAfterSilenceSeconds,
+                ))
             }
             if (stoppedBySilence) append(" · stopped on silence")
             if (cleanupEngaged) {
@@ -977,6 +985,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         runCatching { recorder.start() }
             .onSuccess {
                 panel?.setListening(true)
+                updateKeepScreenOn(true)
                 render(listeningState(choice, 0.0, localSession.boundaryState))
                 ticker = scope.launch {
                     while (isActive) {
@@ -1032,6 +1041,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         ticker?.cancel()
         ticker = null
         panel?.setListening(false)
+        updateKeepScreenOn(false)
 
         val choice = currentChoice()
         when (choice.engine) {
@@ -1083,11 +1093,6 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // say different things: the engine is keeping up, and text is actually arriving.
             if (partialWords > 0) append(" · ~$partialWords word(s) so far")
             append(" · ${boundary.cuts} pause(s) → $unitsCommitted at cursor")
-            if (boundary.cuts == 0 && boundary.stableFor >= 1.0) {
-                // The number that makes a silent failure diagnosable: if this climbs and no unit is
-                // cut, the boundary signal is not working, not the user's pausing.
-                append(" · steady %.1f s".format(boundary.stableFor))
-            }
             // The auto-stop gets a countdown, because a recording that ends by itself must never be a
             // mystery: the number is the setting minus the silence measured so far.
             if (stopAfterSeconds > 0f && boundary.heardAudio) {
@@ -1112,9 +1117,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             append(" · cleanup ${if (settings.cleanupEnabled) "full" else "off"}")
         }
         append(" · lang ${settings.language}")
-        append(" · pause %.2f s · fallback %.2f s".format(
-            settings.pauseSilenceSeconds, settings.stableSilenceSeconds,
-        ))
+        append(" · pause %.1f s".format(settings.pauseSilenceSeconds))
+        if (stopAfterSeconds > 0f) {
+            append(" · stop %.1f s".format(stopAfterSeconds))
+        }
     }
 
     /**
@@ -1230,6 +1236,21 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         unitsCommitted = 0
         commitNote = null
         panel?.setListening(false)
+        updateKeepScreenOn(false)
+    }
+
+    private fun updateKeepScreenOn(keepOn: Boolean) {
+        try {
+            window?.window?.let { win ->
+                if (keepOn) {
+                    win.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    win.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w("SmartVoice", "Could not toggle FLAG_KEEP_SCREEN_ON: ${t.message}")
+        }
     }
 
     private fun hasMicrophonePermission(): Boolean =
@@ -1249,13 +1270,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             append("engine: ${choice.engine.label} (${choice.note})")
             append(" · ${cleanupDetail(choice)}")
             append(" · lang ${settings.language}")
-            append(
-                " · pause %.2f s · fallback %.2f s · stop after %.2f s".format(
-                    settings.pauseSilenceSeconds,
-                    settings.stableSilenceSeconds,
-                    settings.stopAfterSilenceSeconds,
-                ),
-            )
+            append(" · pause %.1f s".format(settings.pauseSilenceSeconds))
+            if (settings.stopAfterSilenceSeconds > 0f) {
+                append(" · stop %.1f s".format(settings.stopAfterSilenceSeconds))
+            } else {
+                append(" · stop off")
+            }
         }
     }
 

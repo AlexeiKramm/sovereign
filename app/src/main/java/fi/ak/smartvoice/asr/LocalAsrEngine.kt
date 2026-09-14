@@ -148,6 +148,11 @@ class LocalAsrEngine(
                     provider = "cpu",
                     modelType = "",
                 ),
+                endpointConfig = EndpointConfig(
+                    rule1 = EndpointRule(false, EndpointRules.NEVER_SECONDS, EndpointRules.NEVER_SECONDS),
+                    rule2 = EndpointRule(false, EndpointRules.NEVER_SECONDS, EndpointRules.NEVER_SECONDS),
+                    rule3 = EndpointRule(false, EndpointRules.NEVER_SECONDS, EndpointRules.NEVER_SECONDS),
+                ),
                 enableEndpoint = false,
             )
             val created = OnlineRecognizer(assetManager = null, config = config)

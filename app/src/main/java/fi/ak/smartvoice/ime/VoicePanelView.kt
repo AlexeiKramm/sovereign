@@ -228,6 +228,7 @@ class VoicePanelView(
     fun setListening(listening: Boolean) {
         recordButton.setListening(listening)
         cancelChip.visibility = if (listening) View.VISIBLE else View.GONE
+        root.keepScreenOn = listening
     }
 
     // ------------------------------------------------------------------ construction

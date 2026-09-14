@@ -150,6 +150,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_UNLOAD_SCREEN_OFF, DEFAULT_UNLOAD_SCREEN_OFF)
         set(value) = prefs.edit { putBoolean(KEY_UNLOAD_SCREEN_OFF, value) }
 
+    /** Whether neural models are unloaded immediately when the IME keyboard is closed. */
+    var unloadOnKeyboardClose: Boolean
+        get() = prefs.getBoolean(KEY_UNLOAD_KEYBOARD_CLOSE, DEFAULT_UNLOAD_KEYBOARD_CLOSE)
+        set(value) = prefs.edit { putBoolean(KEY_UNLOAD_KEYBOARD_CLOSE, value) }
+
     /**
      * Inactivity timeout in minutes after which idle models are unloaded from RAM/NPU.
      * 0 means never auto-unload on inactivity.
@@ -184,11 +189,13 @@ class AppSettings(context: Context) {
         private const val KEY_STABLE_SILENCE_S = "stable_silence_s"
         private const val KEY_STOP_AFTER_SILENCE_S = "stop_after_silence_s"
         private const val KEY_UNLOAD_SCREEN_OFF = "unload_screen_off"
+        private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
 
         const val DEFAULT_UNLOAD_SCREEN_OFF = true
+        const val DEFAULT_UNLOAD_KEYBOARD_CLOSE = false
         const val DEFAULT_IDLE_TIMEOUT_MIN = 5
-        val IDLE_TIMEOUT_OPTIONS = listOf(0, 2, 5, 10, 15)
+        val IDLE_TIMEOUT_OPTIONS = listOf(0, 1, 2, 5, 10, 15)
 
         /**
          * Raised from the first tuned values (1.2 s / 1.8 s / 3.0 s) after real use: they read as far too

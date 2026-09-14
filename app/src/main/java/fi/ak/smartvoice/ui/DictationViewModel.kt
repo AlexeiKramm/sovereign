@@ -175,6 +175,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _unloadOnScreenOff = MutableStateFlow(settings.unloadOnScreenOff)
     val unloadOnScreenOff: StateFlow<Boolean> = _unloadOnScreenOff.asStateFlow()
 
+    private val _unloadOnKeyboardClose = MutableStateFlow(settings.unloadOnKeyboardClose)
+    val unloadOnKeyboardClose: StateFlow<Boolean> = _unloadOnKeyboardClose.asStateFlow()
+
     private val _modelIdleTimeoutMinutes = MutableStateFlow(settings.modelIdleTimeoutMinutes)
     val modelIdleTimeoutMinutes: StateFlow<Int> = _modelIdleTimeoutMinutes.asStateFlow()
 
@@ -183,9 +186,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _pauseField = MutableStateFlow(field(settings.pauseSilenceSeconds))
     val pauseField: StateFlow<TimingField> = _pauseField.asStateFlow()
-
-    private val _stableField = MutableStateFlow(field(settings.stableSilenceSeconds))
-    val stableField: StateFlow<TimingField> = _stableField.asStateFlow()
 
     private val _stopField = MutableStateFlow(field(settings.stopAfterSilenceSeconds))
     val stopField: StateFlow<TimingField> = _stopField.asStateFlow()
@@ -366,6 +366,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _unloadOnScreenOff.value = enabled
     }
 
+    fun onUnloadOnKeyboardCloseChange(enabled: Boolean) {
+        settings.unloadOnKeyboardClose = enabled
+        _unloadOnKeyboardClose.value = enabled
+    }
+
     fun onModelIdleTimeoutMinutesChange(minutes: Int) {
         settings.modelIdleTimeoutMinutes = minutes
         _modelIdleTimeoutMinutes.value = minutes
@@ -397,15 +402,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         settings.pauseSilenceSeconds = parsed
         localEngine.applyPauseSilence(parsed)
         _loadProbe.value = null
-        _timingNote.value = "unit pause %.2f s — the recogniser rebuilds on the next load".format(parsed)
-    }
-
-    fun onStableFieldChange(text: String) {
-        val parsed = ListenerTimings.parseSeconds(text, AppSettings.MAX_TIMING_SECONDS)
-        _stableField.value = TimingField(text, parsed, parsed == null)
-        if (parsed == null) return
-        settings.stableSilenceSeconds = parsed
-        _timingNote.value = "fallback %.2f s — applies from the next utterance, no rebuild".format(parsed)
+        _timingNote.value = "Sentence pause set to %.1f s".format(parsed)
     }
 
     fun onStopFieldChange(text: String) {
@@ -414,15 +411,14 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         if (parsed == null) return
         settings.stopAfterSilenceSeconds = parsed
         _timingNote.value = if (parsed == 0f) {
-            "auto-stop off — the recording runs until you stop it"
+            "Auto-stop disabled (manual stop only)"
         } else {
-            "auto-stop after %.2f s of silence".format(parsed)
+            "Auto-stop set to %.1f s".format(parsed)
         }
     }
 
     fun resetTimingsToDefaults() {
         onPauseFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_PAUSE_SILENCE_S))
-        onStableFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STABLE_SILENCE_S))
         onStopFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STOP_AFTER_SILENCE_S))
     }
 
