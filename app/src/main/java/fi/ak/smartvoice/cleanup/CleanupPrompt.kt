@@ -60,41 +60,23 @@ object CleanupPrompt {
      */
     enum class Variant(val label: String, val rules: String) {
         /**
-         * The first thing that was built, kept as the control: every word the speaker said is kept.
-         * Measured effect on Finnish: one capital letter and nothing else.
+         * The unified on-device cleanup profile: drops vocal fillers, repairs stutters and mid-sentence
+         * self-corrections, converts spoken numbers/times/currency into digits and symbols, and formats
+         * spoken enumerations into clean markdown bullet points.
          */
-        CONSERVATIVE(
-            label = "conservative — punctuation and capitalisation only",
-            rules = "Keep the speaker's words and their order; do not add, remove or reorder " +
-                "information. Fix punctuation and capitalisation.",
-        ),
-
-        /** The likely default: dictation's most common defects — fillers, stutters, missing marks. */
-        STANDARD(
-            label = "standard — drops fillers, punctuates",
-            rules = "Remove filler words, hesitations, stutters and accidentally doubled words " +
-                "(\"tuota\", \"niinku\", \"tota\", \"um\", \"uh\", \"you know\"). Then restore natural " +
-                "punctuation (commas, colons, em dashes, semicolons, and ending marks on complete sentences). " +
-                "Do not change the speaker's wording otherwise: no synonyms, no rephrasing, no summarising.",
-        ),
-
-        /**
-         * Also repairs obviously wrong dictated words — the misheard proper noun, the compound written
-         * apart. The most a cleanup pass should ever do; it is D-006's "obvious contextual slip", not
-         * licence to rewrite.
-         */
-        REPAIRING(
-            label = "repairing — also fixes obvious slips",
-            rules = "Remove filler words, hesitations, stutters and accidentally doubled words. " +
-                "Punctuate properly, including a final mark on a complete sentence. Repair obvious " +
-                "slips in the dictated words: an inflected form that cannot be right, a name or term " +
-                "that is clearly misheard, a compound written apart. Never change the meaning, never " +
-                "add facts, never answer.",
+        SMART_CLEAN(
+            label = "smart clean — fillers, lists, numbers, punctuation",
+            rules = "Remove vocal filler words (\"um\", \"uh\", \"you know\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations (\"how to say it\", \"wait no\"). " +
+                "When the speaker corrects themselves mid-sentence, output only the intended correction (e.g., \"call Sarah, no, David\" -> \"Call David.\"). " +
+                "Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\"). " +
+                "Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural. " +
+                "Restore natural punctuation and capitalization. Keep the speaker's original wording and voice otherwise: no summaries, no rephrasing, no added facts.",
         );
 
         companion object {
-            /** What the pipeline should use until the Finnish comparison says otherwise. */
-            val DEFAULT = STANDARD
+            val DEFAULT = SMART_CLEAN
+
+            fun fromId(id: String?): Variant = SMART_CLEAN
         }
     }
 

@@ -91,4 +91,41 @@ class PanelTextTest {
         assertFalse("no space after newline", PanelText.shouldPrependSpace('\n'))
         assertFalse("no space after null", PanelText.shouldPrependSpace(null))
     }
+
+    @Test
+    fun `isListItem detects bullets and numbered items correctly`() {
+        assertTrue(PanelText.isListItem("- Chicken"))
+        assertTrue(PanelText.isListItem("* Chicken"))
+        assertTrue(PanelText.isListItem("• Chicken"))
+        assertTrue(PanelText.isListItem("1. Chicken"))
+        assertTrue(PanelText.isListItem("1) Chicken"))
+        assertTrue(PanelText.isListItem("  - Indented item"))
+
+        assertFalse(PanelText.isListItem("Normal sentence."))
+        assertFalse(PanelText.isListItem("10:20 AM"))
+        assertFalse(PanelText.isListItem("112"))
+        assertFalse(PanelText.isListItem("3.5%"))
+    }
+
+    @Test
+    fun `unitPrefix joins list items with newlines and sentences with spaces`() {
+        // List continuation
+        assertEquals("\n", PanelText.unitPrefix("Shopping list:", "- Chicken"))
+        assertEquals("\n", PanelText.unitPrefix("Shopping list:\n- Chicken", "- Milk"))
+        assertEquals("\n", PanelText.unitPrefix("Shopping list:", "1. Chicken"))
+
+        // Already has trailing newline
+        assertEquals("", PanelText.unitPrefix("Shopping list:\n", "- Chicken"))
+
+        // Normal sentence continuation
+        assertEquals(" ", PanelText.unitPrefix("Hello there.", "How are you?"))
+        assertEquals(" ", PanelText.unitPrefix("Hello there", "friend"))
+
+        // Explicit leading newline
+        assertEquals("\n", PanelText.unitPrefix("Some text.", "\nNext paragraph."))
+
+        // Empty preceding text
+        assertEquals("", PanelText.unitPrefix("", "- First item", isFirstUnit = true))
+        assertEquals("", PanelText.unitPrefix(null, "Hello"))
+    }
 }

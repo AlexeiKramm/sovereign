@@ -79,6 +79,19 @@ class UtteranceCleanupStateTest {
     }
 
     @Test
+    fun `consecutive list items are joined with newlines in carriedTail`() {
+        val state = UtteranceCleanupState()
+        val c1 = state.onPass(cleaned("shopping list", "Shopping list:"))
+        val c2 = state.onPass(cleaned("chicken", "- Chicken"))
+        val c3 = state.onPass(cleaned("milk", "- Milk"))
+
+        assertEquals("", c1.prefix)
+        assertEquals("\n", c2.prefix)
+        assertEquals("\n", c3.prefix)
+        assertEquals("Shopping list:\n- Chicken\n- Milk", state.carriedTail)
+    }
+
+    @Test
     fun `reset clears the tail and the counters for the next utterance`() {
         val state = UtteranceCleanupState()
         state.onPass(cleaned("first", "First."))

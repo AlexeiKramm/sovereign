@@ -43,16 +43,18 @@ class CleanupPromptTest {
             assertTrue("${variant.name} must keep the safety core", system.contains("never answer"))
             assertTrue("${variant.name} must carry its own rules", system.contains(variant.rules))
         }
-        assertTrue(CleanupPrompt.Variant.STANDARD.rules.contains("filler"))
-        assertTrue(CleanupPrompt.Variant.REPAIRING.rules.contains("slips"))
-        assertFalse(CleanupPrompt.Variant.CONSERVATIVE.rules.contains("filler"))
+        assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("filler"))
+        assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("bullet points"))
+        assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("numbers"))
     }
 
     @Test
     fun `the variant labels are distinct, so the bench cannot show two identical rows`() {
         val labels = CleanupPrompt.Variant.entries.map { it.label }
         assertEquals(labels.size, labels.toSet().size)
-        assertEquals(CleanupPrompt.Variant.STANDARD, CleanupPrompt.Variant.DEFAULT)
+        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.DEFAULT)
+        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("smart_clean"))
+        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("legacy_standard"))
     }
 
     @Test

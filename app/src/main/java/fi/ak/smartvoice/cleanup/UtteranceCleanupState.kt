@@ -1,7 +1,14 @@
 package fi.ak.smartvoice.cleanup
 
+import fi.ak.smartvoice.ime.PanelText
+
 /** What one finished unit contributes to the utterance: the text for the cursor, and how it got there. */
-data class CleanupCommit(val text: String, val cleaned: Boolean, val note: String)
+data class CleanupCommit(
+    val text: String,
+    val cleaned: Boolean,
+    val note: String,
+    val prefix: String = " ",
+)
 
 /**
  * The carried context and the counters for one utterance — the part of the cleanup pipeline that is a
@@ -45,15 +52,17 @@ class UtteranceCleanupState {
     }
 
     fun onPass(pass: CleanupPass): CleanupCommit {
-        val text = if (pass.cleaned) pass.text else pass.unit
+        val raw = if (pass.cleaned) pass.text else pass.unit
         units++
         if (pass.cleaned) cleanedUnits++ else failedUnits++
-        val trimmed = text.trim()
-        if (trimmed.isNotEmpty()) {
-            if (committed.isNotEmpty()) committed.append(' ')
-            committed.append(trimmed)
+        val body = raw.trim()
+        if (body.isEmpty()) {
+            return CleanupCommit(text = "", cleaned = pass.cleaned, note = pass.note, prefix = "")
         }
-        return CleanupCommit(text = trimmed, cleaned = pass.cleaned, note = pass.note)
+        val prefix = if (committed.isEmpty()) "" else PanelText.unitPrefix(committed.toString(), raw)
+        committed.append(prefix)
+        committed.append(body)
+        return CleanupCommit(text = body, cleaned = pass.cleaned, note = pass.note, prefix = prefix)
     }
 
     fun reset() {

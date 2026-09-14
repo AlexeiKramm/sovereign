@@ -430,7 +430,7 @@ private fun NewProfileDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var rules by remember { mutableStateOf(CleanupPrompt.Variant.STANDARD.rules) }
+    var rules by remember { mutableStateOf(CleanupPrompt.Variant.SMART_CLEAN.rules) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

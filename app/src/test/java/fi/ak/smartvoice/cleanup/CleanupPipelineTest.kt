@@ -55,7 +55,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.STANDARD },
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
             onCommitted = { committed.add(it.text) },
         )
 
@@ -80,7 +80,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.STANDARD },
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
             onCommitted = {},
         )
 

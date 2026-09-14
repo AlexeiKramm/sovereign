@@ -268,7 +268,9 @@ fun TranscribeHubScreen(
                             onClick = { viewModel.onCleanupVariantChange(variant) },
                             label = {
                                 Text(
-                                    variant.name.lowercase().replaceFirstChar { it.uppercase() },
+                                    variant.name.split('_').joinToString(" ") { word ->
+                                        word.lowercase().replaceFirstChar { it.uppercase() }
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = if (cleanupVariant == variant) FontWeight.Bold else FontWeight.Normal,
                                 )

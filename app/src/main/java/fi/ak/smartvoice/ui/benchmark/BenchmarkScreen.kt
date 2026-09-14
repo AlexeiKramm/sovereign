@@ -464,11 +464,7 @@ fun BenchmarkScreen(
                 val profileStore = ProfileStore(context)
                 val dictionaryStore = DictionaryStore(context)
                 val activeProfile = profileStore.activeProfile()
-                val variant = when (activeProfile.id) {
-                    "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
-                    "repairing" -> CleanupPrompt.Variant.REPAIRING
-                    else -> CleanupPrompt.Variant.STANDARD
-                }
+                val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
                 val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
                 val dictionary = dictionaryStore.getWords()
                 val dictionaryEntries = dictionaryStore.getEntries()
@@ -558,11 +554,7 @@ fun BenchmarkScreen(
             val profileStore = ProfileStore(context)
             val dictionaryStore = DictionaryStore(context)
             val activeProfile = profileStore.activeProfile()
-            val variant = when (activeProfile.id) {
-                "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
-                "repairing" -> CleanupPrompt.Variant.REPAIRING
-                else -> CleanupPrompt.Variant.STANDARD
-            }
+            val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
             val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
             val dictionary = dictionaryStore.getWords()
             val dictionaryEntries = dictionaryStore.getEntries()

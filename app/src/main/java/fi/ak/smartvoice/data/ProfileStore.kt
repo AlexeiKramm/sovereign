@@ -18,7 +18,7 @@ data class CleaningProfile(
 
 @Serializable
 data class ProfileData(
-    val activeProfileId: String = "standard",
+    val activeProfileId: String = "smart_clean",
     val customProfiles: List<CleaningProfile> = emptyList(),
 )
 
@@ -29,24 +29,10 @@ class ProfileStore(private val filesDir: File) {
 
     val builtinProfiles = listOf(
         CleaningProfile(
-            id = "standard",
-            name = "Standard",
-            description = "Removes fillers and stutters, adds punctuation.",
-            rules = CleanupPrompt.Variant.STANDARD.rules,
-            isBuiltin = true,
-        ),
-        CleaningProfile(
-            id = "conservative",
-            name = "Conservative",
-            description = "Adds punctuation and capitals without changing words.",
-            rules = CleanupPrompt.Variant.CONSERVATIVE.rules,
-            isBuiltin = true,
-        ),
-        CleaningProfile(
-            id = "repairing",
-            name = "Repairing",
-            description = "Fixes slips, misheard words, and removes fillers.",
-            rules = CleanupPrompt.Variant.REPAIRING.rules,
+            id = "smart_clean",
+            name = "Smart Clean",
+            description = "Removes fillers, repairs self-corrections, formats lists and numbers, punctuates.",
+            rules = CleanupPrompt.Variant.SMART_CLEAN.rules,
             isBuiltin = true,
         ),
     )
@@ -90,7 +76,7 @@ class ProfileStore(private val filesDir: File) {
     fun deleteCustomProfile(id: String) {
         val current = load()
         val updated = current.customProfiles.filter { it.id != id }
-        val newActive = if (current.activeProfileId == id) "standard" else current.activeProfileId
+        val newActive = if (current.activeProfileId == id) "smart_clean" else current.activeProfileId
         save(current.copy(activeProfileId = newActive, customProfiles = updated))
     }
 

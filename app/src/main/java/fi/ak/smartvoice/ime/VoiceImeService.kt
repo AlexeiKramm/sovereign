@@ -216,18 +216,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             // The rules D-034 chose on the phone. Per-unit, so a profile (D-022) can vary them per app.
             rules = {
                 val active = profileStore.activeProfile()
-                when (active.id) {
-                    "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
-                    "repairing" -> CleanupPrompt.Variant.REPAIRING
-                    else -> CleanupPrompt.Variant.STANDARD
-                }
+                CleanupPrompt.Variant.fromId(active.id)
             },
             onCommitted = { commit ->
                 // The pipeline runs on its own thread; an InputConnection belongs to the main one. The
                 // order is preserved because the worker commits serially and the looper runs posted
                 // tasks in order.
                 withContext(Dispatchers.Main.immediate) {
-                    commitUnit(commit.text, if (commit.cleaned) null else commit.note)
+                    commitUnit(commit.text, commit.prefix, if (commit.cleaned) null else commit.note)
                 }
             },
         )
@@ -419,7 +415,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val currentActive = profileStore.activeProfile()
         if (!settings.cleanupEnabled) {
             settings.cleanupEnabled = true
-            val target = all.firstOrNull { it.id == "standard" } ?: all.firstOrNull() ?: currentActive
+            val target = all.firstOrNull { it.id == "smart_clean" } ?: all.firstOrNull() ?: currentActive
             profileStore.setActiveProfile(target.id)
         } else {
             val idx = all.indexOfFirst { it.id == currentActive.id }
@@ -745,7 +741,7 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
      * its leading space. The cleanup stage supplies real punctuation of its own, which is why this is one
      * space and not something cleverer.
      */
-    private fun commitUnit(text: String, failureNote: String? = null) {
+    private fun commitUnit(text: String, suggestedPrefix: String = " ", failureNote: String? = null) {
         val connection = currentInputConnection
         if (connection == null) {
             // Focus moved. Saying so beats text that silently goes nowhere.
@@ -755,14 +751,14 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         val body = text.trim()
         if (body.isEmpty()) return
         val prefix = if (unitsCommitted > 0) {
-            " "
+            suggestedPrefix
         } else {
-            val before = connection.getTextBeforeCursor(1, 0)
-            if (PanelText.shouldPrependSpace(before?.firstOrNull())) " " else ""
+            val before = connection.getTextBeforeCursor(2, 0)?.toString()
+            PanelText.unitPrefix(before, text, isFirstUnit = true)
         }
         connection.commitText("$prefix$body", 1)
         unitsCommitted++
-        if (committedText.isNotEmpty()) committedText.append(' ')
+        if (committedText.isNotEmpty()) committedText.append(prefix)
         committedText.append(body)
         if (failureNote != null) commitNote = "a unit failed closed — $failureNote"
     }

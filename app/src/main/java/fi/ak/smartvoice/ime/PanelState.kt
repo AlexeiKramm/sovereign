@@ -110,4 +110,48 @@ object PanelText {
         if (precedingChar == null) return false
         return !precedingChar.isWhitespace()
     }
+
+    private val LIST_ITEM_REGEX = Regex("""^([-*•]|\d+[\.\)])\s.*""", RegexOption.DOT_MATCHES_ALL)
+
+    /**
+     * Whether [text] begins with a markdown bullet point or numbered item marker.
+     */
+    fun isListItem(text: String): Boolean = LIST_ITEM_REGEX.matches(text.trim())
+
+    /**
+     * Determines the prefix separator ("\n", " ", or "") to prepend before [incoming] when appending to [preceding].
+     *
+     * - Returns "\n" if incoming explicitly starts with a newline, or is a list item while preceding text exists and does not already end with a newline.
+     * - Returns "" if preceding text ends with whitespace or newline, or when there is no preceding text.
+     * - Returns " " for normal sentence or word continuation.
+     */
+    fun unitPrefix(preceding: String?, incoming: String, isFirstUnit: Boolean = false): String {
+        val trimmedIncoming = incoming.trim()
+        if (trimmedIncoming.isEmpty()) return ""
+
+        val rawIncomingStartsNewline = incoming.trimStart(' ', '\t').startsWith("\n")
+        val precedingText = preceding.orEmpty()
+        val precedingEndsNewline = precedingText.endsWith("\n")
+        val precedingEndsColon = precedingText.trimEnd().endsWith(":")
+
+        if (rawIncomingStartsNewline || isListItem(trimmedIncoming)) {
+            return when {
+                precedingEndsNewline -> ""
+                precedingText.isNotEmpty() -> "\n"
+                isFirstUnit -> ""
+                else -> ""
+            }
+        }
+
+        if (precedingEndsColon) {
+            return "\n"
+        }
+
+        if (precedingText.isEmpty()) {
+            return ""
+        }
+
+        val lastChar = precedingText.lastOrNull()
+        return if (shouldPrependSpace(lastChar)) " " else ""
+    }
 }
