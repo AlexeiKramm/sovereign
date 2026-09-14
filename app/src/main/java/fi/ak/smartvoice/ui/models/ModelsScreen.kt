@@ -52,11 +52,6 @@ import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeViolet
-import fi.ak.smartvoice.theme.PrimaryBlue
-import fi.ak.smartvoice.theme.SettingsDarkBorder
-import fi.ak.smartvoice.theme.SettingsDarkCard
-import fi.ak.smartvoice.theme.SettingsDarkCardElevated
-import fi.ak.smartvoice.theme.SettingsDarkSurface
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ModelStatus
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
@@ -157,7 +152,7 @@ fun ModelsScreen(
                     .fillMaxWidth()
                     .border(
                         width = 1.dp,
-                        color = if (isSelected) PrimaryBlue else SettingsDarkBorder,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                         shape = RoundedCornerShape(18.dp),
                     )
                     .clickable {
@@ -166,7 +161,7 @@ fun ModelsScreen(
                         }
                     },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) SettingsDarkCardElevated else SettingsDarkCard,
+                    containerColor = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
                 ),
                 shape = RoundedCornerShape(18.dp),
             ) {
@@ -189,7 +184,7 @@ fun ModelsScreen(
                                 },
                                 enabled = isInstalled,
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = PrimaryBlue,
+                                    selectedColor = MaterialTheme.colorScheme.primary,
                                     unselectedColor = MaterialTheme.colorScheme.outline,
                                 ),
                             )
@@ -216,15 +211,15 @@ fun ModelsScreen(
                             AsrModelType.OFFLINE_CTC -> "Offline CTC"
                         }
                         Surface(
-                            color = SettingsDarkSurface,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, SettingsDarkBorder),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                             modifier = Modifier.padding(start = 8.dp),
                         ) {
                             Text(
                                 text = chipLabel,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = PrimaryBlue,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
@@ -244,7 +239,7 @@ fun ModelsScreen(
                         Spacer(modifier = Modifier.height(6.dp))
                         LinearProgressIndicator(
                             progress = { p.overall },
-                            color = PrimaryBlue,
+                            color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(4.dp)),
@@ -263,7 +258,7 @@ fun ModelsScreen(
                             OutlinedButton(
                                 onClick = { viewModel.cancelModelDownload() },
                                 shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, SettingsDarkBorder),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             ) {
                                 Text("Cancel", style = MaterialTheme.typography.labelMedium)
                             }
@@ -277,7 +272,7 @@ fun ModelsScreen(
                             Text(
                                 text = if (isSelected) "Active" else "Downloaded",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isSelected) PrimaryBlue else BadgeGreen,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else BadgeGreen,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             )
 
@@ -286,7 +281,7 @@ fun ModelsScreen(
                                     Button(
                                         onClick = { viewModel.selectAsrModel(model) },
                                         shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                     ) {
                                         Text("Select", fontWeight = FontWeight.SemiBold)
                                     }
@@ -294,7 +289,7 @@ fun ModelsScreen(
                                     OutlinedButton(
                                         onClick = { viewModel.probeLocalEngine() },
                                         shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, SettingsDarkBorder),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                     ) {
                                         Text("Verify Model", style = MaterialTheme.typography.labelMedium)
                                     }
@@ -302,7 +297,7 @@ fun ModelsScreen(
                                 OutlinedButton(
                                     onClick = { viewModel.deleteModel(model) },
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, SettingsDarkBorder),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                 ) {
                                     Text("Delete", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                                 }
@@ -315,8 +310,8 @@ fun ModelsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(SettingsDarkSurface)
-                                    .border(1.dp, SettingsDarkBorder, RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                                     .padding(10.dp),
                             ) {
                                 Text(
@@ -343,7 +338,7 @@ fun ModelsScreen(
                                     viewModel.downloadModel(model)
                                 },
                                 shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             ) {
                                 Text("Download", fontWeight = FontWeight.SemiBold)
                             }
@@ -395,12 +390,12 @@ fun ModelsScreen(
                     .fillMaxWidth()
                     .border(
                         width = 1.dp,
-                        color = if (isSelected) BadgeViolet else SettingsDarkBorder,
+                        color = if (isSelected) BadgeViolet else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                         shape = RoundedCornerShape(18.dp),
                     )
                     .clickable { viewModel.selectLitertModel(model) },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) SettingsDarkCardElevated else SettingsDarkCard,
+                    containerColor = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
                 ),
                 shape = RoundedCornerShape(18.dp),
             ) {
@@ -435,9 +430,9 @@ fun ModelsScreen(
                             }
                         }
                         Surface(
-                            color = SettingsDarkSurface,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, SettingsDarkBorder),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                             modifier = Modifier.padding(start = 8.dp),
                         ) {
                             Text(
@@ -487,7 +482,7 @@ fun ModelsScreen(
                             OutlinedButton(
                                 onClick = { viewModel.cancelLitertDownload() },
                                 shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, SettingsDarkBorder),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             ) {
                                 Text("Cancel", style = MaterialTheme.typography.labelMedium)
                             }
@@ -517,7 +512,7 @@ fun ModelsScreen(
                                     OutlinedButton(
                                         onClick = { viewModel.loadCleanupModel() },
                                         shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, SettingsDarkBorder),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                     ) {
                                         Text("Verify Model", style = MaterialTheme.typography.labelMedium)
                                     }
@@ -525,9 +520,49 @@ fun ModelsScreen(
                                 OutlinedButton(
                                     onClick = { viewModel.deleteLitertModel(model) },
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, SettingsDarkBorder),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                 ) {
                                     Text("Delete", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+
+                        if (isSelected) {
+                            cleanupBusy?.let { busy ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = BadgeViolet,
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = busy,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+
+                            cleanupLoadNote?.let { note ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                        .padding(10.dp),
+                                ) {
+                                    Text(
+                                        text = note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
@@ -540,7 +575,7 @@ fun ModelsScreen(
                             Text(
                                 text = "Not downloaded (~${model.approximateBytes / 1_000_000} MB)",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Button(
                                 onClick = {
@@ -554,46 +589,6 @@ fun ModelsScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-
-        cleanupBusy?.let { busy ->
-            item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = BadgeViolet,
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = busy,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        }
-
-        cleanupLoadNote?.let { note ->
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(SettingsDarkSurface)
-                        .border(1.dp, SettingsDarkBorder, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                ) {
-                    Text(
-                        text = note,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }

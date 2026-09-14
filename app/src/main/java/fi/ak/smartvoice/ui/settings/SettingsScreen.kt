@@ -18,30 +18,37 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,20 +66,49 @@ import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeOrange
 import fi.ak.smartvoice.theme.BadgeSlate
-import fi.ak.smartvoice.theme.PrimaryBlue
-import fi.ak.smartvoice.theme.SettingsDarkBorder
-import fi.ak.smartvoice.theme.SettingsDarkSurface
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ServerStatus
+import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import fi.ak.smartvoice.ui.components.SettingsItemRow
+import fi.ak.smartvoice.ui.components.SettingsSectionHeader
+import fi.ak.smartvoice.ui.stats.StatsScreen
+
+enum class SettingsSubScreen {
+    MAIN,
+    STATS,
+    BENCHMARK,
+}
 
 @Composable
 fun SettingsScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
 ) {
+    var currentSubScreen by remember { mutableStateOf(SettingsSubScreen.MAIN) }
+
+    when (currentSubScreen) {
+        SettingsSubScreen.STATS -> {
+            StatsScreen(
+                modifier = modifier,
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+            )
+            return
+        }
+        SettingsSubScreen.BENCHMARK -> {
+            BenchmarkScreen(
+                modifier = modifier,
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+            )
+            return
+        }
+        SettingsSubScreen.MAIN -> {
+            // Render main settings below
+        }
+    }
+
     val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
@@ -116,7 +152,8 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.Palette,
-                        badgeColor = BadgeBlue,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                         contentDescription = "Theme",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -134,19 +171,14 @@ fun SettingsScreen(
                         )
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AppThemeMode.entries.forEach { mode ->
-                        FilterChip(
+
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    AppThemeMode.entries.forEachIndexed { index, mode ->
+                        SegmentedButton(
                             selected = themeMode == mode,
                             onClick = { viewModel.setThemeMode(mode) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = AppThemeMode.entries.size),
                             label = { Text(mode.label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BadgeBlue.copy(alpha = 0.2f),
-                                selectedLabelColor = BadgeBlue,
-                            ),
                         )
                     }
                 }
@@ -217,9 +249,9 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 if (proc == LiteRtProcessor.GPU && isSupported) {
                                     Surface(
-                                        color = SettingsDarkSurface,
+                                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                         shape = RoundedCornerShape(6.dp),
-                                        border = BorderStroke(1.dp, SettingsDarkBorder),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                                     ) {
                                         Text(
                                             text = "Optimal",
@@ -251,7 +283,7 @@ fun SettingsScreen(
                 OutlinedButton(
                     onClick = { viewModel.probeHardwareCompatibility() },
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, SettingsDarkBorder),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.align(Alignment.End),
                 ) {
                     Text("Re-test Compatibility", style = MaterialTheme.typography.labelMedium)
@@ -265,8 +297,9 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.Mic,
-                        badgeColor = BadgeBlue,
-                        contentDescription = "Transcription Mode",
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        contentDescription = "Engine Mode",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
@@ -277,7 +310,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Choose on-device private or server transcription",
+                            text = "Choose between local on-device transcription and server tier",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -289,18 +322,22 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .selectable(selected = isSelected, onClick = { viewModel.onEnginePreferenceChange(pref) }),
+                            .padding(vertical = 4.dp)
+                            .selectable(
+                                selected = isSelected,
+                                onClick = { viewModel.onEnginePreferenceChange(pref) },
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(
                             selected = isSelected,
                             onClick = { viewModel.onEnginePreferenceChange(pref) },
                             colors = RadioButtonDefaults.colors(
-                                selectedColor = PrimaryBlue,
+                                selectedColor = MaterialTheme.colorScheme.primary,
                                 unselectedColor = MaterialTheme.colorScheme.outline,
                             ),
                         )
-                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
                             Text(
                                 text = pref.label,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -327,7 +364,8 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.Timer,
-                        badgeColor = BadgeOrange,
+                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
                         contentDescription = "Voice Pauses",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -355,10 +393,27 @@ fun SettingsScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsDarkSurface,
-                        unfocusedContainerColor = SettingsDarkSurface,
-                        focusedBorderColor = BadgeOrange,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = stableField.text,
+                    onValueChange = viewModel::onStableFieldChange,
+                    label = { Text("Recognition Steady State (seconds)") },
+                    supportingText = { Text("Time without transcript changes before accepting segment (default: 1.0s)") },
+                    isError = stableField.invalid,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -367,50 +422,63 @@ fun SettingsScreen(
                     value = stopField.text,
                     onValueChange = viewModel::onStopFieldChange,
                     label = { Text("Auto-Stop Silence (seconds)") },
-                    supportingText = { Text("Silence duration before ending recording (0 = manual stop only)") },
+                    supportingText = { Text("Long silence before automatically ending session (default: 4.0s)") },
                     isError = stopField.invalid,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsDarkSurface,
-                        unfocusedContainerColor = SettingsDarkSurface,
-                        focusedBorderColor = BadgeOrange,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                timingNote?.let { note ->
-                    if (note.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    timingNote?.let { note ->
                         Text(
                             text = note,
                             style = MaterialTheme.typography.bodySmall,
-                            color = BadgeOrange,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
                         )
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.resetTimingsToDefaults() },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Text("Reset Defaults", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
         }
 
-        // --- 5. BATTERY & MEMORY ---
+        // --- 5. BATTERY & MEMORY OPTIMIZATION ---
         SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.BatteryChargingFull,
-                        badgeColor = BadgeGreen,
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
                         contentDescription = "Battery & Memory",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Battery & Memory",
+                            text = "Battery & Memory Optimization",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Manage background memory footprint and battery savings",
+                            text = "Manage RAM usage and background battery drain",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -424,34 +492,34 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Unload Models When Screen Turns Off",
+                            text = "Unload Models on Screen Off",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Unloads models immediately when screen turns off to save battery",
+                            text = "Frees ~1.5 GB RAM and eliminates background battery consumption while device is locked",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
                         checked = unloadOnScreenOff,
-                        onCheckedChange = viewModel::onUnloadOnScreenOffChange,
+                        onCheckedChange = { viewModel.onUnloadOnScreenOffChange(it) },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = BadgeGreen,
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary,
                         ),
                     )
                 }
 
                 SettingsDivider(startIndent = 0.dp)
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Inactivity Timeout",
+                        text = "Idle Memory Timeout",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
@@ -464,14 +532,10 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         AppSettings.IDLE_TIMEOUT_OPTIONS.forEach { mins ->
-                            FilterChip(
+                            androidx.compose.material3.FilterChip(
                                 selected = idleTimeoutMinutes == mins,
                                 onClick = { viewModel.onModelIdleTimeoutMinutesChange(mins) },
                                 label = { Text(if (mins == 0) "Never" else "$mins min") },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = BadgeGreen.copy(alpha = 0.2f),
-                                    selectedLabelColor = BadgeGreen,
-                                ),
                             )
                         }
                     }
@@ -485,7 +549,8 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.Cloud,
-                        badgeColor = BadgeSlate,
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
                         contentDescription = "Remote Server",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -510,10 +575,10 @@ fun SettingsScreen(
                     label = { Text("Server Base URL") },
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsDarkSurface,
-                        unfocusedContainerColor = SettingsDarkSurface,
-                        focusedBorderColor = BadgeSlate,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -527,7 +592,7 @@ fun SettingsScreen(
                         is ServerStatus.Ready -> Text(
                             "Connected (contract ${(serverStatus as ServerStatus.Ready).contractVersion})",
                             style = MaterialTheme.typography.bodySmall,
-                            color = BadgeGreen,
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium,
                         )
                         is ServerStatus.Unreachable -> Text(
@@ -546,12 +611,57 @@ fun SettingsScreen(
                     Button(
                         onClick = { viewModel.checkServer() },
                         shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = BadgeSlate),
                     ) {
                         Text("Test Connection", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
+        }
+
+        // --- 7. DIAGNOSTICS & TELEMETRY TOOLS ---
+        SettingsSectionHeader(title = "Diagnostics & Tools")
+        SettingsGroupCard {
+            SettingsItemRow(
+                title = "Usage & Battery Statistics",
+                subtitle = "Audio metrics, power draw, and transcription history",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.BarChart,
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        contentDescription = "Usage Statistics",
+                    )
+                },
+                trailing = {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open Usage Stats",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.STATS },
+            )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Model Benchmarking",
+                subtitle = "Measure ASR RTF and LLM tokens/sec latency",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Speed,
+                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        contentDescription = "Model Benchmarks",
+                    )
+                },
+                trailing = {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open Benchmarks",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
+            )
         }
 
         // --- ABOUT / BUILD INFO ---
@@ -571,4 +681,3 @@ private fun buildVersion(context: Context): String = try {
 } catch (_: PackageManager.NameNotFoundException) {
     "dev"
 }
-

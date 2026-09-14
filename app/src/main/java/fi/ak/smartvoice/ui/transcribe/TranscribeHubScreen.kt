@@ -40,7 +40,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -102,6 +105,7 @@ import kotlinx.coroutines.withContext
 fun TranscribeHubScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -171,7 +175,7 @@ fun TranscribeHubScreen(
                     modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.surfaceContainer,
                     shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -179,10 +183,11 @@ fun TranscribeHubScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         SettingsIconBadge(
-                            icon = Icons.Default.PlayArrow,
-                            badgeColor = BadgeBlue,
-                            size = 28.dp,
-                            iconSize = 16.dp,
+                            icon = Icons.Default.Mic,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            size = 32.dp,
+                            iconSize = 18.dp,
                         )
                         Column {
                             Text("Voice", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -199,7 +204,7 @@ fun TranscribeHubScreen(
                     modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.surfaceContainer,
                     shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -208,9 +213,10 @@ fun TranscribeHubScreen(
                     ) {
                         SettingsIconBadge(
                             icon = Icons.Default.Edit,
-                            badgeColor = BadgeViolet,
-                            size = 28.dp,
-                            iconSize = 16.dp,
+                            badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            size = 32.dp,
+                            iconSize = 18.dp,
                         )
                         Column {
                             Text("AI Cleanup", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -235,7 +241,8 @@ fun TranscribeHubScreen(
                 ) {
                     SettingsIconBadge(
                         icon = Icons.Default.Edit,
-                        badgeColor = BadgeViolet,
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                     Column {
                         Text(
@@ -292,12 +299,12 @@ fun TranscribeHubScreen(
                 .fillMaxWidth()
                 .border(
                     1.dp,
-                    if (isRecording) Color(0xFFFF3B30).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
+                    if (isRecording) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     RoundedCornerShape(24.dp),
                 ),
             colors = CardDefaults.cardColors(
                 containerColor = if (isRecording) {
-                    Color(0xFF2A1215)
+                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
                 } else {
                     MaterialTheme.colorScheme.surfaceContainer
                 },
@@ -389,9 +396,9 @@ fun TranscribeHubScreen(
                                 }
                             },
                         color = if (isRecording) {
-                            Color(0xFFFF3B30)
+                            MaterialTheme.colorScheme.error
                         } else {
-                            BadgeBlue
+                            MaterialTheme.colorScheme.primary
                         },
                         shadowElevation = 8.dp,
                     ) {
@@ -401,14 +408,14 @@ fun TranscribeHubScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(24.dp)
-                                        .background(Color.White, RoundedCornerShape(4.dp)),
+                                        .background(MaterialTheme.colorScheme.onError, RoundedCornerShape(4.dp)),
                                 )
                             } else {
                                 // Mic icon
                                 Icon(
-                                    imageVector = Icons.Default.PlayArrow,
+                                    imageVector = Icons.Default.Mic,
                                     contentDescription = "Start Recording",
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(36.dp),
                                 )
                             }
@@ -436,7 +443,8 @@ fun TranscribeHubScreen(
                 ) {
                     SettingsIconBadge(
                         icon = Icons.Default.PlayArrow,
-                        badgeColor = BadgeCyan,
+                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                     Column {
                         Text(
@@ -536,7 +544,8 @@ fun TranscribeHubScreen(
                         ) {
                             SettingsIconBadge(
                                 icon = Icons.Default.Check,
-                                badgeColor = BadgeGreen,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
                             Text(
                                 text = "Transcription Result",
@@ -550,11 +559,29 @@ fun TranscribeHubScreen(
                                 val textToCopy = if (selectedResultTab == 1) rawText else cleanedText
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("transcription", textToCopy))
-                                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                scope.launch {
+                                    snackbarHostState?.showSnackbar("Copied to clipboard")
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy text",
+                                )
+                            }
+
+                            // Share button
+                            IconButton(onClick = {
+                                val textToShare = if (selectedResultTab == 1) rawText else cleanedText
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, textToShare)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share Transcription"))
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
+                                    contentDescription = "Share transcription",
                                 )
                             }
                         }

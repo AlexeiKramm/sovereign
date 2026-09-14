@@ -59,9 +59,6 @@ import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.theme.BadgeRose
 import fi.ak.smartvoice.theme.BadgeViolet
-import fi.ak.smartvoice.theme.SettingsDarkBorder
-import fi.ak.smartvoice.theme.SettingsDarkCard
-import fi.ak.smartvoice.theme.SettingsDarkSurface
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
@@ -229,8 +226,8 @@ fun ProfilesScreen(modifier: Modifier = Modifier) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(SettingsDarkSurface)
-                                    .border(1.dp, SettingsDarkBorder, RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                                     .padding(12.dp)
                             ) {
                                 Column {
@@ -301,10 +298,10 @@ fun ProfilesScreen(modifier: Modifier = Modifier) {
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = SettingsDarkSurface,
-                            unfocusedContainerColor = SettingsDarkSurface,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             focusedBorderColor = BadgeRose,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                         ),
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -328,10 +325,10 @@ fun ProfilesScreen(modifier: Modifier = Modifier) {
                             }
                         }),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = SettingsDarkSurface,
-                            unfocusedContainerColor = SettingsDarkSurface,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             focusedBorderColor = BadgeRose,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                         ),
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -444,7 +441,6 @@ private fun NewProfileDialog(
                 fontWeight = FontWeight.Bold,
             )
         },
-        containerColor = SettingsDarkCard,
         shape = RoundedCornerShape(20.dp),
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -456,10 +452,10 @@ private fun NewProfileDialog(
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsDarkSurface,
-                        unfocusedContainerColor = SettingsDarkSurface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         focusedBorderColor = BadgeViolet,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -471,10 +467,10 @@ private fun NewProfileDialog(
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsDarkSurface,
-                        unfocusedContainerColor = SettingsDarkSurface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         focusedBorderColor = BadgeViolet,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -486,10 +482,10 @@ private fun NewProfileDialog(
                     maxLines = 8,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsDarkSurface,
-                        unfocusedContainerColor = SettingsDarkSurface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         focusedBorderColor = BadgeViolet,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )

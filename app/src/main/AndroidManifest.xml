@@ -16,6 +16,7 @@
         android:supportsRtl="true"
         android:windowSoftInputMode="adjustResize"
         android:theme="@style/Theme.SmartVoice"
+        android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true">
         <uses-native-library
             android:name="libOpenCL.so"

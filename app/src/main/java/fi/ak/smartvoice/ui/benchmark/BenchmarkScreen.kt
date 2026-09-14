@@ -56,14 +56,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import fi.ak.smartvoice.theme.BadgeCyan
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeOrange
 import fi.ak.smartvoice.theme.PrimaryBlue
-import fi.ak.smartvoice.theme.SettingsDarkBorder
-import fi.ak.smartvoice.theme.SettingsDarkCard
-import fi.ak.smartvoice.theme.SettingsDarkCardElevated
-import fi.ak.smartvoice.theme.SettingsDarkSurface
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
@@ -283,8 +286,15 @@ data class BenchmarkSummary(
     val results: List<RepetitionResult>,
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BenchmarkScreen(modifier: Modifier = Modifier) {
+fun BenchmarkScreen(
+    modifier: Modifier = Modifier,
+    onNavigateUp: (() -> Unit)? = null,
+) {
+    if (onNavigateUp != null) {
+        BackHandler { onNavigateUp() }
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appSettings = remember { AppSettings(context) }
@@ -693,31 +703,35 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item {
-            Column {
-                Text(
-                    text = "Performance & Benchmarking",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Test speech recognition and AI cleanup speed on your device.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    val content = @Composable { paddingModifier: Modifier ->
+        LazyColumn(
+            modifier = modifier
+                .fillMaxSize()
+                .then(paddingModifier)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (onNavigateUp == null) {
+                item {
+                    Column {
+                        Text(
+                            text = "Performance & Benchmarking",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Test speech recognition and AI cleanup speed on your device.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-        }
 
-        // ================= SECTION: AUDIO PIPELINE BENCHMARK =================
-        item {
-            SettingsGroupCard {
+            // ================= SECTION: AUDIO PIPELINE BENCHMARK =================
+            item {
+                SettingsGroupCard {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -753,8 +767,8 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                         onClick = { audioPlayer.playOrPause(selectedAudioSample.assetPath) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, SettingsDarkBorder),
-                        colors = CardDefaults.outlinedCardColors(containerColor = SettingsDarkSurface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     ) {
                         Row(
                             modifier = Modifier
@@ -836,8 +850,8 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, SettingsDarkBorder, RoundedCornerShape(12.dp))
-                            .background(SettingsDarkSurface, RoundedCornerShape(12.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
                             .padding(12.dp),
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -971,8 +985,8 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, SettingsDarkBorder, RoundedCornerShape(12.dp))
-                                .background(SettingsDarkSurface, RoundedCornerShape(12.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
                                 .padding(12.dp),
                         ) {
                             Row(
@@ -1068,10 +1082,10 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                         maxLines = 3,
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = SettingsDarkSurface,
-                            unfocusedContainerColor = SettingsDarkSurface,
-                            focusedBorderColor = BadgeOrange,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                         ),
                     )
 
@@ -1229,8 +1243,8 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, SettingsDarkBorder, RoundedCornerShape(14.dp))
-                        .background(SettingsDarkCard, RoundedCornerShape(14.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(14.dp))
                         .padding(14.dp),
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1261,6 +1275,29 @@ fun BenchmarkScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+    }
+
+    if (onNavigateUp != null) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Model Benchmarks", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateUp) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+            }
+        ) { innerPadding ->
+            content(Modifier.padding(innerPadding))
+        }
+    } else {
+        content(Modifier)
     }
 }
 
@@ -1293,8 +1330,8 @@ private fun RepetitionsDropdownSelector(
                         cardWidthDp = with(density) { coordinates.size.width.toDp() }
                     },
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, SettingsDarkBorder),
-                colors = CardDefaults.outlinedCardColors(containerColor = SettingsDarkSurface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             ) {
                 Row(
                     modifier = Modifier
@@ -1330,7 +1367,7 @@ private fun RepetitionsDropdownSelector(
                 onDismissRequest = { expanded = false },
                 modifier = Modifier
                     .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
-                    .background(SettingsDarkCardElevated),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 repOptions.forEach { (count, desc) ->
                     val isSelected = count == repetitions
@@ -1341,7 +1378,7 @@ private fun RepetitionsDropdownSelector(
                                     "$count ${if (count == 1) "run" else "runs"}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) BadgeOrange else MaterialTheme.colorScheme.onSurface,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
                                     desc,
@@ -1400,8 +1437,8 @@ private fun AsrModelDropdownSelector(
                             cardWidthDp = with(density) { coordinates.size.width.toDp() }
                         },
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, SettingsDarkBorder),
-                    colors = CardDefaults.outlinedCardColors(containerColor = SettingsDarkSurface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     Row(
                         modifier = Modifier
@@ -1427,7 +1464,7 @@ private fun AsrModelDropdownSelector(
                             Text(
                                 text = badge,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = BadgeCyan,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         }
                         Icon(
@@ -1443,7 +1480,7 @@ private fun AsrModelDropdownSelector(
                     onDismissRequest = { expanded = false },
                     modifier = Modifier
                         .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
-                        .background(SettingsDarkCardElevated),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 ) {
                     installedModels.forEach { model ->
                         val isSelected = model.id == selectedModel?.id
@@ -1460,10 +1497,10 @@ private fun AsrModelDropdownSelector(
                                         model.label,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) BadgeCyan else MaterialTheme.colorScheme.onSurface,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
-                                        "$badge • ${model.totalBytes / 1_000_000} MB",
+                                        badge,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1504,7 +1541,7 @@ private fun LlmModelDropdownSelector(
                 ),
             ) {
                 Text(
-                    text = "No LLM models are downloaded. Please go to Models page and download a cleanup model.",
+                    text = "No LLM models are downloaded. Please go to Models page and download an LLM model.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(14.dp),
@@ -1520,8 +1557,8 @@ private fun LlmModelDropdownSelector(
                             cardWidthDp = with(density) { coordinates.size.width.toDp() }
                         },
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, SettingsDarkBorder),
-                    colors = CardDefaults.outlinedCardColors(containerColor = SettingsDarkSurface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     Row(
                         modifier = Modifier
@@ -1556,7 +1593,7 @@ private fun LlmModelDropdownSelector(
                     onDismissRequest = { expanded = false },
                     modifier = Modifier
                         .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
-                        .background(SettingsDarkCardElevated),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                 ) {
                     installedModels.forEach { item ->
                         val isSelected = item.id == selectedModel?.id
@@ -1568,13 +1605,13 @@ private fun LlmModelDropdownSelector(
                                             item.label,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) BadgeOrange else MaterialTheme.colorScheme.onSurface,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
-                                            color = SettingsDarkSurface,
-                                            border = BorderStroke(1.dp, SettingsDarkBorder),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                         ) {
                                             Text(
                                                 item.backendBadge,

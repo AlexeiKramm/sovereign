@@ -1,7 +1,6 @@
 package fi.ak.smartvoice.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,65 +20,65 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
- * Modern Settings-style squircle icon badge.
- * Renders a compact vibrant colored box with a crisp white icon inside.
+ * Material 3 tonal icon container.
+ * Uses semantic container and content colors adhering to M3 tonal elevation.
  */
 @Composable
 fun SettingsIconBadge(
     icon: ImageVector,
-    badgeColor: Color,
-    contentDescription: String? = null,
     modifier: Modifier = Modifier,
-    size: Dp = 36.dp,
-    iconSize: Dp = 20.dp,
+    badgeColor: Color = MaterialTheme.colorScheme.primaryContainer,
+    iconTint: Color = MaterialTheme.colorScheme.onPrimaryContainer,
+    contentDescription: String? = null,
+    size: Dp = 40.dp,
+    iconSize: Dp = 22.dp,
 ) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .clip(RoundedCornerShape(10.dp))
-            .background(badgeColor),
-        contentAlignment = Alignment.Center,
+    Surface(
+        modifier = modifier.size(size),
+        shape = RoundedCornerShape(12.dp),
+        color = badgeColor,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(iconSize),
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = iconTint,
+                modifier = Modifier.size(iconSize),
+            )
+        }
     }
 }
 
 /**
- * Inset grouped card container inspired by modern mobile Settings apps.
- * Features deep dark-gray surface, rounded corners, and subtle hairline border.
+ * Material 3 grouped card container.
+ * Uses surfaceContainer with a soft outlineVariant border for modern card elevation.
  */
 @Composable
 fun SettingsGroupCard(
     modifier: Modifier = Modifier,
-    shape: RoundedCornerShape = RoundedCornerShape(20.dp),
+    shape: RoundedCornerShape = RoundedCornerShape(16.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape),
+        modifier = modifier.fillMaxWidth(),
+        shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
-        shape = shape,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -88,7 +88,8 @@ fun SettingsGroupCard(
 }
 
 /**
- * Standard list row for Settings blocks with icon badge, title, subtitle, and trailing control.
+ * Material 3 list row for settings with icon badge, title, subtitle, and trailing control.
+ * Guarantees minimum 48dp accessibility touch target.
  */
 @Composable
 fun SettingsItemRow(
@@ -99,19 +100,21 @@ fun SettingsItemRow(
     trailing: @Composable (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    val rowModifier = if (onClick != null) {
+    val clickableModifier = if (onClick != null) {
         modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .defaultMinSize(minHeight = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     } else {
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .defaultMinSize(minHeight = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     }
 
     Row(
-        modifier = rowModifier,
+        modifier = clickableModifier.semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -121,22 +124,21 @@ fun SettingsItemRow(
         ) {
             if (badge != null) {
                 badge()
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(16.dp))
             }
             Column {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 18.sp,
                     )
                 }
             }
@@ -150,7 +152,7 @@ fun SettingsItemRow(
 }
 
 /**
- * Indented divider between items inside a SettingsGroupCard.
+ * M3 Divider between items inside a SettingsGroupCard.
  */
 @Composable
 fun SettingsDivider(
@@ -159,8 +161,8 @@ fun SettingsDivider(
 ) {
     HorizontalDivider(
         modifier = modifier.padding(start = startIndent),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-        thickness = 0.8.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+        thickness = 1.dp,
     )
 }
 
@@ -174,9 +176,10 @@ fun SettingsSectionHeader(
 ) {
     Text(
         text = title,
-        style = MaterialTheme.typography.titleMedium,
+        style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
+

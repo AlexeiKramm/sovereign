@@ -250,10 +250,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     val selectedLitertModel: StateFlow<LiteRtLmModelSpec> = _selectedLitertModel.asStateFlow()
 
     fun selectLitertModel(spec: LiteRtLmModelSpec) {
+        if (spec.id == _selectedLitertModel.value.id) return
         settings.litertModelId = spec.id
         _selectedLitertModel.value = spec
         cleanupEngine?.unload()
         cleanupEngine = null
+        _cleanupLoad.value = null
+        _cleanupBusy.value = null
     }
 
     private val _litertProcessor = MutableStateFlow(settings.litertProcessor)
@@ -415,6 +418,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         } else {
             "auto-stop after %.2f s of silence".format(parsed)
         }
+    }
+
+    fun resetTimingsToDefaults() {
+        onPauseFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_PAUSE_SILENCE_S))
+        onStableFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STABLE_SILENCE_S))
+        onStopFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STOP_AFTER_SILENCE_S))
     }
 
     /** What the tier policy would decide for the next utterance, for the screen to display. */
