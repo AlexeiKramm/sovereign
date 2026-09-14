@@ -83,6 +83,7 @@ class LiteRtLmCleanupEngine(
 
             val effectiveSpeculative = speculativeDecoding && modelSpec.supportsSpeculativeDecoding
             ExperimentalFlags.enableSpeculativeDecoding = effectiveSpeculative
+            ExperimentalFlags.enableBenchmark = true
 
             val config = EngineConfig(
                 modelPath = modelFile.absolutePath,
@@ -209,7 +210,7 @@ class LiteRtLmCleanupEngine(
                     }
                 }
 
-                val totalDecodeTimeMs = (SystemClock.elapsedRealtime() - started).toDouble()
+                var totalDecodeTimeMs = (SystemClock.elapsedRealtime() - started).toDouble()
                 val rawText = textBuilder.toString()
                 val cleaned = CleanupPrompt.parse(rawText)
 
@@ -221,6 +222,29 @@ class LiteRtLmCleanupEngine(
                     sessionTurns++
                 }
 
+                var actualTokens = generatedTokens
+                var actualTtftMs = ttftMs
+
+                // Query native benchmark info from LiteRT-LM to get exact token counts and throughput,
+                // which is critical during speculative decoding where multiple tokens are emitted per callback chunk.
+                val benchInfo = runCatching { conversation.getBenchmarkInfo() }.getOrNull()
+                if (benchInfo != null && benchInfo.lastDecodeTokenCount > 0) {
+                    actualTokens = benchInfo.lastDecodeTokenCount.toLong()
+                    if (benchInfo.timeToFirstTokenInSecond > 0.0) {
+                        actualTtftMs = benchInfo.timeToFirstTokenInSecond * 1000.0
+                    }
+                    if (benchInfo.lastDecodeTokensPerSecond > 0.0 && actualTokens > 0) {
+                        // Calculate decode duration from native token generation speed
+                        totalDecodeTimeMs = (actualTokens * 1000.0) / benchInfo.lastDecodeTokensPerSecond
+                    }
+                } else {
+                    // Fallback token estimation when native counter is inactive or 0:
+                    // In Gemma vocab, cleaned English text averages ~1.3 tokens per word.
+                    val words = cleaned.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+                    val estimatedTokens = (words * 1.32).toLong().coerceAtLeast(1L)
+                    actualTokens = maxOf(generatedTokens, estimatedTokens)
+                }
+
                 val backendLabel = processor.label
                 val specTag = if (speculativeDecoding && modelSpec.supportsSpeculativeDecoding) ", spec: on" else ""
                 val cacheTag = if (isSession) " [cached]" else ""
@@ -230,9 +254,9 @@ class LiteRtLmCleanupEngine(
                     cleaned = true,
                     note = "cleaned on LiteRT-LM ($backendLabel$specTag)$cacheTag · rules: ${variant.name.lowercase()}",
                     loadMs = loadMs,
-                    ttftMs = ttftMs,
+                    ttftMs = actualTtftMs,
                     decodeTimeMs = totalDecodeTimeMs,
-                    generatedTokens = generatedTokens,
+                    generatedTokens = actualTokens,
                     promptSent = messageToSend,
                 )
             } catch (e: Exception) {
