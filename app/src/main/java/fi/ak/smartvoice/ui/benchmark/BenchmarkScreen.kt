@@ -478,6 +478,7 @@ fun BenchmarkScreen(
                         context = context,
                         modelSpec = llmModel.model,
                         processor = appSettings.litertProcessor,
+                        speculativeDecoding = appSettings.litertSpeculativeDecoding,
                         dictionary = dictionary,
                         dictionaryEntries = dictionaryEntries,
                     )
@@ -581,6 +582,7 @@ fun BenchmarkScreen(
                         context = context,
                         modelSpec = model.model,
                         processor = processor,
+                        speculativeDecoding = appSettings.litertSpeculativeDecoding,
                         dictionary = dictionary,
                         dictionaryEntries = dictionaryEntries,
                     )

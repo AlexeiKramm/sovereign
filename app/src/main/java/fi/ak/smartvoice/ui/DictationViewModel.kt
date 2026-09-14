@@ -275,6 +275,16 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         cleanupEngine = null
     }
 
+    private val _litertSpeculativeDecoding = MutableStateFlow(settings.litertSpeculativeDecoding)
+    val litertSpeculativeDecoding: StateFlow<Boolean> = _litertSpeculativeDecoding.asStateFlow()
+
+    fun setLitertSpeculativeDecoding(enabled: Boolean) {
+        settings.litertSpeculativeDecoding = enabled
+        _litertSpeculativeDecoding.value = enabled
+        cleanupEngine?.unload()
+        cleanupEngine = null
+    }
+
     fun probeHardwareCompatibility() {
         viewModelScope.launch {
             val result = LiteRtCompatibilityTester.probe(app, saveToSettings = true)
@@ -555,6 +565,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             context = app,
             modelSpec = settings.litertModel,
             processor = settings.litertProcessor,
+            speculativeDecoding = settings.litertSpeculativeDecoding,
             dictionary = dictionaryStore.getWords(),
             dictionaryEntries = dictionaryStore.getEntries(),
         ).also { cleanupEngine = it }

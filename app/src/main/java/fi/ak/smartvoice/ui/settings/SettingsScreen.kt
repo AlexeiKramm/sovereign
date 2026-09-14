@@ -132,6 +132,8 @@ fun SettingsScreen(
     val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
     val litertCompatNote by viewModel.litertCompatibilityNote.collectAsStateWithLifecycle()
+    val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
+    val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
     val hwProfile = remember { DeviceHardware.getProfile(context) }
 
     Column(
@@ -296,6 +298,58 @@ fun SettingsScreen(
                     modifier = Modifier.align(Alignment.End),
                 ) {
                     Text("Re-test Compatibility", style = MaterialTheme.typography.labelMedium)
+                }
+
+                SettingsDivider(startIndent = 0.dp)
+
+                val modelSupportsSpeculative = selectedLitertModel.supportsSpeculativeDecoding
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Speculative Decoding (MTP)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            ) {
+                                Text(
+                                    text = if (modelSupportsSpeculative) "Supported" else "Unsupported",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (modelSupportsSpeculative) BadgeGreen else MaterialTheme.colorScheme.outline,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        Text(
+                            text = if (modelSupportsSpeculative) {
+                                "Accelerates token generation by predicting multiple tokens in parallel with embedded drafter heads"
+                            } else {
+                                "The selected model does not include speculative drafting heads"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = litertSpeculativeDecoding && modelSupportsSpeculative,
+                        enabled = modelSupportsSpeculative,
+                        onCheckedChange = { viewModel.setLitertSpeculativeDecoding(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
                 }
             }
         }

@@ -803,7 +803,7 @@ private fun LitertDropdownSelector(
                     )
                     Text(
                         text = if (isSelectedInstalled) {
-                            "${selectedModel.targetHardware} • ${selectedModel.approximateBytes / 1_000_000} MB • Active"
+                            "${selectedModel.targetHardware}${if (selectedModel.supportsSpeculativeDecoding) " • Speculative MTP" else ""} • ${selectedModel.approximateBytes / 1_000_000} MB • Active"
                         } else {
                             "⚠️ Not downloaded (~${selectedModel.approximateBytes / 1_000_000} MB)"
                         },
@@ -849,7 +849,7 @@ private fun LitertDropdownSelector(
                                     },
                                 )
                                 Text(
-                                    text = "${model.targetHardware} • ${model.approximateBytes / 1_000_000} MB" + if (!isInstalled) " (Not downloaded)" else "",
+                                    text = "${model.targetHardware}${if (model.supportsSpeculativeDecoding) " • Speculative MTP" else ""} • ${model.approximateBytes / 1_000_000} MB" + if (!isInstalled) " (Not downloaded)" else "",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isInstalled) {
                                         MaterialTheme.colorScheme.onSurfaceVariant
@@ -1120,6 +1120,20 @@ private fun LitertModelLibraryItem(
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
+                        }
+                        if (model.supportsSpeculativeDecoding) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                shape = RoundedCornerShape(6.dp),
+                            ) {
+                                Text(
+                                    text = "Speculative MTP",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = BadgeGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
                         }
                     }
                     Text(

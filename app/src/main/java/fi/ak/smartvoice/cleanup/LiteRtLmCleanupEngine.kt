@@ -9,6 +9,8 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.SamplerConfig
 import fi.ak.smartvoice.data.DictionaryEntry
 import kotlinx.coroutines.Dispatchers
@@ -23,10 +25,12 @@ import java.io.File
  * Runs mobile-optimized `.litertlm` models (Gemma 4 E2B, E4B) via the Google AI Edge LiteRT runtime
  * using GPU acceleration (with CPU fallback).
  */
+@OptIn(ExperimentalApi::class)
 class LiteRtLmCleanupEngine(
     private val context: Context,
     val modelSpec: LiteRtLmModelSpec,
     val processor: fi.ak.smartvoice.data.LiteRtProcessor = fi.ak.smartvoice.data.LiteRtProcessor.GPU,
+    val speculativeDecoding: Boolean = true,
     private val dictionary: List<String> = emptyList(),
     private val dictionaryEntries: List<DictionaryEntry> = emptyList(),
 ) : CleanupEngine {
@@ -51,7 +55,9 @@ class LiteRtLmCleanupEngine(
     fun uses(other: LiteRtLmModelSpec): Boolean = other.id == modelSpec.id
 
     override fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean =
-        uses(settings.litertModel) && processor == settings.litertProcessor
+        uses(settings.litertModel) &&
+            processor == settings.litertProcessor &&
+            speculativeDecoding == settings.litertSpeculativeDecoding
 
     private suspend fun ensureLoaded(): Result<Engine> = withContext(Dispatchers.IO) {
         runCatching {
@@ -74,6 +80,9 @@ class LiteRtLmCleanupEngine(
                 }
                 fi.ak.smartvoice.data.LiteRtProcessor.CPU -> Backend.CPU()
             }
+
+            val effectiveSpeculative = speculativeDecoding && modelSpec.supportsSpeculativeDecoding
+            ExperimentalFlags.enableSpeculativeDecoding = effectiveSpeculative
 
             val config = EngineConfig(
                 modelPath = modelFile.absolutePath,
@@ -213,12 +222,13 @@ class LiteRtLmCleanupEngine(
                 }
 
                 val backendLabel = processor.label
+                val specTag = if (speculativeDecoding && modelSpec.supportsSpeculativeDecoding) ", spec: on" else ""
                 val cacheTag = if (isSession) " [cached]" else ""
                 CleanupPass(
                     unit = unit,
                     text = cleaned,
                     cleaned = true,
-                    note = "cleaned on LiteRT-LM ($backendLabel)$cacheTag · rules: ${variant.name.lowercase()}",
+                    note = "cleaned on LiteRT-LM ($backendLabel$specTag)$cacheTag · rules: ${variant.name.lowercase()}",
                     loadMs = loadMs,
                     ttftMs = ttftMs,
                     decodeTimeMs = totalDecodeTimeMs,

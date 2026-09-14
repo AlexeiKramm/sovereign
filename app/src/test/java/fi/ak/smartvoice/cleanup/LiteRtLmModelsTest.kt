@@ -43,4 +43,11 @@ class LiteRtLmModelsTest {
         val ids = LiteRtLmModels.ALL.map { it.id }
         assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b"), ids)
     }
+
+    @Test
+    fun `Gemma 4 models declare speculative decoding support`() {
+        LiteRtLmModels.ALL.forEach { model ->
+            assertTrue("${model.id} should support speculative decoding", model.supportsSpeculativeDecoding)
+        }
+    }
 }

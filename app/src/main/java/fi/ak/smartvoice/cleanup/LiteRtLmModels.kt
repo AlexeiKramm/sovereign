@@ -15,6 +15,7 @@ data class LiteRtLmModelSpec(
     val note: String,
     val targetSoc: String = "ANY",
     val targetHardware: String = "GPU / CPU (Universal)",
+    val supportsSpeculativeDecoding: Boolean = true,
 ) {
     fun downloadUrl(): String = "https://huggingface.co/$repository/resolve/main/$fileName"
 

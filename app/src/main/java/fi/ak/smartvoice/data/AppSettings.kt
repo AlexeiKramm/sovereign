@@ -132,6 +132,13 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putString(KEY_LITERT_COMPAT_NOTE, value) }
 
     /**
+     * Whether speculative decoding (Multi-Token Prediction / MTP) is enabled for supported LiteRT-LM models.
+     */
+    var litertSpeculativeDecoding: Boolean
+        get() = prefs.getBoolean(KEY_LITERT_SPECULATIVE_DECODING, DEFAULT_LITERT_SPECULATIVE_DECODING)
+        set(value) = prefs.edit { putBoolean(KEY_LITERT_SPECULATIVE_DECODING, value) }
+
+    /**
      * Theme preference: System default, Light theme, or Dark theme.
      */
     var themeMode: AppThemeMode
@@ -182,6 +189,7 @@ class AppSettings(context: Context) {
         private const val KEY_LITERT_PROCESSOR = "litert_processor"
         private const val KEY_LITERT_GPU_SUPPORTED = "litert_gpu_supported"
         private const val KEY_LITERT_COMPAT_NOTE = "litert_compat_note"
+        private const val KEY_LITERT_SPECULATIVE_DECODING = "litert_speculative_decoding"
         private const val KEY_THEME_MODE = "theme_mode"
         // Seconds-valued keys, deliberately new names: the earlier millisecond keys hold Ints, and
         // reading one of those back as a Float throws. The old keys are simply abandoned.
@@ -192,6 +200,7 @@ class AppSettings(context: Context) {
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
 
+        const val DEFAULT_LITERT_SPECULATIVE_DECODING = true
         const val DEFAULT_UNLOAD_SCREEN_OFF = true
         const val DEFAULT_UNLOAD_KEYBOARD_CLOSE = false
         const val DEFAULT_IDLE_TIMEOUT_MIN = 5
