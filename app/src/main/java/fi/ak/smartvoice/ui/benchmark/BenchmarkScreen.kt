@@ -646,7 +646,9 @@ fun BenchmarkScreen(
                                 isWarmup = false,
                                 coldLoadMs = if (coldLoad > 0) coldLoad else pass.loadMs,
                                 ttftMs = pass.ttftMs,
-                                prefillSpeed = 0.0,
+                                prefillSpeed = if (pass.promptTokens > 0L && pass.promptTimeMs > 0.0) {
+                                    (pass.promptTokens * 1000.0) / pass.promptTimeMs
+                                } else 0.0,
                                 decodeSpeed = decodeSpeed,
                                 wallMs = wallMs,
                                 generatedTokens = pass.generatedTokens,

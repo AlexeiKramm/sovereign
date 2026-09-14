@@ -245,6 +245,15 @@ class LiteRtLmCleanupEngine(
                     actualTokens = maxOf(generatedTokens, estimatedTokens)
                 }
 
+                var promptTokens = 0L
+                var promptDurationMs = actualTtftMs
+                if (benchInfo != null && benchInfo.lastPrefillTokenCount > 0) {
+                    promptTokens = benchInfo.lastPrefillTokenCount.toLong()
+                    if (benchInfo.lastPrefillTokensPerSecond > 0.0 && promptTokens > 0) {
+                        promptDurationMs = (promptTokens * 1000.0) / benchInfo.lastPrefillTokensPerSecond
+                    }
+                }
+
                 val backendLabel = processor.label
                 val specTag = if (speculativeDecoding && modelSpec.supportsSpeculativeDecoding) ", spec: on" else ""
                 val cacheTag = if (isSession) " [cached]" else ""
@@ -255,7 +264,9 @@ class LiteRtLmCleanupEngine(
                     note = "cleaned on LiteRT-LM ($backendLabel$specTag)$cacheTag · rules: ${variant.name.lowercase()}",
                     loadMs = loadMs,
                     ttftMs = actualTtftMs,
+                    promptTimeMs = promptDurationMs,
                     decodeTimeMs = totalDecodeTimeMs,
+                    promptTokens = promptTokens,
                     generatedTokens = actualTokens,
                     promptSent = messageToSend,
                 )
