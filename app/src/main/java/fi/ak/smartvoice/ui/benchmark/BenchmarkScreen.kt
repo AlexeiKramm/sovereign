@@ -284,6 +284,7 @@ data class BenchmarkSummary(
     val wallMsMean: Double,
     val wallMsStdDev: Double,
     val results: List<RepetitionResult>,
+    val speculativeUsed: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -304,6 +305,7 @@ fun BenchmarkScreen(
     var repetitions by remember { mutableIntStateOf(3) }
     var warmupFirst by remember { mutableStateOf(true) }
     var coldRunEachTime by remember { mutableStateOf(false) }
+    var speculativeDecoding by remember { mutableStateOf(appSettings.litertSpeculativeDecoding) }
 
     var samplePrompt by remember {
         mutableStateOf(
@@ -512,7 +514,7 @@ fun BenchmarkScreen(
                     rawAsrText = rawAsr,
                     rawWer = rawWer,
                     rawCer = rawCer,
-                    llmModelUsed = "${llmModel.label} (${llmModel.backendBadge})",
+                    llmModelUsed = "${llmModel.label} (${llmModel.backendBadge}${if (appSettings.litertSpeculativeDecoding && llmModel.model.supportsSpeculativeDecoding) ", MTP" else ""})",
                     llmProfileUsed = activeProfile.name,
                     llmTtftMs = llmPass.ttftMs,
                     llmDecodeTokPerSec = decodeSpeed,
@@ -582,7 +584,7 @@ fun BenchmarkScreen(
                         context = context,
                         modelSpec = model.model,
                         processor = processor,
-                        speculativeDecoding = appSettings.litertSpeculativeDecoding,
+                        speculativeDecoding = speculativeDecoding,
                         dictionary = dictionary,
                         dictionaryEntries = dictionaryEntries,
                     )
@@ -689,6 +691,7 @@ fun BenchmarkScreen(
                     wallMsMean = wallM,
                     wallMsStdDev = stdDev({ it.wallMs.toDouble() }, wallM),
                     results = recordedResults,
+                    speculativeUsed = speculativeDecoding && model.model.supportsSpeculativeDecoding,
                 )
 
                 withContext(Dispatchers.Main) {
@@ -1137,6 +1140,54 @@ fun BenchmarkScreen(
                         )
                     }
 
+                    // Speculative Decoding Switch
+                    val modelSupportsSpeculative = selectedModel?.model?.supportsSpeculativeDecoding == true
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Speculative Decoding (MTP)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    shape = RoundedCornerShape(4.dp),
+                                ) {
+                                    Text(
+                                        text = if (modelSupportsSpeculative) "MTP" else "Unsupported",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (modelSupportsSpeculative) BadgeGreen else MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                            Text(
+                                if (modelSupportsSpeculative) {
+                                    "Parallel candidate token prediction for higher throughput"
+                                } else {
+                                    "This model does not include speculative drafting heads"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                        Switch(
+                            checked = speculativeDecoding && modelSupportsSpeculative,
+                            enabled = modelSupportsSpeculative,
+                            onCheckedChange = { speculativeDecoding = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = BadgeOrange,
+                            ),
+                        )
+                    }
+
                     Button(
                         onClick = { runBenchmark() },
                         enabled = !isRunning && !isPipelineRunning && selectedModel != null,
@@ -1225,6 +1276,15 @@ fun BenchmarkScreen(
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
                                 color = BadgeOrange,
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Speculative Decoding (MTP):", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (summary.speculativeUsed) "Active" else "Disabled",
+                                fontWeight = FontWeight.Bold,
+                                color = if (summary.speculativeUsed) BadgeGreen else MaterialTheme.colorScheme.outline,
                             )
                         }
 
