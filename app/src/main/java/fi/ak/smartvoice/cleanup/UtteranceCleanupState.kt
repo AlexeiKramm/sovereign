@@ -8,6 +8,7 @@ data class CleanupCommit(
     val cleaned: Boolean,
     val note: String,
     val prefix: String = " ",
+    val overlapToDelete: String = "",
 )
 
 /**
@@ -19,9 +20,8 @@ data class CleanupCommit(
  * - **The tail is what was committed**, cleaned or not. Feeding only successful passes back would leave
  *   the model's context out of step with what the user is actually looking at — and on a unit where the
  *   pass failed, the raw text *is* the context.
- * - **Append-only, never revised** (D-032 rule 6): text is appended in the order units completed, and
- *   nothing already handed to the cursor is touched again. That is what makes the prefix cacheable and
- *   keeps text from wobbling on screen.
+ * - **Seam healing with overlap replacement**: when an overlap is healed across a boundary, the in-memory
+ *   tail is replaced and [overlapToDelete] signals to the IME to replace it at the cursor atomically.
  */
 class UtteranceCleanupState {
 
@@ -51,7 +51,7 @@ class UtteranceCleanupState {
         if (trimmed.isNotEmpty()) committed.append(trimmed)
     }
 
-    fun onPass(pass: CleanupPass): CleanupCommit {
+    fun onPass(pass: CleanupPass, seam: SeamSplit? = null): CleanupCommit {
         val raw = if (pass.cleaned) pass.text else pass.unit
         units++
         if (pass.cleaned) cleanedUnits++ else failedUnits++
@@ -59,6 +59,24 @@ class UtteranceCleanupState {
         if (body.isEmpty()) {
             return CleanupCommit(text = "", cleaned = pass.cleaned, note = pass.note, prefix = "")
         }
+
+        if (pass.cleaned && seam != null && seam.overlapText.isNotEmpty()) {
+            val overlapLen = seam.overlapText.length
+            if (committed.length >= overlapLen) {
+                committed.setLength(committed.length - overlapLen)
+            }
+            val prefix = if (committed.isEmpty()) "" else PanelText.unitPrefix(committed.toString(), body)
+            committed.append(prefix)
+            committed.append(body)
+            return CleanupCommit(
+                text = body,
+                cleaned = true,
+                note = pass.note,
+                prefix = prefix,
+                overlapToDelete = seam.overlapText,
+            )
+        }
+
         val prefix = if (committed.isEmpty()) "" else PanelText.unitPrefix(committed.toString(), raw)
         committed.append(prefix)
         committed.append(body)

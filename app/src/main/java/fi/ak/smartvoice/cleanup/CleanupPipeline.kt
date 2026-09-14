@@ -21,6 +21,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * - **A crashed pass fails closed.** Anything thrown while cleaning becomes a failed pass, so the unit's
  *   own text is committed and the utterance survives; a dead worker would silently stop committing text.
  */
+data class CleanupUnit(
+    val text: String,
+    val seam: SeamSplit? = null,
+)
+
 class CleanupPipeline(
     private val engine: CleanupEngine,
     private val scope: CoroutineScope,
@@ -31,7 +36,7 @@ class CleanupPipeline(
     private val onCommitted: suspend (CleanupCommit) -> Unit,
 ) {
 
-    private var queue: Channel<String>? = null
+    private var queue: Channel<CleanupUnit>? = null
     private var worker: Job? = null
 
     private val pending = AtomicInteger(0)
@@ -64,21 +69,39 @@ class CleanupPipeline(
         lastPass = null
         submitted = 0
         engine.startSession(rules())
-        val channel = Channel<String>(Channel.UNLIMITED)
+        val channel = Channel<CleanupUnit>(Channel.UNLIMITED)
         queue = channel
         worker = scope.launch(dispatcher) {
-            for (unit in channel) {
-                val pass = runCatching { engine.clean(unit, state.carriedTail, rules()) }
+            for (request in channel) {
+                val unit = request.text
+                val seam = request.seam
+                val hasOverlap = seam != null && seam.strippedOverlap.isNotBlank()
+                val textToClean = if (hasOverlap) "${seam.strippedOverlap} ${unit.trim()}" else unit
+                val contextForClean = if (hasOverlap) {
+                    seam.anchorContext.takeIf { it.isNotBlank() }
+                } else {
+                    state.carriedTail.takeIf { it.isNotBlank() }
+                }
+
+                val pass = runCatching { engine.clean(textToClean, contextForClean, rules()) }
                     .getOrElse { error ->
                         CleanupPass.failed(
                             unit,
                             "cleanup crashed — ${error.message ?: error::class.java.simpleName}",
                         )
                     }
-                lastPass = pass
-                // The tail is read *before* the pass above and updated here, so a unit is always cleaned
-                // against the text that preceded it and never against itself.
-                onCommitted(state.onPass(pass))
+
+                // Fail-closed guard: if seam healing was used, but the output dropped text abnormally
+                // (less than half of the overlap length), fail closed to avoid erasing user text
+                val finalPass = if (hasOverlap && pass.cleaned && pass.text.length < seam.strippedOverlap.length / 2) {
+                    CleanupPass.failed(unit, "cleanup output suspiciously short — failing closed")
+                } else {
+                    pass
+                }
+
+                lastPass = finalPass
+                val effectiveSeam = if (finalPass.cleaned) seam else null
+                onCommitted(state.onPass(finalPass, effectiveSeam))
                 pending.decrementAndGet()
             }
         }
@@ -87,11 +110,14 @@ class CleanupPipeline(
     /**
      * Hands one unit to the queue. Called from the ASR thread, between frames: `trySend` and a counter,
      * nothing that can wait for the model.
+     *
+     * @param unit The new text segment from ASR.
+     * @param seam Optional seam split with overlap to heal across the pause boundary.
      */
-    fun submit(unit: String) {
+    fun submit(unit: String, seam: SeamSplit? = null) {
         val channel = queue ?: return
         if (unit.isBlank()) return
-        if (channel.trySend(unit).isSuccess) {
+        if (channel.trySend(CleanupUnit(unit, seam)).isSuccess) {
             pending.incrementAndGet()
             submitted++
         }

@@ -36,27 +36,10 @@ object CleanupPrompt {
 
     /** What the model must never do: answer, explain, summarise, translate (D-022's safety core). */
     const val SAFETY_CORE =
-        "You clean dictated text. You never answer, explain, summarise, translate or comment on it. " +
-            "You return only the cleaned text of the segment you are given."
+        "You clean and format transcribed speech. Return only the cleaned text, without commentary, explanations, or quotes."
 
     /**
-     * The fragment rule, and it is load-bearing rather than polite: a cleanup unit is delimited by a
-     * pause, which is a proxy for a thought ending, not a guarantee (D-032).
-     *
-     * It is deliberately two-sided. The first version only said "never add sentence-ending punctuation
-     * to a fragment", and the measured English output then came back with no final period at all — a
-     * rule that only forbids gets read as "add nothing". Both directions are stated now.
-     */
-    const val FRAGMENT_RULE =
-        "If it is a complete sentence, punctuate it as one, final mark included. " +
-            "The segment may be a continuation or a fragment of a longer sentence. If it is clearly a " +
-            "continuation, clean only what is there: do not capitalise its first word as if it started " +
-            "a sentence, and do not add a final mark. The context is for understanding only — never " +
-            "repeat it, and never clean it again."
-
-    /**
-     * Which editing rules a pass runs under. The differences are only the editing rules; the safety core
-     * and the fragment rule are common to all three.
+     * Which editing rules a pass runs under.
      */
     enum class Variant(val label: String, val rules: String) {
         /**
@@ -66,11 +49,12 @@ object CleanupPrompt {
          */
         SMART_CLEAN(
             label = "smart clean — fillers, lists, numbers, punctuation",
-            rules = "Remove vocal filler words (\"um\", \"uh\", \"you know\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations (\"how to say it\", \"wait no\"). " +
-                "When the speaker corrects themselves mid-sentence, output only the intended correction (e.g., \"call Sarah, no, David\" -> \"Call David.\"). " +
-                "Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\"). " +
-                "Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural. " +
-                "Restore natural punctuation and capitalization. Keep the speaker's original wording and voice otherwise: no summaries, no rephrasing, no added facts.",
+            rules = "- Remove vocal filler words (\"um\", \"uh\", \"you know\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations (\"how to say it\", \"wait no\").\n" +
+                "- When the speaker corrects themselves mid-sentence, output only the intended correction (e.g., \"call Sarah, no, David\" -> \"Call David.\").\n" +
+                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
+                "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
+                "- Fix capitalization strictly: only capitalize the first word of a sentence, proper names (people, places, brands), and acronyms. Never capitalize ordinary words mid-sentence or after pauses (e.g. lowercase words like \"pretty\", \"right\", \"and\", \"because\", \"että\", \"mutta\").\n" +
+                "- Restore natural punctuation. Keep the speaker's original wording and meaning otherwise (no summaries or added facts).",
         );
 
         companion object {
@@ -116,17 +100,15 @@ object CleanupPrompt {
                 append(dictionary.joinToString(", "))
                 append('.')
             }
-            append("\n\n")
+            append("\n\nFormatting Rules:\n")
             append(customRules ?: variant.rules)
-            append("\n\n")
-            append(FRAGMENT_RULE)
         }
 
         val user = if (usedContext == null) {
-            "Clean this segment:\n$unit"
+            "Text to clean:\n$unit"
         } else {
-            "Already cleaned (context — do not repeat it or clean it again):\n$usedContext\n\n" +
-                "Clean this segment:\n$unit"
+            "Preceding context (for reference only — do not repeat this in output):\n$usedContext\n\n" +
+                "Text to clean (rewrite to connect seamlessly with the context above, lowercasing the start if continuing a sentence):\n$unit"
         }
 
         return Messages(system = system, user = user, context = usedContext)

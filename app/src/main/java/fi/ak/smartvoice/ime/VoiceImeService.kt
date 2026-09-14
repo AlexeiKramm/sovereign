@@ -26,6 +26,8 @@ import fi.ak.smartvoice.cleanup.CleanupPipeline
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmModelStore
+import fi.ak.smartvoice.cleanup.SeamHealer
+import fi.ak.smartvoice.cleanup.SeamSplit
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
@@ -223,7 +225,12 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 // order is preserved because the worker commits serially and the looper runs posted
                 // tasks in order.
                 withContext(Dispatchers.Main.immediate) {
-                    commitUnit(commit.text, commit.prefix, if (commit.cleaned) null else commit.note)
+                    commitUnit(
+                        text = commit.text,
+                        suggestedPrefix = commit.prefix,
+                        failureNote = if (commit.cleaned) null else commit.note,
+                        overlapToDelete = commit.overlapToDelete,
+                    )
                 }
             },
         )
@@ -727,21 +734,33 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 cleanupPipeline.begin(committedText.toString())
                 cleanupEngaged = true
             }
+            val seam = if (settings.healingOverlapWords > 0 && committedText.isNotEmpty()) {
+                SeamHealer.split(
+                    committedText = committedText.toString(),
+                    overlapWords = settings.healingOverlapWords,
+                    totalContextWords = settings.totalContextWords,
+                )
+            } else {
+                null
+            }
             // D-021: the unit is queued and reaches the cursor only after its cleanup pass, so this returns
             // immediately and the commit happens later, on the main thread, from the pipeline.
-            cleanupPipeline.submit(unit)
+            cleanupPipeline.submit(unit, seam)
             return
         }
         scope.launch(Dispatchers.Main.immediate) { commitUnit(unit) }
     }
 
     /**
-     * Puts one unit's text at the cursor. **Everything** that reaches the cursor goes through here, so the
-     * joining rule lives in one place: units are separate recognitions, so every unit after the first needs
-     * its leading space. The cleanup stage supplies real punctuation of its own, which is why this is one
-     * space and not something cleverer.
+     * Puts one unit's text at the cursor. If [overlapToDelete] is non-empty, checks caret consistency
+     * and atomically replaces the overlap in the text field to heal pause seams.
      */
-    private fun commitUnit(text: String, suggestedPrefix: String = " ", failureNote: String? = null) {
+    private fun commitUnit(
+        text: String,
+        suggestedPrefix: String = " ",
+        failureNote: String? = null,
+        overlapToDelete: String = "",
+    ) {
         val connection = currentInputConnection
         if (connection == null) {
             // Focus moved. Saying so beats text that silently goes nowhere.
@@ -750,6 +769,35 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
         }
         val body = text.trim()
         if (body.isEmpty()) return
+
+        if (overlapToDelete.isNotEmpty()) {
+            val before = connection.getTextBeforeCursor(overlapToDelete.length, 0)?.toString()
+            if (before == overlapToDelete) {
+                // Caret matches the exact tail of what we committed: atomically replace
+                val remainingLen = committedText.length - overlapToDelete.length
+                val precedingChar = if (remainingLen > 0) committedText[remainingLen - 1] else null
+                val prefix = if (precedingChar != null && !precedingChar.isWhitespace()) suggestedPrefix else ""
+
+                connection.beginBatchEdit()
+                try {
+                    connection.deleteSurroundingText(overlapToDelete.length, 0)
+                    connection.commitText("$prefix$body", 1)
+                } finally {
+                    connection.endBatchEdit()
+                }
+
+                if (committedText.length >= overlapToDelete.length) {
+                    committedText.setLength(remainingLen)
+                }
+                if (prefix.isNotEmpty()) committedText.append(prefix)
+                committedText.append(body)
+                unitsCommitted++
+                if (failureNote != null) commitNote = "a unit failed closed — $failureNote"
+                return
+            }
+            // If caret moved or text before cursor doesn't match: fail closed, do not delete, fall through to append
+        }
+
         val prefix = if (unitsCommitted > 0) {
             suggestedPrefix
         } else {

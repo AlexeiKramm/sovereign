@@ -190,6 +190,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _stopField = MutableStateFlow(field(settings.stopAfterSilenceSeconds))
     val stopField: StateFlow<TimingField> = _stopField.asStateFlow()
 
+    private val _healingOverlapWords = MutableStateFlow(settings.healingOverlapWords)
+    val healingOverlapWords: StateFlow<Int> = _healingOverlapWords.asStateFlow()
+
+    private val _totalContextWords = MutableStateFlow(settings.totalContextWords)
+    val totalContextWords: StateFlow<Int> = _totalContextWords.asStateFlow()
+
     /** What a timing change actually did, said out loud — notably that one of them rebuilds the model. */
     private val _timingNote = MutableStateFlow<String?>(null)
     val timingNote: StateFlow<String?> = _timingNote.asStateFlow()
@@ -427,9 +433,23 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun onHealingOverlapWordsChange(words: Int) {
+        val clamped = words.coerceIn(0, 20)
+        _healingOverlapWords.value = clamped
+        settings.healingOverlapWords = clamped
+    }
+
+    fun onTotalContextWordsChange(words: Int) {
+        val clamped = words.coerceIn(1, 40)
+        _totalContextWords.value = clamped
+        settings.totalContextWords = clamped
+    }
+
     fun resetTimingsToDefaults() {
         onPauseFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_PAUSE_SILENCE_S))
         onStopFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STOP_AFTER_SILENCE_S))
+        onHealingOverlapWordsChange(AppSettings.DEFAULT_HEALING_OVERLAP_WORDS)
+        onTotalContextWordsChange(AppSettings.DEFAULT_TOTAL_CONTEXT_WORDS)
     }
 
     /** What the tier policy would decide for the next utterance, for the screen to display. */

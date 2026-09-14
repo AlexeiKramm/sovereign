@@ -18,29 +18,28 @@ import org.junit.Test
 class CleanupPromptTest {
 
     @Test
-    fun `the system message carries the safety core and the fragment rule`() {
+    fun `the system message carries the safety core and formatting rules`() {
         val built = CleanupPrompt.build("hello there", null)
-        assertTrue(built.system.contains("never answer"))
-        assertTrue(built.system.contains("fragment"))
-        assertFalse("no context means no context text", built.system.contains("Already cleaned"))
+        assertTrue(built.system.contains("clean and format transcribed speech"))
+        assertTrue(built.system.contains("Formatting Rules:"))
+        assertFalse("no context means no context text", built.user.contains("Preceding context"))
     }
 
     @Test
-    fun `the fragment rule forbids and permits, in both directions`() {
-        // Measured 2026-09-12: a rule that only said "never add sentence-ending punctuation to a
-        // fragment" produced English output with no final period at all. The permission matters as
-        // much as the prohibition.
-        val system = CleanupPrompt.build("anything", null).system
-        assertTrue("forbids inventing an end", system.contains("do not add a final mark"))
-        assertTrue("permits finishing a complete sentence", system.contains("punctuate it as one"))
-        assertTrue("and it distinguishes continuation from complete", system.contains("continuation"))
+    fun `user message structures context and text to clean clearly`() {
+        val built = CleanupPrompt.build("next words", "previous words")
+        assertTrue(built.user.contains("Preceding context"))
+        assertTrue(built.user.contains("previous words"))
+        assertTrue(built.user.contains("Text to clean"))
+        assertTrue(built.user.contains("next words"))
+        assertTrue(built.user.contains("rewrite to connect seamlessly"))
     }
 
     @Test
     fun `every variant keeps the safety core, and only the editing rules differ`() {
         CleanupPrompt.Variant.entries.forEach { variant ->
             val system = CleanupPrompt.build("anything", null, variant = variant).system
-            assertTrue("${variant.name} must keep the safety core", system.contains("never answer"))
+            assertTrue("${variant.name} must keep the safety core", system.contains("clean and format"))
             assertTrue("${variant.name} must carry its own rules", system.contains(variant.rules))
         }
         assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("filler"))
@@ -95,7 +94,7 @@ class CleanupPromptTest {
         assertNull(CleanupPrompt.build("just this", null).context)
         assertNull(CleanupPrompt.build("just this", "").context)
         assertNull(CleanupPrompt.build("just this", "   ").context)
-        assertEquals("just this", CleanupPrompt.build("just this", null).user.substringAfter("Clean this segment:\n"))
+        assertEquals("just this", CleanupPrompt.build("just this", null).user.substringAfter("Text to clean:\n"))
     }
 
     @Test

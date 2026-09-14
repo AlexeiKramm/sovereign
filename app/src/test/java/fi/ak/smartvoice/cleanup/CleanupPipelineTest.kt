@@ -91,4 +91,34 @@ class CleanupPipelineTest {
         pipeline.abort()
         assertEquals(1, engine.sessionCloses)
     }
+
+    @Test
+    fun `seam healing submits overlap and commits with overlapToDelete`() = runBlocking {
+        val engine = FakeEngine()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val commits = mutableListOf<CleanupCommit>()
+
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            onCommitted = { commits.add(it) },
+        )
+
+        pipeline.begin()
+        val seam = SeamSplit(
+            anchorContext = "Today when I was",
+            overlapText = "driving to the supermarket.",
+            strippedOverlap = "driving to the supermarket",
+        )
+        pipeline.submit("I realized something", seam)
+        pipeline.drain()
+
+        assertEquals(1, commits.size)
+        val commit = commits[0]
+        assertEquals("driving to the supermarket I realized something", commit.text)
+        assertEquals("driving to the supermarket.", commit.overlapToDelete)
+        org.junit.Assert.assertTrue(commit.cleaned)
+    }
 }
