@@ -227,15 +227,15 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
 
-        const val DEFAULT_FLOATING_PILL_ENABLED = false
+        const val DEFAULT_FLOATING_PILL_ENABLED = true
         const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
-        const val DEFAULT_HEALING_SENTENCES_COUNT = 2
+        const val DEFAULT_HEALING_SENTENCES_COUNT = 3
 
         const val DEFAULT_LITERT_SPECULATIVE_DECODING = true
         const val DEFAULT_UNLOAD_SCREEN_OFF = true
-        const val DEFAULT_UNLOAD_KEYBOARD_CLOSE = false
-        const val DEFAULT_IDLE_TIMEOUT_MIN = 5
+        const val DEFAULT_UNLOAD_KEYBOARD_CLOSE = true
+        const val DEFAULT_IDLE_TIMEOUT_MIN = 2
         val IDLE_TIMEOUT_OPTIONS = listOf(0, 1, 2, 5, 10, 15)
 
         /**
