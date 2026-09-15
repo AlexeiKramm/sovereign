@@ -104,7 +104,8 @@ fun ModelsScreen(
         .sumOf { it.approximateBytes }
     val totalInstalledMb = (asrInstalledBytes + litertInstalledBytes) / 1_000_000
     val storageSummary = if (totalInstalledMb >= 1000) {
-        "%.2f GB on disk".format(totalInstalledMb / 1000.0)
+        // Locale-pinned: the UI is English-only, so a decimal comma would read as a bug.
+        String.format(java.util.Locale.US, "%.2f GB on disk", totalInstalledMb / 1000.0)
     } else {
         "$totalInstalledMb MB on disk"
     }
