@@ -43,6 +43,8 @@ import fi.ak.smartvoice.net.StackResponseParseException
 import fi.ak.smartvoice.net.StackUnreachableException
 import fi.ak.smartvoice.net.TranscribeClient
 import fi.ak.smartvoice.net.TranscribeResponse
+import fi.ak.smartvoice.ui.onboarding.OnboardingModelPreset
+import fi.ak.smartvoice.ui.onboarding.OnboardingModelPresets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -510,8 +512,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun refreshDashboard() {
         refreshFloatingPillPermissions()
         _isMicPermissionGranted.value = hasMicPermission()
+        if (_modelStatus.value !is ModelStatus.Downloading) {
+            _modelStatus.value = currentModelStatus()
+        }
         refreshProfiles()
         refreshUsageStats()
+        refreshInstalledPresets()
     }
 
     fun refreshProfiles() {
@@ -531,6 +537,152 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private fun hasMicPermission(): Boolean =
         ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
+
+    // ------------------------------------------------------------------------
+    // Onboarding wizard: the first-launch flag and the recommended-model download.
+    // ------------------------------------------------------------------------
+
+    /**
+     * Whether first launch should show the wizard. It is skipped when all three permissions are
+     * already granted, so an install that was set up outside the wizard (or an app update on a
+     * permissioned device) goes straight to Home.
+     *
+     * Deliberately a one-shot question, not a live flow: once the wizard is on screen it must not
+     * disappear the moment the last permission is granted, because the models step is still ahead.
+     */
+    fun shouldShowOnboarding(): Boolean =
+        !settings.onboardingCompleted &&
+            !(hasMicPermission() && Settings.canDrawOverlays(app) && checkAccessibilityPermission())
+
+    /** Finishes the wizard for good. The flag is never cleared, so it shows only once. */
+    fun completeOnboarding() {
+        settings.onboardingCompleted = true
+    }
+
+    /** How the wizard's "download the recommended models" step is getting on. */
+    sealed interface OnboardingDownload {
+        /** Which half of the preset is being fetched. */
+        enum class Stage(val label: String) {
+            ASR("speech model"),
+            CLEANUP("cleanup model"),
+        }
+
+        data object Idle : OnboardingDownload
+        data class Running(val presetId: String, val stage: Stage, val overall: Float) : OnboardingDownload
+        data class Ready(val presetId: String) : OnboardingDownload
+        data class Failed(val presetId: String, val message: String) : OnboardingDownload
+    }
+
+    private val _onboardingDownload = MutableStateFlow<OnboardingDownload>(OnboardingDownload.Idle)
+    val onboardingDownload: StateFlow<OnboardingDownload> = _onboardingDownload.asStateFlow()
+
+    /** Presets whose speech **and** cleanup models are both fully on disk. */
+    private val _installedPresetIds = MutableStateFlow(installedPresetIds())
+    val installedPresetIds: StateFlow<Set<String>> = _installedPresetIds.asStateFlow()
+
+    private var onboardingJob: Job? = null
+
+    @Volatile
+    private var cancelOnboarding = false
+
+    private fun installedPresetIds(): Set<String> =
+        OnboardingModelPresets.ALL
+            .filter { preset ->
+                preset.asrModel.isInstalled(preset.asrModel.directory(app.filesDir)) &&
+                    LiteRtLmModelStore.isInstalled(app, preset.llmModel)
+            }
+            .map { it.id }
+            .toSet()
+
+    fun refreshInstalledPresets() {
+        _installedPresetIds.value = installedPresetIds()
+    }
+
+    /**
+     * Downloads a preset's two models end to end: speech model first, then cleanup model.
+     * Sequenced here rather than in the screen so a rotation mid-download cannot strand the
+     * second half, and both models become the active selection as soon as they land.
+     */
+    fun startOnboardingDownload(preset: OnboardingModelPreset) {
+        if (_onboardingDownload.value is OnboardingDownload.Running) return
+        cancelOnboarding = false
+
+        val asrBytes = preset.asrModel.totalBytes
+        val cleanupBytes = preset.llmModel.approximateBytes
+        val totalBytes = (asrBytes + cleanupBytes).coerceAtLeast(1L)
+
+        onboardingJob = viewModelScope.launch {
+            // Adopt the preset, so the models the user chose are the ones the app will run.
+            selectAsrModel(preset.asrModel)
+            selectLitertModel(preset.llmModel)
+
+            _onboardingDownload.value =
+                OnboardingDownload.Running(preset.id, OnboardingDownload.Stage.ASR, 0f)
+            val directory = preset.asrModel.directory(app.filesDir)
+            val asrResult = withContext(Dispatchers.IO) {
+                ModelDownloader(directory, preset.asrModel) { progress ->
+                    _onboardingDownload.value = OnboardingDownload.Running(
+                        presetId = preset.id,
+                        stage = OnboardingDownload.Stage.ASR,
+                        overall = (progress.overall * asrBytes / totalBytes).coerceIn(0f, 1f),
+                    )
+                }.download(isCancelled = { cancelOnboarding })
+            }
+            when (asrResult) {
+                ModelDownloadResult.Complete -> _modelStatus.value = currentModelStatus()
+                is ModelDownloadResult.Cancelled -> {
+                    _onboardingDownload.value = OnboardingDownload.Idle
+                    return@launch
+                }
+                is ModelDownloadResult.Failed -> {
+                    _onboardingDownload.value = OnboardingDownload.Failed(preset.id, asrResult.message)
+                    return@launch
+                }
+            }
+
+            _onboardingDownload.value = OnboardingDownload.Running(
+                presetId = preset.id,
+                stage = OnboardingDownload.Stage.CLEANUP,
+                overall = (asrBytes.toFloat() / totalBytes).coerceIn(0f, 1f),
+            )
+            var cleanupFailure: String? = null
+            var cleanupCancelled = false
+            LiteRtLmModelStore.downloadFlow(app, preset.llmModel, isCancelled = { cancelOnboarding })
+                .collect { (progress, result) ->
+                    when (result) {
+                        null -> _onboardingDownload.value = OnboardingDownload.Running(
+                            presetId = preset.id,
+                            stage = OnboardingDownload.Stage.CLEANUP,
+                            overall = ((asrBytes + cleanupBytes * progress.percent) / totalBytes.toFloat())
+                                .coerceIn(0f, 1f),
+                        )
+
+                        LiteRtLmDownloadResult.Complete -> Unit
+                        LiteRtLmDownloadResult.Cancelled -> cleanupCancelled = true
+                        is LiteRtLmDownloadResult.Failed -> cleanupFailure = result.reason
+                    }
+                }
+
+            if (cleanupCancelled) {
+                _onboardingDownload.value = OnboardingDownload.Idle
+                return@launch
+            }
+            val cleanupError = cleanupFailure
+            if (cleanupError != null) {
+                _onboardingDownload.value = OnboardingDownload.Failed(preset.id, cleanupError)
+                return@launch
+            }
+            refreshLitertInstalled()
+            _modelStatus.value = currentModelStatus()
+            refreshInstalledPresets()
+            _onboardingDownload.value = OnboardingDownload.Ready(preset.id)
+        }
+    }
+
+    fun cancelOnboardingDownload() {
+        cancelOnboarding = true
+        _onboardingDownload.value = OnboardingDownload.Idle
+    }
 
     fun setFloatingPillEnabled(enabled: Boolean) {
         settings.floatingPillEnabled = enabled
@@ -1130,6 +1282,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         ticker?.cancel()
         litertJob?.cancel()
+        onboardingJob?.cancel()
         // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
         cleanupEngine?.unload()
         cleanupEngine = null

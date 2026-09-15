@@ -23,7 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,6 +33,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fi.ak.smartvoice.ui.home.HomeScreen
+import fi.ak.smartvoice.ui.onboarding.OnboardingScreen
+import fi.ak.smartvoice.ui.onboarding.OnboardingStep
 import fi.ak.smartvoice.ui.profile.ProfilesScreen
 import fi.ak.smartvoice.ui.settings.SettingsScreen
 
@@ -64,6 +68,20 @@ fun MainScreen(
     val focusManager = LocalFocusManager.current
     val tabs = NavTab.entries
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // The wizard can be re-opened from Home ("set up models") or Settings ("run setup again").
+    // It covers the whole screen, and finishing simply uncovers the tab that launched it.
+    var showOnboarding by rememberSaveable { mutableStateOf(false) }
+    var onboardingStart by rememberSaveable { mutableStateOf(OnboardingStep.MICROPHONE) }
+
+    if (showOnboarding) {
+        OnboardingScreen(
+            viewModel = viewModel,
+            initialStep = onboardingStart,
+            onFinished = { showOnboarding = false },
+        )
+        return
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -105,9 +123,22 @@ fun MainScreen(
                 .padding(innerPadding),
         ) {
             when (tabs[selectedTabIndex]) {
-                NavTab.HOME -> HomeScreen(viewModel = viewModel)
+                NavTab.HOME -> HomeScreen(
+                    viewModel = viewModel,
+                    onSetUpModels = {
+                        onboardingStart = OnboardingStep.MODELS
+                        showOnboarding = true
+                    },
+                )
+
                 NavTab.PROFILES -> ProfilesScreen()
-                NavTab.SETTINGS -> SettingsScreen(viewModel = viewModel)
+                NavTab.SETTINGS -> SettingsScreen(
+                    viewModel = viewModel,
+                    onOpenSetup = {
+                        onboardingStart = OnboardingStep.MICROPHONE
+                        showOnboarding = true
+                    },
+                )
             }
         }
     }

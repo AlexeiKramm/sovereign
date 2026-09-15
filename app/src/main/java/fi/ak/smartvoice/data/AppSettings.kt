@@ -193,6 +193,15 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, DEFAULT_FLOATING_PILL_AUTO_COMMIT)
         set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, value) }
 
+    /**
+     * Whether the first-launch onboarding wizard has been finished (or dismissed) once.
+     * Re-running it from Settings must **not** clear this: it exists so the wizard does
+     * not reappear on every launch, not to gate the re-run entry point.
+     */
+    var onboardingCompleted: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, DEFAULT_ONBOARDING_COMPLETED)
+        set(value) = prefs.edit { putBoolean(KEY_ONBOARDING_COMPLETED, value) }
+
     companion object {
         /** Placeholder only — the real address is the home PC's LAN/Tailscale address and port. */
         const val DEFAULT_SERVER_URL = "http://192.0.2.100:8000"
@@ -226,11 +235,13 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
+        private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
 
         const val DEFAULT_FLOATING_PILL_ENABLED = true
         const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
         const val DEFAULT_HEALING_SENTENCES_COUNT = 3
+        const val DEFAULT_ONBOARDING_COMPLETED = false
 
         const val DEFAULT_LITERT_SPECULATIVE_DECODING = true
         const val DEFAULT_UNLOAD_SCREEN_OFF = true

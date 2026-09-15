@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -108,6 +109,7 @@ enum class SettingsSubScreen {
 fun SettingsScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
+    onOpenSetup: () -> Unit = {},
 ) {
     var currentSubScreen by remember { mutableStateOf(SettingsSubScreen.MAIN) }
 
@@ -197,6 +199,31 @@ fun SettingsScreen(
                 text = "Appearance, performance, and voice settings",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // --- 0. SETUP ---
+        SettingsSectionHeader(title = "Setup")
+        SettingsGroupCard {
+            SettingsItemRow(
+                title = "Run setup again",
+                subtitle = "Walk through permissions and voice models again",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Refresh,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        contentDescription = "Setup wizard",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Run setup again",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = onOpenSetup,
             )
         }
 

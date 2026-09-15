@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
@@ -59,22 +60,25 @@ import fi.ak.smartvoice.theme.BadgeViolet
 import fi.ak.smartvoice.theme.Radius
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.ui.DictationViewModel
+import fi.ak.smartvoice.ui.ModelStatus
 import kotlin.math.roundToInt
 
 /**
- * The dashboard: permission health (only while something is missing), all-time
- * stats, and a quick profile switcher.
+ * The dashboard: permission health (only while something is missing), voice-model health,
+ * all-time stats, and a quick profile switcher.
  */
 @Composable
 fun HomeScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
+    onSetUpModels: () -> Unit = {},
 ) {
     val context = LocalContext.current
 
     val micGranted by viewModel.isMicPermissionGranted.collectAsStateWithLifecycle()
     val overlayGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
     val accessibilityGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
+    val modelStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val stats by viewModel.usageStats.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val activeProfileId by viewModel.activeProfileId.collectAsStateWithLifecycle()
@@ -95,6 +99,10 @@ fun HomeScreen(
         if (!overlayGranted) PermissionItem.Overlay else null,
         if (!accessibilityGranted) PermissionItem.Accessibility else null,
     )
+
+    // A downloaded model stuck in "failed/cancelled" reads the same as none at all: the app
+    // cannot dictate until one is installed, so the card stays until it is.
+    val needsModel = modelStatus !is ModelStatus.Installed && modelStatus !is ModelStatus.Downloading
 
     Column(
         modifier = modifier
@@ -132,6 +140,10 @@ fun HomeScreen(
                     }
                 },
             )
+        }
+
+        if (needsModel) {
+            ModelSetupSection(onSetUpModels = onSetUpModels)
         }
 
         StatsSection(stats = stats.toStatTiles())
@@ -267,6 +279,61 @@ private fun PermissionCard(item: PermissionItem, onGrant: () -> Unit) {
                 shape = RoundedCornerShape(Radius.pill),
             ) {
                 Text("Grant")
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Voice-model health
+// ----------------------------------------------------------------------------
+
+/**
+ * Shown while no speech model is installed. The wizard offers to download one at first launch,
+ * but it is skippable — this is the safety net that keeps "no model" from being a dead end that
+ * only Settings knows about.
+ */
+@Composable
+private fun ModelSetupSection(onSetUpModels: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(Radius.md),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(Spacing.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Cloud,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                Text(
+                    text = "Set up voice models",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            Text(
+                text = "Smart Voice runs on your phone, so it needs a model downloaded before it " +
+                    "can dictate.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(Spacing.md))
+            Button(
+                onClick = onSetUpModels,
+                shape = RoundedCornerShape(Radius.pill),
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text("Set up models", fontWeight = FontWeight.SemiBold)
             }
         }
     }
