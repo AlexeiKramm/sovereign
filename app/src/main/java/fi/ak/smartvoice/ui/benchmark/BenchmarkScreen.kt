@@ -599,12 +599,15 @@ fun BenchmarkScreen(
                             currentProgress = currentRun.toFloat() / totalRuns
                         }
                         val (eng, _) = getOrInitEngine()
-                        eng.clean(
+                        val warmupPass = eng.clean(
                             unit = "warmup test",
                             context = null,
                             variant = variant,
                             customRules = customRules,
                         )
+                        if (!warmupPass.cleaned) {
+                            throw RuntimeException("Warmup failed: ${warmupPass.note.ifEmpty { "Model returned empty response" }}")
+                        }
                         if (coldRunEachTime) {
                             activeEngine?.unload()
                             activeEngine = null
@@ -627,6 +630,10 @@ fun BenchmarkScreen(
                             customRules = customRules,
                         )
                         val wallMs = SystemClock.elapsedRealtime() - wallStart
+
+                        if (!pass.cleaned) {
+                            throw RuntimeException(pass.note.ifEmpty { "Cleanup pass failed" })
+                        }
 
                         val decodeSpeed = if (pass.decodeTimeMs > 0.0) {
                             (pass.generatedTokens * 1000.0) / pass.decodeTimeMs

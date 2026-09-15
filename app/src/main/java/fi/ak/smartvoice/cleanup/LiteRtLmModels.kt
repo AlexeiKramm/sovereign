@@ -55,11 +55,11 @@ object LiteRtLmModels {
     val QWEN_3_5_0_8B = LiteRtLmModelSpec(
         id = "qwen-3.5-0.8b",
         label = "Qwen 3.5 0.8B",
-        repository = "GabrieleConte/Qwen3.5-0.8B-LiteRT",
-        fileName = "qwen35_mm_q8_ekv2048.litertlm",
-        sha256 = "92999fe4a9242c983e99892d6e57f368e8cd7a4534bc9a383a9551155b7f70a5",
-        approximateBytes = 1_159_757_824L,
-        note = "Ultra-compact 0.8B model (dynamic int8, 2048 context). Fast inference with low memory footprint.",
+        repository = "litert-community/Qwen3.5-0.8B",
+        fileName = "Qwen3.5-0.8B_int8.litertlm",
+        sha256 = "684d4d34adf7176eb47f6026ff65c33d42584737254e5524a8d1ad62edc21b98",
+        approximateBytes = 963_184_864L,
+        note = "Text-only 0.8B model (dynamic int8, 2048 context). Fast inference with full GPU delegation.",
         targetHardware = "GPU / CPU",
         supportsSpeculativeDecoding = false,
     )
