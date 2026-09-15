@@ -6,12 +6,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
@@ -32,25 +30,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
-import fi.ak.smartvoice.ui.models.ModelsScreen
+import fi.ak.smartvoice.ui.home.HomeScreen
 import fi.ak.smartvoice.ui.profile.ProfilesScreen
 import fi.ak.smartvoice.ui.settings.SettingsScreen
-import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
 
 enum class NavTab(
     val title: String,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector,
 ) {
-    TRANSCRIBE(
-        title = "Transcribe",
-        selectedIcon = Icons.Filled.Mic,
-        unselectedIcon = Icons.Outlined.Mic,
-    ),
-    MODELS(
-        title = "Models",
-        selectedIcon = Icons.Filled.Layers,
-        unselectedIcon = Icons.Outlined.Layers,
+    HOME(
+        title = "Home",
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home,
     ),
     PROFILES(
         title = "Profiles",
@@ -113,12 +105,10 @@ fun MainScreen(
                 .padding(innerPadding),
         ) {
             when (tabs[selectedTabIndex]) {
-                NavTab.TRANSCRIBE -> TranscribeHubScreen(viewModel = viewModel, snackbarHostState = snackbarHostState)
-                NavTab.MODELS -> ModelsScreen(viewModel = viewModel)
+                NavTab.HOME -> HomeScreen(viewModel = viewModel)
                 NavTab.PROFILES -> ProfilesScreen()
                 NavTab.SETTINGS -> SettingsScreen(viewModel = viewModel)
             }
         }
     }
 }
-

@@ -110,7 +110,16 @@ class DataStoresTest {
         assertTrue(AppSettings.IDLE_TIMEOUT_OPTIONS.contains(0))
         assertTrue(AppSettings.IDLE_TIMEOUT_OPTIONS.contains(5))
         assertTrue(AppSettings.DEFAULT_UNLOAD_SCREEN_OFF)
-        assertEquals(5, AppSettings.DEFAULT_IDLE_TIMEOUT_MIN)
+        // Plan step 1 ("default fixes"): models rest for 2 minutes by default.
+        assertEquals(2, AppSettings.DEFAULT_IDLE_TIMEOUT_MIN)
+    }
+
+    @Test
+    fun `ui overhaul default fixes are pinned`() {
+        // Plan step 1 set these; the dashboard and settings screens read them as fact.
+        assertEquals(3, AppSettings.DEFAULT_HEALING_SENTENCES_COUNT)
+        assertTrue(AppSettings.DEFAULT_LITERT_SPECULATIVE_DECODING)
+        assertTrue(AppSettings.DEFAULT_FLOATING_PILL_ENABLED)
     }
 
     @Test

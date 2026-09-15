@@ -26,8 +26,11 @@ import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.cleanup.LiteRtCompatibilityTester
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
+import fi.ak.smartvoice.data.CleaningProfile
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.data.DictionaryStore
+import fi.ak.smartvoice.data.ProfileStore
+import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.engine.DictationOutcome
@@ -53,9 +56,12 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.Executors
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
+import androidx.core.content.ContextCompat
 import fi.ak.smartvoice.floating.FloatingOverlayService
 import fi.ak.smartvoice.floating.VoiceAccessibilityService
 
@@ -476,6 +482,55 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             services.any { it.resolveInfo.serviceInfo.packageName == app.packageName }
         }.getOrDefault(false)
     }
+
+    // ------------------------------------------------------------------------
+    // Home dashboard state: permission health, usage stats, profile switcher.
+    // ------------------------------------------------------------------------
+
+    private val profileStore = ProfileStore(application)
+    private val usageStatsStore = UsageStatsStore(application)
+
+    private val _isMicPermissionGranted = MutableStateFlow(hasMicPermission())
+    val isMicPermissionGranted: StateFlow<Boolean> = _isMicPermissionGranted.asStateFlow()
+
+    private val _profiles = MutableStateFlow(profileStore.allProfiles())
+    val profiles: StateFlow<List<CleaningProfile>> = _profiles.asStateFlow()
+
+    private val _activeProfileId = MutableStateFlow(profileStore.activeProfile().id)
+    val activeProfileId: StateFlow<String> = _activeProfileId.asStateFlow()
+
+    private val _usageStats = MutableStateFlow(usageStatsStore.load())
+    val usageStats: StateFlow<UsageStatsData> = _usageStats.asStateFlow()
+
+    /**
+     * Re-reads everything the dashboard shows. Called when Home resumes, because
+     * dictation happens in other components (the pill overlay, the IME) whose
+     * writes this ViewModel never sees directly.
+     */
+    fun refreshDashboard() {
+        refreshFloatingPillPermissions()
+        _isMicPermissionGranted.value = hasMicPermission()
+        refreshProfiles()
+        refreshUsageStats()
+    }
+
+    fun refreshProfiles() {
+        _profiles.value = profileStore.allProfiles()
+        _activeProfileId.value = profileStore.activeProfile().id
+    }
+
+    fun setActiveProfile(id: String) {
+        profileStore.setActiveProfile(id)
+        refreshProfiles()
+    }
+
+    fun refreshUsageStats() {
+        _usageStats.value = usageStatsStore.load()
+    }
+
+    private fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
 
     fun setFloatingPillEnabled(enabled: Boolean) {
         settings.floatingPillEnabled = enabled

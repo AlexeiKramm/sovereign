@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -41,6 +42,9 @@ import fi.ak.smartvoice.cleanup.SeamHealer
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
+import fi.ak.smartvoice.data.UsageStatsStore
+import fi.ak.smartvoice.data.WordDiffCalculator
+import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.ime.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +83,7 @@ class FloatingOverlayService : Service() {
     private lateinit var settings: AppSettings
     private lateinit var profileStore: ProfileStore
     private lateinit var dictionaryStore: DictionaryStore
+    private lateinit var usageStatsStore: UsageStatsStore
     private lateinit var recorder: WavRecorder
     private lateinit var localEngine: LocalAsrEngine
     private lateinit var localSession: LocalAsrSession
@@ -101,6 +106,10 @@ class FloatingOverlayService : Service() {
     private var inFlightJob: Job? = null
     private var silenceMonitoringJob: Job? = null
 
+    /** Wall-clock accounting for the usage stats the dashboard shows. */
+    private var recordStartedAtMs = 0L
+    private var recordedMillis = 0L
+
     // Keyboard & focus visibility tracker
     private var isKeyboardOpen = false
     private var hasEditableFocus = false
@@ -111,6 +120,7 @@ class FloatingOverlayService : Service() {
         settings = AppSettings(this)
         profileStore = ProfileStore(this)
         dictionaryStore = DictionaryStore(this)
+        usageStatsStore = UsageStatsStore(this)
         recorder = WavRecorder()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
@@ -374,6 +384,7 @@ class FloatingOverlayService : Service() {
 
         if (recorder.isRecording) return
 
+        recordStartedAtMs = SystemClock.elapsedRealtime()
         uiState = FloatingUiState.RECORDING
         audioLevel = 0f
         statusNote = null
@@ -422,6 +433,12 @@ class FloatingOverlayService : Service() {
 
     private fun stopRecording() {
         if (!recorder.isRecording) return
+        recordStartedAtMs.let { started ->
+            if (started > 0L) {
+                recordedMillis += SystemClock.elapsedRealtime() - started
+                recordStartedAtMs = 0L
+            }
+        }
         stopAudioMetering()
         stopSilenceMonitoring()
 
@@ -465,7 +482,44 @@ class FloatingOverlayService : Service() {
                 Log.w(TAG, "Text injected via clipboard fallback")
             }
         }
+        recordUsageStats(deliveredText = textToInject)
         resetToResting()
+    }
+
+    /**
+     * The pill is the primary surface, so its dictation has to reach the same
+     * stats store the IME writes to — otherwise the dashboard silently misses
+     * most of what the user actually dictated.
+     */
+    private fun recordUsageStats(deliveredText: String) {
+        val raw = rawTextAccumulator.toString().trim()
+        if (raw.isEmpty() && deliveredText.isEmpty()) return
+
+        val diff = if (cleanupEngaged && raw.isNotEmpty()) {
+            WordDiffCalculator.calculate(rawText = raw, cleanedText = deliveredText)
+        } else {
+            WordDiffCalculator.verbatim(raw.ifEmpty { deliveredText })
+        }
+        usageStatsStore.record(
+            durationSeconds = currentSessionSeconds(),
+            rawWords = diff.rawWords,
+            cleanedWords = diff.wordsCleaned,
+            engine = Engine.LOCAL.label,
+            deliveredWords = diff.deliveredWords,
+            wordsRemoved = diff.wordsRemoved,
+            wordsChanged = diff.wordsChanged,
+            wordsAdded = diff.wordsAdded,
+        )
+    }
+
+    /** Recorded time so far, including a still-running capture. */
+    private fun currentSessionSeconds(): Double {
+        val live = if (recordStartedAtMs > 0L) {
+            SystemClock.elapsedRealtime() - recordStartedAtMs
+        } else {
+            0L
+        }
+        return (recordedMillis + live) / 1000.0
     }
 
     /**
@@ -526,6 +580,8 @@ class FloatingOverlayService : Service() {
         isProcessing = false
         rawTextAccumulator.clear()
         committedText.clear()
+        recordStartedAtMs = 0L
+        recordedMillis = 0L
         updateOverlayVisibility()
     }
 

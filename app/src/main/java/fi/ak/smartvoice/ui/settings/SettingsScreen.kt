@@ -44,6 +44,9 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -84,6 +87,8 @@ import fi.ak.smartvoice.theme.BadgeSlate
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ServerStatus
 import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
+import fi.ak.smartvoice.ui.models.ModelsScreen
+import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
@@ -95,6 +100,8 @@ enum class SettingsSubScreen {
     MAIN,
     STATS,
     BENCHMARK,
+    MODELS,
+    TRANSCRIBE,
 }
 
 @Composable
@@ -117,6 +124,24 @@ fun SettingsScreen(
                 modifier = modifier,
                 onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
             )
+            return
+        }
+        SettingsSubScreen.MODELS -> {
+            SubScreenHost(
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+                modifier = modifier,
+            ) {
+                ModelsScreen(viewModel = viewModel)
+            }
+            return
+        }
+        SettingsSubScreen.TRANSCRIBE -> {
+            SubScreenHost(
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+                modifier = modifier,
+            ) {
+                TranscribeHubScreen(viewModel = viewModel)
+            }
             return
         }
         SettingsSubScreen.MAIN -> {
@@ -933,6 +958,48 @@ fun SettingsScreen(
                 },
                 onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
             )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Voice & AI models",
+                subtitle = "Download, switch, and free up storage for on-device models",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Cloud,
+                        badgeColor = BadgeBlue,
+                        iconTint = Color.White,
+                        contentDescription = "Models",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open model manager",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.MODELS },
+            )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Transcribe a test",
+                subtitle = "Record or pick an audio file to check the pipeline",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.GraphicEq,
+                        badgeColor = BadgeGreen,
+                        iconTint = Color.White,
+                        contentDescription = "Transcribe test",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open transcribe test",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.TRANSCRIBE },
+            )
         }
 
         // --- ABOUT / BUILD INFO ---
@@ -951,6 +1018,36 @@ private fun buildVersion(context: Context): String = try {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
 } catch (_: PackageManager.NameNotFoundException) {
     "dev"
+}
+
+/**
+ * Minimal host for a sub-screen that brings its own header: just a back
+ * affordance, with the system back gesture wired to the same destination.
+ */
+@Composable
+private fun SubScreenHost(
+    onNavigateUp: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    BackHandler(onBack = onNavigateUp)
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onNavigateUp) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+        content()
+    }
 }
 
 @Composable
