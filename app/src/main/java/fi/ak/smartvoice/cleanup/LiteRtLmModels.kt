@@ -52,9 +52,22 @@ object LiteRtLmModels {
         targetHardware = "GPU / CPU",
     )
 
+    val QWEN_3_5_0_8B = LiteRtLmModelSpec(
+        id = "qwen-3.5-0.8b",
+        label = "Qwen 3.5 0.8B",
+        repository = "GabrieleConte/Qwen3.5-0.8B-LiteRT",
+        fileName = "qwen35_mm_q8_ekv2048.litertlm",
+        sha256 = "92999fe4a9242c983e99892d6e57f368e8cd7a4534bc9a383a9551155b7f70a5",
+        approximateBytes = 1_159_757_824L,
+        note = "Ultra-compact 0.8B model (dynamic int8, 2048 context). Fast inference with low memory footprint.",
+        targetHardware = "GPU / CPU",
+        supportsSpeculativeDecoding = false,
+    )
+
     val ALL: List<LiteRtLmModelSpec> = listOf(
         GEMMA_4_E2B,
         GEMMA_4_E4B,
+        QWEN_3_5_0_8B,
     )
 
     val DEFAULT: LiteRtLmModelSpec get() = ALL.first()

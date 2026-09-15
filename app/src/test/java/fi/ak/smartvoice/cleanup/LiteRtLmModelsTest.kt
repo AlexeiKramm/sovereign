@@ -39,15 +39,15 @@ class LiteRtLmModelsTest {
     }
 
     @Test
-    fun `catalog contains only Gemma 4 E2B and E4B models`() {
+    fun `catalog contains Gemma 4 and Qwen models`() {
         val ids = LiteRtLmModels.ALL.map { it.id }
-        assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b"), ids)
+        assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b", "qwen-3.5-0.8b"), ids)
     }
 
     @Test
-    fun `Gemma 4 models declare speculative decoding support`() {
-        LiteRtLmModels.ALL.forEach { model ->
-            assertTrue("${model.id} should support speculative decoding", model.supportsSpeculativeDecoding)
-        }
+    fun `speculative decoding support flags match model capabilities`() {
+        assertTrue(LiteRtLmModels.GEMMA_4_E2B.supportsSpeculativeDecoding)
+        assertTrue(LiteRtLmModels.GEMMA_4_E4B.supportsSpeculativeDecoding)
+        org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_5_0_8B.supportsSpeculativeDecoding)
     }
 }

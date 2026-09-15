@@ -49,7 +49,7 @@ object CleanupPrompt {
          */
         SMART_CLEAN(
             label = "smart clean — fillers, lists, numbers, punctuation",
-            rules = "- Remove vocal filler words (\"um\", \"uh\", \"you know\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations (\"how to say it\", \"wait no\").\n" +
+            rules = "- Remove vocal filler words (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations (\"how to say it\", \"wait no\").\n" +
                 "- When the speaker corrects themselves mid-sentence, output only the intended correction (e.g., \"call Sarah, no, David\" -> \"Call David.\").\n" +
                 "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
                 "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
