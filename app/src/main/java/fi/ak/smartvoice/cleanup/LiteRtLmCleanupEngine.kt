@@ -54,10 +54,19 @@ class LiteRtLmCleanupEngine(
 
     fun uses(other: LiteRtLmModelSpec): Boolean = other.id == modelSpec.id
 
-    override fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean =
-        uses(settings.litertModel) &&
-            processor == settings.litertProcessor &&
+    val effectiveProcessor: fi.ak.smartvoice.data.LiteRtProcessor =
+        if (!modelSpec.supportsGpu) fi.ak.smartvoice.data.LiteRtProcessor.CPU else processor
+
+    override fun isServing(settings: fi.ak.smartvoice.data.AppSettings): Boolean {
+        val expectedProcessor = if (!modelSpec.supportsGpu) {
+            fi.ak.smartvoice.data.LiteRtProcessor.CPU
+        } else {
+            settings.litertProcessor
+        }
+        return uses(settings.litertModel) &&
+            effectiveProcessor == expectedProcessor &&
             speculativeDecoding == settings.litertSpeculativeDecoding
+    }
 
     private suspend fun ensureLoaded(): Result<Engine> = withContext(Dispatchers.IO) {
         runCatching {
@@ -72,10 +81,14 @@ class LiteRtLmCleanupEngine(
             val started = SystemClock.elapsedRealtime()
             val backend: Backend = when (processor) {
                 fi.ak.smartvoice.data.LiteRtProcessor.GPU -> {
-                    try {
-                        Backend.GPU()
-                    } catch (e: Throwable) {
+                    if (!modelSpec.supportsGpu) {
                         Backend.CPU()
+                    } else {
+                        try {
+                            Backend.GPU()
+                        } catch (e: Throwable) {
+                            Backend.CPU()
+                        }
                     }
                 }
                 fi.ak.smartvoice.data.LiteRtProcessor.CPU -> Backend.CPU()

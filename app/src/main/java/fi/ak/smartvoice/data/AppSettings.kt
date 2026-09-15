@@ -171,19 +171,12 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putInt(KEY_IDLE_TIMEOUT_MIN, value) }
 
     /**
-     * Number of words from the tail of the previous segment to rewrite and heal across pause cuts.
-     * 0 disables rewriting (pure append-only mode).
+     * Number of sentences from the tail of the previous segment to rewrite and heal across pause cuts.
+     * 0 disables rewriting (pure append-only mode). Default is 2.
      */
-    var healingOverlapWords: Int
-        get() = prefs.getInt(KEY_HEALING_OVERLAP_WORDS, DEFAULT_HEALING_OVERLAP_WORDS)
-        set(value) = prefs.edit { putInt(KEY_HEALING_OVERLAP_WORDS, value) }
-
-    /**
-     * Total context window in words from the previous text (preceding anchor context + overlap).
-     */
-    var totalContextWords: Int
-        get() = prefs.getInt(KEY_TOTAL_CONTEXT_WORDS, DEFAULT_TOTAL_CONTEXT_WORDS)
-        set(value) = prefs.edit { putInt(KEY_TOTAL_CONTEXT_WORDS, value) }
+    var healingSentencesCount: Int
+        get() = prefs.getInt(KEY_HEALING_SENTENCES_COUNT, DEFAULT_HEALING_SENTENCES_COUNT)
+        set(value) = prefs.edit { putInt(KEY_HEALING_SENTENCES_COUNT, value) }
 
     companion object {
         /** Placeholder only — the real address is the home PC's LAN/Tailscale address and port. */
@@ -214,11 +207,9 @@ class AppSettings(context: Context) {
         private const val KEY_UNLOAD_SCREEN_OFF = "unload_screen_off"
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
-        private const val KEY_HEALING_OVERLAP_WORDS = "healing_overlap_words"
-        private const val KEY_TOTAL_CONTEXT_WORDS = "total_context_words"
+        private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
 
-        const val DEFAULT_HEALING_OVERLAP_WORDS = 5
-        const val DEFAULT_TOTAL_CONTEXT_WORDS = 15
+        const val DEFAULT_HEALING_SENTENCES_COUNT = 2
 
         const val DEFAULT_LITERT_SPECULATIVE_DECODING = true
         const val DEFAULT_UNLOAD_SCREEN_OFF = true

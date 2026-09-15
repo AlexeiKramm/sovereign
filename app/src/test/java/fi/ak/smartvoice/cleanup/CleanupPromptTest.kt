@@ -22,17 +22,13 @@ class CleanupPromptTest {
         val built = CleanupPrompt.build("hello there", null)
         assertTrue(built.system.contains("clean and format transcribed speech"))
         assertTrue(built.system.contains("Formatting Rules:"))
-        assertFalse("no context means no context text", built.user.contains("Preceding context"))
     }
 
     @Test
-    fun `user message structures context and text to clean clearly`() {
-        val built = CleanupPrompt.build("next words", "previous words")
-        assertTrue(built.user.contains("Preceding context"))
-        assertTrue(built.user.contains("previous words"))
-        assertTrue(built.user.contains("Text to clean"))
+    fun `user message instructs rewriting using formatting rules`() {
+        val built = CleanupPrompt.build("next words")
+        assertTrue(built.user.contains("Rewrite this text using the formatting rules:"))
         assertTrue(built.user.contains("next words"))
-        assertTrue(built.user.contains("Directive:"))
     }
 
     @Test
@@ -73,41 +69,15 @@ class CleanupPromptTest {
     }
 
     @Test
-    fun `the prefix order is system, then dictionary, and the context comes before the unit`() {
+    fun `the prefix order is system, then dictionary, followed by formatting rules`() {
         val built = CleanupPrompt.build(
             unit = "and also book the room",
-            context = "Okay, so we should move the meeting to Friday.",
             dictionary = listOf("Gemma", "GenieX"),
         )
         val systemDictionary = built.system.indexOf("Spell these terms exactly as written")
         assertTrue("dictionary lives in the system message", systemDictionary > 0)
         assertTrue("the dictionary follows the safety core", built.system.contains("Gemma, GenieX"))
-
-        val contextAt = built.user.indexOf("Okay, so we should move the meeting to Friday.")
-        val unitAt = built.user.indexOf("and also book the room")
-        assertTrue(contextAt in 0 until unitAt)
-        assertTrue(built.user.contains("do not repeat"))
     }
-
-    @Test
-    fun `a blank or absent context is not sent as an empty context block`() {
-        assertNull(CleanupPrompt.build("just this", null).context)
-        assertNull(CleanupPrompt.build("just this", "").context)
-        assertNull(CleanupPrompt.build("just this", "   ").context)
-        assertEquals("just this", CleanupPrompt.build("just this", null).user.substringAfter("Text to clean:\n"))
-    }
-
-    @Test
-    fun `an over-long context is trimmed from the front, keeping the most recent text`() {
-        val long = "OLDEST " + "x".repeat(CleanupPrompt.CONTEXT_CHAR_BUDGET) + " MOST RECENT"
-        val built = CleanupPrompt.build("next unit", long)
-        val used = built.context!!
-        assertTrue("the budget is respected", used.length <= CleanupPrompt.CONTEXT_CHAR_BUDGET + 1)
-        assertTrue("the tail survives", used.endsWith("MOST RECENT"))
-        assertFalse("the head is dropped", used.contains("OLDEST"))
-        assertTrue("the truncation is visible", used.startsWith("…"))
-    }
-
 
     @Test
     fun `the parser strips fences and a leading label but keeps every word`() {
@@ -121,13 +91,13 @@ class CleanupPromptTest {
         )
         assertEquals(
             "Okay, so I think we should move it.",
+            CleanupPrompt.parse("Rewritten text: Okay, so I think we should move it."),
+        )
+        assertEquals(
+            "Okay, so I think we should move it.",
             CleanupPrompt.parse("  \"Okay, so I think we should move it.\"  "),
         )
-    }
-
-    @Test
-    fun `the parser does not invent text or reflow a clean output`() {
-        val already = "Joo, ja sit mä kysyin Matiakselta, että onko se Gemma-malli jo ladattu."
+        val already = "Already plain text."
         assertEquals(already, CleanupPrompt.parse(already))
         assertEquals("", CleanupPrompt.parse("   \n  "))
     }

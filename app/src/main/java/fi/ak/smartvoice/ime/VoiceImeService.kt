@@ -557,7 +557,8 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
             cleanupLoadNote != null ->
                 "cleanup unavailable — $cleanupLoadNote; units are the recogniser's own text"
             cleanupEngine?.isLoaded == true && cleanupEngine?.isServing(settings) == true -> {
-                val label = "${settings.litertModel.label} on LiteRT-LM (${settings.litertProcessor.name})"
+                val effectiveName = if (!settings.litertModel.supportsGpu) "CPU" else settings.litertProcessor.name
+                val label = "${settings.litertModel.label} on LiteRT-LM ($effectiveName)"
                 "cleanup on — $label"
             }
             else -> "cleanup model still loading — the first units are the recogniser's own text"
@@ -734,11 +735,10 @@ class VoiceImeService : InputMethodService(), VoicePanelListener {
                 cleanupPipeline.begin(committedText.toString())
                 cleanupEngaged = true
             }
-            val seam = if (settings.healingOverlapWords > 0 && committedText.isNotEmpty()) {
+            val seam = if (settings.healingSentencesCount > 0 && committedText.isNotEmpty()) {
                 SeamHealer.split(
                     committedText = committedText.toString(),
-                    overlapWords = settings.healingOverlapWords,
-                    totalContextWords = settings.totalContextWords,
+                    sentenceCount = settings.healingSentencesCount,
                 )
             } else {
                 null

@@ -50,4 +50,11 @@ class LiteRtLmModelsTest {
         assertTrue(LiteRtLmModels.GEMMA_4_E4B.supportsSpeculativeDecoding)
         org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_5_0_8B.supportsSpeculativeDecoding)
     }
+
+    @Test
+    fun `gpu support flags match model capabilities`() {
+        assertTrue(LiteRtLmModels.GEMMA_4_E2B.supportsGpu)
+        assertTrue(LiteRtLmModels.GEMMA_4_E4B.supportsGpu)
+        org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_5_0_8B.supportsGpu)
+    }
 }

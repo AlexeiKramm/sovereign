@@ -107,7 +107,7 @@ data class BenchmarkLlmModel(val model: LiteRtLmModelSpec) {
     val id: String get() = model.id
     val label: String get() = model.label
     val backendName: String get() = "Google LiteRT-LM"
-    val backendBadge: String get() = "LiteRT • GPU/CPU"
+    val backendBadge: String get() = if (model.supportsGpu) "LiteRT • GPU/CPU" else "LiteRT • CPU Only"
     val approximateBytes: Long get() = model.approximateBytes
 }
 
@@ -271,6 +271,7 @@ data class RepetitionResult(
     val wallMs: Long,
     val generatedTokens: Long,
     val outputText: String,
+    val peakRamMb: Double = 0.0,
 )
 
 data class BenchmarkSummary(
@@ -283,6 +284,10 @@ data class BenchmarkSummary(
     val decodeStdDev: Double,
     val wallMsMean: Double,
     val wallMsStdDev: Double,
+    val peakRamMb: Double = 0.0,
+    val avgRamMb: Double = 0.0,
+    val baselineRamMb: Double = 0.0,
+    val deltaRamMb: Double = 0.0,
     val results: List<RepetitionResult>,
     val speculativeUsed: Boolean = false,
 )
@@ -349,7 +354,9 @@ fun BenchmarkScreen(
             ?: litertInstalled.firstOrNull()
         selectedPipelineLlmModel = initialLlm
         selectedModel = initialLlm
-        if (selectedComputeUnit != "cpu") {
+        if (initialLlm?.model?.supportsGpu == false) {
+            selectedComputeUnit = "cpu"
+        } else if (selectedComputeUnit != "cpu") {
             selectedComputeUnit = "gpu"
         }
     }
@@ -550,6 +557,7 @@ fun BenchmarkScreen(
             val recordedResults = mutableListOf<RepetitionResult>()
             val totalRuns = (if (warmupFirst) 1 else 0) + repetitions
             var currentRun = 0
+            val memSampler = MemorySampler()
 
             val profileStore = ProfileStore(context)
             val dictionaryStore = DictionaryStore(context)
@@ -560,7 +568,11 @@ fun BenchmarkScreen(
             val dictionaryEntries = dictionaryStore.getEntries()
 
             try {
-                val processor = if (selectedComputeUnit == "cpu") LiteRtProcessor.CPU else LiteRtProcessor.GPU
+                val processor = if (selectedComputeUnit == "cpu" || !model.model.supportsGpu) {
+                    LiteRtProcessor.CPU
+                } else {
+                    LiteRtProcessor.GPU
+                }
 
                 var activeEngine: LiteRtLmCleanupEngine? = null
 
@@ -590,6 +602,8 @@ fun BenchmarkScreen(
                     activeEngine = eng
                     return Pair(eng, coldLoad)
                 }
+
+                memSampler.start(scope)
 
                 try {
                     if (warmupFirst) {
@@ -652,6 +666,7 @@ fun BenchmarkScreen(
                                 wallMs = wallMs,
                                 generatedTokens = pass.generatedTokens,
                                 outputText = pass.text,
+                                peakRamMb = memSampler.currentPeakMb(),
                             )
                         )
 
@@ -660,47 +675,60 @@ fun BenchmarkScreen(
                             activeEngine = null
                         }
                     }
+
+                    val memStats = memSampler.stop()
+                    val n = recordedResults.size
+                    fun mean(selector: (RepetitionResult) -> Double): Double =
+                        if (n == 0) 0.0 else recordedResults.sumOf(selector) / n
+
+                    fun stdDev(selector: (RepetitionResult) -> Double, m: Double): Double {
+                        if (n <= 1) return 0.0
+                        val sumSq = recordedResults.sumOf { (selector(it) - m) * (selector(it) - m) }
+                        return sqrt(sumSq / (n - 1))
+                    }
+
+                    val ttftM = mean { it.ttftMs }
+                    val prefillM = mean { it.prefillSpeed }
+                    val decodeM = mean { it.decodeSpeed }
+                    val wallM = mean { it.wallMs.toDouble() }
+
+                    val summary = BenchmarkSummary(
+                        repsCount = n,
+                        ttftMean = ttftM,
+                        ttftStdDev = stdDev({ it.ttftMs }, ttftM),
+                        prefillMean = prefillM,
+                        prefillStdDev = stdDev({ it.prefillSpeed }, prefillM),
+                        decodeMean = decodeM,
+                        decodeStdDev = stdDev({ it.decodeSpeed }, decodeM),
+                        wallMsMean = wallM,
+                        wallMsStdDev = stdDev({ it.wallMs.toDouble() }, wallM),
+                        peakRamMb = memStats.peakMb,
+                        avgRamMb = memStats.avgMb,
+                        baselineRamMb = memStats.baselineMb,
+                        deltaRamMb = memStats.deltaMb,
+                        results = recordedResults,
+                        speculativeUsed = speculativeDecoding && model.model.supportsSpeculativeDecoding,
+                    )
+
+                    // Display results immediately so user doesn't wait for engine unload
+                    withContext(Dispatchers.Main) {
+                        summaryResult = summary
+                        currentStatusText = "Releasing model resources..."
+                    }
                 } finally {
-                    activeEngine?.unload()
-                    activeEngine = null
-                    System.gc()
-                }
-
-                val n = recordedResults.size
-                fun mean(selector: (RepetitionResult) -> Double): Double =
-                    if (n == 0) 0.0 else recordedResults.sumOf(selector) / n
-
-                fun stdDev(selector: (RepetitionResult) -> Double, m: Double): Double {
-                    if (n <= 1) return 0.0
-                    val sumSq = recordedResults.sumOf { (selector(it) - m) * (selector(it) - m) }
-                    return sqrt(sumSq / (n - 1))
-                }
-
-                val ttftM = mean { it.ttftMs }
-                val prefillM = mean { it.prefillSpeed }
-                val decodeM = mean { it.decodeSpeed }
-                val wallM = mean { it.wallMs.toDouble() }
-
-                val summary = BenchmarkSummary(
-                    repsCount = n,
-                    ttftMean = ttftM,
-                    ttftStdDev = stdDev({ it.ttftMs }, ttftM),
-                    prefillMean = prefillM,
-                    prefillStdDev = stdDev({ it.prefillSpeed }, prefillM),
-                    decodeMean = decodeM,
-                    decodeStdDev = stdDev({ it.decodeSpeed }, decodeM),
-                    wallMsMean = wallM,
-                    wallMsStdDev = stdDev({ it.wallMs.toDouble() }, wallM),
-                    results = recordedResults,
-                    speculativeUsed = speculativeDecoding && model.model.supportsSpeculativeDecoding,
-                )
-
-                withContext(Dispatchers.Main) {
-                    summaryResult = summary
-                    currentStatusText = "Completed $repetitions runs successfully."
-                    isRunning = false
+                    memSampler.stop()
+                    withContext(Dispatchers.IO) {
+                        activeEngine?.unload()
+                        activeEngine = null
+                        System.gc()
+                    }
+                    withContext(Dispatchers.Main) {
+                        currentStatusText = "Completed $repetitions runs successfully."
+                        isRunning = false
+                    }
                 }
             } catch (t: Throwable) {
+                memSampler.stop()
                 withContext(Dispatchers.Main) {
                     errorMessage = t.message ?: t.toString()
                     isRunning = false
@@ -1049,19 +1077,29 @@ fun BenchmarkScreen(
                         selectedModel = selectedModel,
                         onModelSelected = { m ->
                             selectedModel = m
+                            if (!m.model.supportsGpu) {
+                                selectedComputeUnit = "cpu"
+                            }
                         },
                     )
 
                     // Compute Target
+                    val supportsGpu = selectedModel?.model?.supportsGpu ?: true
                     Text(
-                        "Compute Target:",
+                        if (supportsGpu) "Compute Target:" else "Compute Target: (CPU Only)",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    val computeUnits = listOf(
-                        "gpu" to "GPU (Recommended)",
-                        "cpu" to "CPU",
-                    )
+                    val computeUnits = if (supportsGpu) {
+                        listOf(
+                            "gpu" to "GPU (Recommended)",
+                            "cpu" to "CPU",
+                        )
+                    } else {
+                        listOf(
+                            "cpu" to "CPU (Only supported)",
+                        )
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1298,6 +1336,31 @@ fun BenchmarkScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
+
+                        if (summary.peakRamMb > 0.0) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                thickness = 0.5.dp,
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Peak RAM Consumption:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "%.0f MB (+%.0f MB)".format(summary.peakRamMb, summary.deltaRamMb),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Average RAM Consumption:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "%.0f MB".format(summary.avgRamMb),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1311,8 +1374,9 @@ fun BenchmarkScreen(
                         .padding(14.dp),
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val ramPart = if (rep.peakRamMb > 0.0) " | RAM %.0f MB".format(rep.peakRamMb) else ""
                         Text(
-                            "Rep #${rep.repIndex}: Decode %.1f tok/s | TTFT %.1f ms | Wall %d ms".format(
+                            "Rep #${rep.repIndex}: Decode %.1f tok/s | TTFT %.1f ms | Wall %d ms$ramPart".format(
                                 rep.decodeSpeed, rep.ttftMs, rep.wallMs
                             ),
                             style = MaterialTheme.typography.bodySmall,

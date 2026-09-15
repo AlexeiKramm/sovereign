@@ -16,6 +16,7 @@ data class LiteRtLmModelSpec(
     val targetSoc: String = "ANY",
     val targetHardware: String = "GPU / CPU (Universal)",
     val supportsSpeculativeDecoding: Boolean = true,
+    val supportsGpu: Boolean = true,
 ) {
     fun downloadUrl(): String = "https://huggingface.co/$repository/resolve/main/$fileName"
 
@@ -59,9 +60,10 @@ object LiteRtLmModels {
         fileName = "Qwen3.5-0.8B_int8.litertlm",
         sha256 = "684d4d34adf7176eb47f6026ff65c33d42584737254e5524a8d1ad62edc21b98",
         approximateBytes = 963_184_864L,
-        note = "Text-only 0.8B model (dynamic int8, 2048 context). Fast inference with full GPU delegation.",
-        targetHardware = "GPU / CPU",
+        note = "Text-only 0.8B model (dynamic int8, 2048 context). Low memory CPU inference.",
+        targetHardware = "CPU (Low memory)",
         supportsSpeculativeDecoding = false,
+        supportsGpu = false,
     )
 
     val ALL: List<LiteRtLmModelSpec> = listOf(

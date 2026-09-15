@@ -123,8 +123,7 @@ fun SettingsScreen(
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
-    val healingOverlapWords by viewModel.healingOverlapWords.collectAsStateWithLifecycle()
-    val totalContextWords by viewModel.totalContextWords.collectAsStateWithLifecycle()
+    val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
     val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
     val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
     val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
@@ -486,30 +485,12 @@ fun SettingsScreen(
                 SettingsDivider(startIndent = 0.dp)
 
                 OutlinedTextField(
-                    value = healingOverlapWords.toString(),
+                    value = healingSentencesCount.toString(),
                     onValueChange = { str ->
-                        str.toIntOrNull()?.let { viewModel.onHealingOverlapWordsChange(it) }
+                        str.toIntOrNull()?.let { viewModel.onHealingSentencesCountChange(it) }
                     },
-                    label = { Text("Seam Healing Overlap (words)") },
-                    supportingText = { Text("Number of words from previous segment to rewrite across pause cuts (default: 5, 0 = append only)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = totalContextWords.toString(),
-                    onValueChange = { str ->
-                        str.toIntOrNull()?.let { viewModel.onTotalContextWordsChange(it) }
-                    },
-                    label = { Text("Total Context Window (words)") },
-                    supportingText = { Text("Total context window (default: 15 = 10 context words + 5 overlap words)") },
+                    label = { Text("Seam Healing Context (sentences)") },
+                    supportingText = { Text("Number of sentences from previous speech to rewrite across pause cuts (default: 2, 0 = append only)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(

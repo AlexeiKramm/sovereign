@@ -8,76 +8,145 @@ class SeamHealerTest {
 
     @Test
     fun `empty or blank text returns empty split`() {
-        val empty = SeamHealer.split("", overlapWords = 5, totalContextWords = 10)
+        val empty = SeamHealer.split("", sentenceCount = 2)
         assertEquals("", empty.anchorContext)
         assertEquals("", empty.overlapText)
         assertEquals("", empty.strippedOverlap)
 
-        val blank = SeamHealer.split("   \n\t  ", overlapWords = 5, totalContextWords = 10)
+        val blank = SeamHealer.split("   \n\t  ", sentenceCount = 2)
         assertEquals("", blank.anchorContext)
         assertEquals("", blank.overlapText)
         assertEquals("", blank.strippedOverlap)
     }
 
     @Test
-    fun `zero overlap words returns empty split (append-only mode)`() {
-        val split = SeamHealer.split("Testing one two three", overlapWords = 0, totalContextWords = 10)
+    fun `zero sentence count returns empty split (append-only mode)`() {
+        val split = SeamHealer.split("Testing one two three. Next sentence.", sentenceCount = 0)
         assertEquals("", split.anchorContext)
         assertEquals("", split.overlapText)
         assertEquals("", split.strippedOverlap)
     }
 
     @Test
-    fun `short text with fewer words than overlap becomes full overlap with empty anchor`() {
+    fun `single sentence text with sentenceCount=2 returns full text as overlap`() {
         val text = "I was thinking that."
-        val split = SeamHealer.split(text, overlapWords = 5, totalContextWords = 10)
+        val split = SeamHealer.split(text, sentenceCount = 2)
 
-        // 4 words total <= 5 overlap words
         assertEquals("", split.anchorContext)
         assertEquals("I was thinking that.", split.overlapText)
         assertEquals("I was thinking that", split.strippedOverlap)
     }
 
     @Test
-    fun `moderate text splits overlap and anchor correctly`() {
-        val text = "Today when I was driving to the supermarket I realized that."
-        // 11 words:
-        // [0:Today, 1:when, 2:I, 3:was, 4:driving, 5:to, 6:the, 7:supermarket, 8:I, 9:realized, 10:that.]
-        // overlapWords = 5 -> words 6..10: "the supermarket I realized that."
-        // totalContextWords = 10 -> anchorWords = 10 - 5 = 5 -> words 1..5: "when I was driving to"
-        val split = SeamHealer.split(text, overlapWords = 5, totalContextWords = 10)
+    fun `unclosed single sentence returns full text as overlap`() {
+        val text = "I was thinking that"
+        val split = SeamHealer.split(text, sentenceCount = 2)
 
-        assertEquals("when I was driving to", split.anchorContext)
-        assertEquals("the supermarket I realized that.", split.overlapText)
-        assertEquals("the supermarket I realized that", split.strippedOverlap)
+        assertEquals("", split.anchorContext)
+        assertEquals("I was thinking that", split.overlapText)
+        assertEquals("I was thinking that", split.strippedOverlap)
+    }
+
+    @Test
+    fun `two sentences text with sentenceCount=2 returns both sentences as overlap`() {
+        val text = "First sentence. Second sentence."
+        val split = SeamHealer.split(text, sentenceCount = 2)
+
+        assertEquals("", split.anchorContext)
+        assertEquals("First sentence. Second sentence.", split.overlapText)
+        // Note: internal period of first sentence is preserved; trailing period of second is stripped
+        assertEquals("First sentence. Second sentence", split.strippedOverlap)
+    }
+
+    @Test
+    fun `three sentences text with sentenceCount=2 returns last two sentences`() {
+        val text = "Sentence one. Sentence two. Sentence three."
+        val split = SeamHealer.split(text, sentenceCount = 2)
+
+        assertEquals("", split.anchorContext)
+        assertEquals("Sentence two. Sentence three.", split.overlapText)
+        assertEquals("Sentence two. Sentence three", split.strippedOverlap)
         assertTrue(text.endsWith(split.overlapText))
     }
 
     @Test
-    fun `strips various trailing terminal punctuation and whitespace`() {
-        val text1 = "Let us see if this works..."
-        val split1 = SeamHealer.split(text1, overlapWords = 3, totalContextWords = 5)
-        assertEquals("if this works...", split1.overlapText)
-        assertEquals("if this works", split1.strippedOverlap)
+    fun `three sentences text with sentenceCount=1 returns last sentence only`() {
+        val text = "Sentence one. Sentence two. Sentence three."
+        val split = SeamHealer.split(text, sentenceCount = 1)
 
-        val text2 = "Are you sure?  \n"
-        val split2 = SeamHealer.split(text2, overlapWords = 3, totalContextWords = 5)
-        assertEquals("Are you sure?  \n", split2.overlapText)
-        assertEquals("Are you sure", split2.strippedOverlap)
-
-        val text3 = "Wait, look at that, "
-        val split3 = SeamHealer.split(text3, overlapWords = 2, totalContextWords = 4)
-        assertEquals("at that, ", split3.overlapText)
-        assertEquals("at that", split3.strippedOverlap)
+        assertEquals("", split.anchorContext)
+        assertEquals("Sentence three.", split.overlapText)
+        assertEquals("Sentence three", split.strippedOverlap)
+        assertTrue(text.endsWith(split.overlapText))
     }
 
     @Test
-    fun `finnish sentence seam strips trailing period before etta`() {
-        val text = "Luulen että."
-        val split = SeamHealer.split(text, overlapWords = 5, totalContextWords = 10)
+    fun `english abbreviations like Dr and Mr are not treated as sentence boundaries`() {
+        val text = "I met Dr. Smith and Mr. Brown today. They were very polite."
+        val split = SeamHealer.split(text, sentenceCount = 1)
 
         assertEquals("", split.anchorContext)
-        assertEquals("Luulen että.", split.overlapText)
-        assertEquals("Luulen että", split.strippedOverlap)
+        assertEquals("They were very polite.", split.overlapText)
+        assertEquals("They were very polite", split.strippedOverlap)
+
+        val splitAll = SeamHealer.split(text, sentenceCount = 2)
+        assertEquals("I met Dr. Smith and Mr. Brown today. They were very polite.", splitAll.overlapText)
+    }
+
+    @Test
+    fun `finnish abbreviations like esim and jne are not treated as sentence boundaries`() {
+        val text = "Otetaan esim. omena ja jne. Se toimii."
+        val split = SeamHealer.split(text, sentenceCount = 1)
+
+        assertEquals("", split.anchorContext)
+        assertEquals("Se toimii.", split.overlapText)
+        assertEquals("Se toimii", split.strippedOverlap)
+    }
+
+    @Test
+    fun `decimal numbers do not split sentence`() {
+        val text = "The version is 3.14. Next sentence."
+        val split = SeamHealer.split(text, sentenceCount = 1)
+
+        assertEquals("Next sentence.", split.overlapText)
+    }
+
+    @Test
+    fun `initials do not split sentence`() {
+        val text = "John F. Kennedy was a president. He served in office."
+        val split = SeamHealer.split(text, sentenceCount = 1)
+
+        assertEquals("He served in office.", split.overlapText)
+    }
+
+    @Test
+    fun `ellipsis is treated as a single boundary`() {
+        val text = "Wait... What happened? Nothing."
+        val split = SeamHealer.split(text, sentenceCount = 2)
+
+        assertEquals("What happened? Nothing.", split.overlapText)
+        assertEquals("What happened? Nothing", split.strippedOverlap)
+    }
+
+    @Test
+    fun `newlines act as sentence boundaries`() {
+        val text = "First line\nSecond line\nThird line"
+        val split = SeamHealer.split(text, sentenceCount = 2)
+
+        assertEquals("Second line\nThird line", split.overlapText)
+        assertEquals("Second line\nThird line", split.strippedOverlap)
+    }
+
+    @Test
+    fun `strips various trailing terminal punctuation and whitespace while preserving internal punctuation`() {
+        val text1 = "Sentence one. Let us see if this works..."
+        val split1 = SeamHealer.split(text1, sentenceCount = 1)
+        assertEquals("Let us see if this works...", split1.overlapText)
+        assertEquals("Let us see if this works", split1.strippedOverlap)
+
+        val text2 = "Are you sure? Yes!  \n"
+        val split2 = SeamHealer.split(text2, sentenceCount = 1)
+        assertEquals("Yes!  \n", split2.overlapText)
+        assertEquals("Yes", split2.strippedOverlap)
     }
 }
