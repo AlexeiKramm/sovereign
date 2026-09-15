@@ -79,7 +79,12 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun SmartVoiceTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
-    dynamicColor: Boolean = true,
+    /**
+     * Off by default: the app has its own warm-cream/lilac identity, and
+     * Material You would override every token on Android 12+. Flip this to true
+     * only if we deliberately want wallpaper-driven colours.
+     */
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
