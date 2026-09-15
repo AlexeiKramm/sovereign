@@ -1,4 +1,4 @@
-package fi.ak.smartvoice.ime
+package fi.ak.smartvoice.text
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

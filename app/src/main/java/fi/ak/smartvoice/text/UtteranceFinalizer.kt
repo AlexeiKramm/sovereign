@@ -1,4 +1,4 @@
-package fi.ak.smartvoice.ime
+package fi.ak.smartvoice.text
 
 /**
  * Resolves automatic terminal punctuation at the end of an utterance.

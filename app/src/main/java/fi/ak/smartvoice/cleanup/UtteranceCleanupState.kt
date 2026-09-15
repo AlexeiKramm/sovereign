@@ -1,6 +1,6 @@
 package fi.ak.smartvoice.cleanup
 
-import fi.ak.smartvoice.ime.PanelText
+import fi.ak.smartvoice.text.PanelText
 
 /** What one finished unit contributes to the utterance: the text for the cursor, and how it got there. */
 data class CleanupCommit(
@@ -21,7 +21,7 @@ data class CleanupCommit(
  *   the model's context out of step with what the user is actually looking at — and on a unit where the
  *   pass failed, the raw text *is* the context.
  * - **Seam healing with overlap replacement**: when an overlap is healed across a boundary, the in-memory
- *   tail is replaced and [overlapToDelete] signals to the IME to replace it at the cursor atomically.
+ *   tail is replaced and [overlapToDelete] signals to the caller to replace it at the cursor atomically.
  */
 class UtteranceCleanupState {
 

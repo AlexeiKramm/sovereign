@@ -39,22 +39,6 @@
             </intent-filter>
         </activity>
 
-
-
-        <!-- The keyboard. Same package, same process as MainActivity, which is why the mic
-             permission granted there is usable here. -->
-        <service
-            android:name=".ime.VoiceImeService"
-            android:exported="true"
-            android:label="@string/ime_name"
-            android:permission="android.permission.BIND_INPUT_METHOD">
-            <intent-filter>
-                <action android:name="android.view.InputMethod" />
-            </intent-filter>
-            <meta-data
-                android:name="android.view.im"
-                android:resource="@xml/method" />
-        </service>
         <service
             android:name=".floating.VoiceAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"

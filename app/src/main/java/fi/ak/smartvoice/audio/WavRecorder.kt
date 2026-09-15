@@ -29,7 +29,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
      *
      * Called **on the capture thread**. A sink that blocks is a sink that drops microphone frames,
      * so the local tier's sink only converts and hands the frame to a queue (see
-     * `VoiceImeService`). The server tier leaves this null and pays nothing for it.
+     * `FloatingOverlayService`). The server tier leaves this null and pays nothing for it.
      */
     var frameSink: ((ByteArray, Int) -> Unit)? = null
 

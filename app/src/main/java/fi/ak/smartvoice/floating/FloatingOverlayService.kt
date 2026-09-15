@@ -45,7 +45,7 @@ import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.engine.Engine
-import fi.ak.smartvoice.ime.UtteranceFinalizer
+import fi.ak.smartvoice.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

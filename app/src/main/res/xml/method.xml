@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-  Registers the IME with the system. `settingsActivity` is what the keyboard's gear key and the
-  system's own "Language & input" settings both open, and it is where RECORD_AUDIO gets granted.
--->
-<input-method xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="fi.ak.smartvoice.MainActivity" />

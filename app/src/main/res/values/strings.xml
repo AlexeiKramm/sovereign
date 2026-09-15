@@ -1,7 +1,5 @@
 <resources>
     <string name="app_name">Smart Voice</string>
-    <string name="ime_name">Smart Voice (dictation)</string>
-    <string name="ime_status_ready">tap 🎤 and speak · cleanup and language are per-utterance</string>
     <string name="accessibility_service_name">Smart Voice Dictation Pill</string>
     <string name="accessibility_service_desc">Enables the floating dictation pill over your keyboard and injects transcribed text into active fields.</string>
     <string name="floating_service_name">Smart Voice Floating Pill</string>
