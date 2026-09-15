@@ -435,42 +435,8 @@ class FloatingOverlayService : Service() {
             }
             localSession.finish()
 
-            if (settings.cleanupEnabled) {
-                val engine = engineForUtterance()
-                if (!engine.isLoaded) {
-                    withContext(cleanupDispatcher) {
-                        engine.load()
-                    }
-                }
-
-                if (cleanupEngaged) {
-                    cleanupPipeline.drain()
-                } else {
-                    // Clean full accumulated speech transcript with LLM.
-                    // Pass the last N committed sentences as context for better seam healing.
-                    val textToClean = rawTextAccumulator.toString().trim()
-                    if (textToClean.isNotBlank() && engine.isLoaded) {
-                        val active = profileStore.activeProfile()
-                        val rules = if (!active.isBuiltin) active.rules else null
-                        val variant = CleanupPrompt.Variant.fromId(active.id)
-                        val contextText = if (settings.healingSentencesCount > 0 && committedText.isNotEmpty()) {
-                            SeamHealer.split(committedText.toString(), settings.healingSentencesCount).strippedOverlap.ifBlank { null }
-                        } else null
-                        val pass = withContext(cleanupDispatcher) {
-                            engine.clean(
-                                unit = textToClean,
-                                context = contextText,
-                                variant = variant,
-                                customRules = rules,
-                            )
-                        }
-                        if (pass.cleaned) {
-                            previewText = pass.text
-                            committedText.clear()
-                            committedText.append(pass.text)
-                        }
-                    }
-                }
+            if (settings.cleanupEnabled && cleanupEngaged) {
+                cleanupPipeline.drain()
             }
 
             finalizePunctuation()
@@ -589,6 +555,19 @@ class FloatingOverlayService : Service() {
 
             if (settings.cleanupEnabled) {
                 val engine = engineForUtterance()
+
+                // If the engine isn't loaded yet, wait for it (suspends this coroutine only;
+                // recording and the ASR pipeline keep running normally on their own threads).
+                if (!engine.isLoaded) {
+                    val loadResult = withContext(cleanupDispatcher) { engine.load() }
+                    if (loadResult.isFailure) {
+                        val reason = loadResult.exceptionOrNull()?.message ?: "unknown"
+                        Log.e(TAG, "LLM cleanup engine failed to load: $reason")
+                        statusNote = "⚠ LLM unavailable: $reason"
+                        // Fall through to raw-append below
+                    }
+                }
+
                 if (engine.isLoaded) {
                     if (!cleanupEngaged) {
                         cleanupPipeline.begin(committedText.toString())
@@ -602,7 +581,7 @@ class FloatingOverlayService : Service() {
                 }
             }
 
-            // Fallback uncleaned preview
+            // Cleanup disabled or engine failed to load — append raw text as fallback
             if (committedText.isNotEmpty() && !committedText.endsWith(" ") && !unit.startsWith(" ")) {
                 committedText.append(" ")
             }
