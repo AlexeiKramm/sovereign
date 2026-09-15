@@ -1,0 +1,22 @@
+# Normalise line endings. The repo is edited from both Windows and WSL, so we
+# store LF in the object database and check out LF everywhere; without this a
+# Windows editor rewriting CRLF shows up as a whole-file diff.
+* text=auto eol=lf
+
+# Windows batch wrappers are the one place cmd.exe expects CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets: never attempt text normalisation.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.jar binary
+*.aar binary
+*.so binary
+*.ttf binary
+*.otf binary
+*.wav binary
+*.zip binary
