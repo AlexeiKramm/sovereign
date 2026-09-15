@@ -178,6 +178,21 @@ class AppSettings(context: Context) {
         get() = prefs.getInt(KEY_HEALING_SENTENCES_COUNT, DEFAULT_HEALING_SENTENCES_COUNT)
         set(value) = prefs.edit { putInt(KEY_HEALING_SENTENCES_COUNT, value) }
 
+    /** Whether the Wispr Flow floating dictation pill overlay is enabled. */
+    var floatingPillEnabled: Boolean
+        get() = prefs.getBoolean(KEY_FLOATING_PILL_ENABLED, DEFAULT_FLOATING_PILL_ENABLED)
+        set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_ENABLED, value) }
+
+    /** Whether the floating pill appears only when a software keyboard is open. */
+    var floatingPillOnlyWhenKeyboardOpen: Boolean
+        get() = prefs.getBoolean(KEY_FLOATING_PILL_ONLY_KEYBOARD, DEFAULT_FLOATING_PILL_ONLY_KEYBOARD)
+        set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_ONLY_KEYBOARD, value) }
+
+    /** Whether the floating pill automatically commits on silence stop without requiring checkmark tap. */
+    var floatingPillAutoCommit: Boolean
+        get() = prefs.getBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, DEFAULT_FLOATING_PILL_AUTO_COMMIT)
+        set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, value) }
+
     companion object {
         /** Placeholder only — the real address is the home PC's LAN/Tailscale address and port. */
         const val DEFAULT_SERVER_URL = "http://192.0.2.100:8000"
@@ -208,7 +223,13 @@ class AppSettings(context: Context) {
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
         private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
+        private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
+        private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
+        private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
 
+        const val DEFAULT_FLOATING_PILL_ENABLED = false
+        const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
+        const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
         const val DEFAULT_HEALING_SENTENCES_COUNT = 2
 
         const val DEFAULT_LITERT_SPECULATIVE_DECODING = true

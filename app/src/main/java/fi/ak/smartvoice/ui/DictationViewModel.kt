@@ -52,6 +52,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.Executors
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Context
+import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
+import fi.ak.smartvoice.floating.FloatingOverlayService
+import fi.ak.smartvoice.floating.VoiceAccessibilityService
 
 /**
  * The settings/diagnostics screen. It is both:
@@ -440,6 +446,58 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         onPauseFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_PAUSE_SILENCE_S))
         onStopFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STOP_AFTER_SILENCE_S))
         onHealingSentencesCountChange(AppSettings.DEFAULT_HEALING_SENTENCES_COUNT)
+    }
+
+    // ------------------------------------------------------------------ Floating Dictation Pill
+    private val _floatingPillEnabled = MutableStateFlow(settings.floatingPillEnabled)
+    val floatingPillEnabled: StateFlow<Boolean> = _floatingPillEnabled.asStateFlow()
+
+    private val _floatingPillOnlyWhenKeyboardOpen = MutableStateFlow(settings.floatingPillOnlyWhenKeyboardOpen)
+    val floatingPillOnlyWhenKeyboardOpen: StateFlow<Boolean> = _floatingPillOnlyWhenKeyboardOpen.asStateFlow()
+
+    private val _floatingPillAutoCommit = MutableStateFlow(settings.floatingPillAutoCommit)
+    val floatingPillAutoCommit: StateFlow<Boolean> = _floatingPillAutoCommit.asStateFlow()
+
+    private val _isOverlayPermissionGranted = MutableStateFlow(Settings.canDrawOverlays(app))
+    val isOverlayPermissionGranted: StateFlow<Boolean> = _isOverlayPermissionGranted.asStateFlow()
+
+    private val _isAccessibilityPermissionGranted = MutableStateFlow(checkAccessibilityPermission())
+    val isAccessibilityPermissionGranted: StateFlow<Boolean> = _isAccessibilityPermissionGranted.asStateFlow()
+
+    fun refreshFloatingPillPermissions() {
+        _isOverlayPermissionGranted.value = Settings.canDrawOverlays(app)
+        _isAccessibilityPermissionGranted.value = checkAccessibilityPermission()
+    }
+
+    private fun checkAccessibilityPermission(): Boolean {
+        return VoiceAccessibilityService.isRunning() || runCatching {
+            val am = app.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager ?: return false
+            val services = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            services.any { it.resolveInfo.serviceInfo.packageName == app.packageName }
+        }.getOrDefault(false)
+    }
+
+    fun setFloatingPillEnabled(enabled: Boolean) {
+        settings.floatingPillEnabled = enabled
+        _floatingPillEnabled.value = enabled
+        if (enabled) {
+            if (Settings.canDrawOverlays(app)) {
+                FloatingOverlayService.start(app)
+            }
+        } else {
+            FloatingOverlayService.stop(app)
+        }
+    }
+
+    fun setFloatingPillOnlyWhenKeyboardOpen(enabled: Boolean) {
+        settings.floatingPillOnlyWhenKeyboardOpen = enabled
+        _floatingPillOnlyWhenKeyboardOpen.value = enabled
+        FloatingOverlayService.updateVisibility(app, isKeyboardOpen = false, hasEditableFocus = false)
+    }
+
+    fun setFloatingPillAutoCommit(enabled: Boolean) {
+        settings.floatingPillAutoCommit = enabled
+        _floatingPillAutoCommit.value = enabled
     }
 
     /** What the tier policy would decide for the next utterance, for the screen to display. */

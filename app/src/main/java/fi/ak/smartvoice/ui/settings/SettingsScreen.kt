@@ -28,6 +28,12 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -136,6 +142,17 @@ fun SettingsScreen(
     val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
     val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
     val hwProfile = remember { DeviceHardware.getProfile(context) }
+
+    val floatingPillEnabled by viewModel.floatingPillEnabled.collectAsStateWithLifecycle()
+    val floatingPillOnlyWhenKeyboardOpen by viewModel.floatingPillOnlyWhenKeyboardOpen.collectAsStateWithLifecycle()
+    val floatingPillAutoCommit by viewModel.floatingPillAutoCommit.collectAsStateWithLifecycle()
+    val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
+    val isAccessibilityPermissionGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
+
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshFloatingPillPermissions()
+        onPauseOrDispose { }
+    }
 
     Column(
         modifier = modifier
@@ -422,7 +439,172 @@ fun SettingsScreen(
             }
         }
 
-        // --- 4. SPEECH TIMINGS ---
+        // --- 4. FLOATING DICTATION PILL (WISPR FLOW) ---
+        SettingsGroupCard {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SettingsIconBadge(
+                        icon = Icons.Default.GraphicEq,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        contentDescription = "Floating Dictation Pill",
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Floating Dictation Pill",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Wispr Flow-style floating mic over any active keyboard",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = floatingPillEnabled,
+                        onCheckedChange = { enabled ->
+                            viewModel.setFloatingPillEnabled(enabled)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+                }
+
+                if (floatingPillEnabled) {
+                    SettingsDivider(startIndent = 0.dp)
+
+                    // Permission Warnings & Deep links if needed
+                    if (!isOverlayPermissionGranted || !isAccessibilityPermissionGranted) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Permissions Required",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Text(
+                                    text = "The floating pill needs 'Display over other apps' to float on screen and 'Accessibility Service' to detect keyboards and inject dictation.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (!isOverlayPermissionGranted) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                val intent = Intent(
+                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                    Uri.parse("package:${context.packageName}")
+                                                )
+                                                context.startActivity(intent)
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text("Grant Overlay", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    if (!isAccessibilityPermissionGranted) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                                context.startActivity(intent)
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text("Enable Accessibility", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Setting 1: Only when keyboard is open (Default: true)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.setFloatingPillOnlyWhenKeyboardOpen(!floatingPillOnlyWhenKeyboardOpen)
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Only when keyboard is open",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Pill automatically shows when another keyboard opens and hides when dismissed. If off, pill remains docked on screen.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = floatingPillOnlyWhenKeyboardOpen,
+                            onCheckedChange = { viewModel.setFloatingPillOnlyWhenKeyboardOpen(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    // Setting 2: Auto-commit on silence stop
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.setFloatingPillAutoCommit(!floatingPillAutoCommit)
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-commit on speech end",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Directly inject text into the active field when speech stops without waiting for checkmark tap",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = floatingPillAutoCommit,
+                            onCheckedChange = { viewModel.setFloatingPillAutoCommit(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- 5. SPEECH TIMINGS ---
         SettingsGroupCard {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
