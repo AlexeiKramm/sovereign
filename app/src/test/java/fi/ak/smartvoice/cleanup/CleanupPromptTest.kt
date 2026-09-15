@@ -32,7 +32,7 @@ class CleanupPromptTest {
         assertTrue(built.user.contains("previous words"))
         assertTrue(built.user.contains("Text to clean"))
         assertTrue(built.user.contains("next words"))
-        assertTrue(built.user.contains("rewrite to connect seamlessly"))
+        assertTrue(built.user.contains("Directive:"))
     }
 
     @Test

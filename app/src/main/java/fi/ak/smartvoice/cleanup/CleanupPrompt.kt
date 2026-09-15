@@ -53,8 +53,26 @@ object CleanupPrompt {
                 "- When the speaker corrects themselves mid-sentence, output only the intended correction (e.g., \"call Sarah, no, David\" -> \"Call David.\").\n" +
                 "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
                 "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
-                "- Fix capitalization strictly: only capitalize the first word of a sentence, proper names (people, places, brands), and acronyms. Never capitalize ordinary words mid-sentence or after pauses (e.g. lowercase words like \"pretty\", \"right\", \"and\", \"because\", \"että\", \"mutta\").\n" +
-                "- Restore natural punctuation. Keep the speaker's original wording and meaning otherwise (no summaries or added facts).",
+                "- Restore natural punctuation (commas, periods, question marks). Keep the speaker's original wording and voice otherwise (no summaries or added facts).\n\n" +
+                "Sentence Capitalization & Continuation Rules:\n" +
+                "The text to clean continues directly from the preceding context.\n" +
+                "1. If the preceding context ends mid-sentence without a period (. ! ?), your output MUST start with a LOWERCASE letter, unless the first word is a proper noun (e.g. a person's name or city). Never capitalize the first word if it continues an ongoing thought!\n" +
+                "2. If the preceding context ends with a period (. ! ?) or if there is no context, start your output with a capital letter.\n" +
+                "3. Keep proper nouns capitalized (people, places, organizations, e.g. \"David\", \"Helsinki\", \"Google\").\n" +
+                "4. If a completed sentence ends inside the segment, insert a period and capitalize the next sentence.\n\n" +
+                "Examples:\n" +
+                "- Context: \"I was sitting in my car and\"\n" +
+                "  Input: \"listening to the radio when my phone rang\"\n" +
+                "  Output: \"listening to the radio when my phone rang.\"\n" +
+                "  (Starts with lowercase \"listening\" because context ends mid-sentence)\n" +
+                "- Context: \"The meeting is over.\"\n" +
+                "  Input: \"we can go to lunch now\"\n" +
+                "  Output: \"We can go to lunch now.\"\n" +
+                "  (Starts with capital \"We\" because context ends with a period)\n" +
+                "- Context: \"I want to introduce you to\"\n" +
+                "  Input: \"david who is our new lead\"\n" +
+                "  Output: \"David, who is our new lead.\"\n" +
+                "  (Starts with capital \"David\" because David is a proper noun)",
         );
 
         companion object {
@@ -108,7 +126,8 @@ object CleanupPrompt {
             "Text to clean:\n$unit"
         } else {
             "Preceding context (for reference only — do not repeat this in output):\n$usedContext\n\n" +
-                "Text to clean (rewrite to connect seamlessly with the context above, lowercasing the start if continuing a sentence):\n$unit"
+                "Text to clean:\n$unit\n\n" +
+                "Directive: If the preceding context above does not end with a period (. ! ?), your output MUST start with a lowercase letter (unless it is a proper noun)."
         }
 
         return Messages(system = system, user = user, context = usedContext)
