@@ -152,6 +152,64 @@ class PillGeometryTest {
     }
 
     @Test
+    fun `the resting shape is a deliberate multi-crest wave, not the near-silent recording line`() {
+        // The bug CHUNK-3B fixes: the resting pill drew the recording surface at amplitudeFor(0),
+        // which is a flat line and reads as a rendering glitch on the small pill.
+        val samples = WaterSurface.restingSamples()
+        val peak = samples.maxOf { abs(it) }
+        assertTrue("resting peak $peak is too flat to read as a wave", peak > 0.5f)
+
+        // Anchored flat at the pill's edges (the sine's own zero-crossings end it).
+        assertEquals(0f, samples.first(), 1e-6f)
+        assertEquals(0f, samples.last(), 1e-6f)
+
+        // The user's reference wave: a spindle — a dominant middle crest with a trough either side
+        // and the wave fading to flat at the ends.
+        val extrema = (1 until samples.size - 1).count { i ->
+            val v = samples[i]
+            val isExtremum = (v > samples[i - 1] && v >= samples[i + 1]) ||
+                (v < samples[i - 1] && v <= samples[i + 1])
+            isExtremum && abs(v) > 0.2f
+        }
+        assertEquals(3, extrema)
+        val middle = samples[WaterSurface.SEGMENTS / 2]
+        assertTrue("middle crest $middle should be the tallest", middle >= peak - 1e-6f)
+    }
+
+    @Test
+    fun `the recording surface uses most of its height at full speech`() {
+        // CHUNK-3B: the user asked for a significantly taller animated waveform.
+        assertTrue(WaterSurface.MAX_AMPLITUDE >= 0.7f)
+        assertTrue("must not clip", WaterSurface.MAX_AMPLITUDE <= 0.9f)
+        assertTrue(WaterSurface.MIN_AMPLITUDE >= 0.15f)
+    }
+
+    @Test
+    fun `the recording ripple is multi-crest and livelier than a single sine`() {
+        // CHUNK-3B: the user asked for a higher-frequency animated waveform too.
+        assertTrue(WaterSurface.RECORDING_CYCLES >= 2f)
+        assertTrue(WaterSurface.RECORDING_DETAIL_CYCLES > WaterSurface.RECORDING_CYCLES)
+        assertTrue(WaterSurface.ENVELOPE_POWER >= 2f)
+    }
+
+    @Test
+    fun `both waveforms are spindle-shaped with flat edges and a tall middle`() {
+        // CHUNK-3B: the user's reference is a wave packet — calm at the ends, loudest in the centre.
+        val waveforms = listOf(
+            WaterSurface.samples(phase = 1.1f, amplitude = 1f),
+            WaterSurface.restingSamples(),
+        )
+        for (samples in waveforms) {
+            val edge = maxOf(
+                (0..4).maxOf { abs(samples[it]) },
+                (samples.size - 5 until samples.size).maxOf { abs(samples[it]) },
+            )
+            val centre = (samples.size / 2 - 5..samples.size / 2 + 5).maxOf { abs(samples[it]) }
+            assertTrue("edge=$edge centre=$centre is not spindle-shaped", centre > 0.35f && edge < 0.1f)
+        }
+    }
+
+    @Test
     fun `the surface travels as the phase advances`() {
         val atRest = WaterSurface.samples(phase = 0f, amplitude = 0.4f)
         val later = WaterSurface.samples(phase = 0.9f, amplitude = 0.4f)
@@ -339,6 +397,7 @@ class PillGeometryTest {
 
     @Test
     fun `the default friction sits inside the settings slider range and glides a sane distance`() {
+        assertEquals(30f, AppSettings.DEFAULT_PILL_FLICK_FRICTION, 0f)
         assertTrue(
             AppSettings.DEFAULT_PILL_FLICK_FRICTION in
                 AppSettings.MIN_PILL_FLICK_FRICTION..AppSettings.MAX_PILL_FLICK_FRICTION,

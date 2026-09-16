@@ -2,6 +2,7 @@ package fi.ak.smartvoice.floating
 
 import fi.ak.smartvoice.data.AppSettings
 import kotlin.math.PI
+import kotlin.math.pow
 import kotlin.math.sin
 
 /**
@@ -78,10 +79,42 @@ object PillDock {
     const val SEGMENTS = 56
 
     /** Amplitude of near-silence — the line should still look alive when the room is quiet. */
-    const val MIN_AMPLITUDE = 0.06f
+    const val MIN_AMPLITUDE = 0.18f
 
-    /** Amplitude at full speech: just under half the available height, so the wave never clips. */
-    const val MAX_AMPLITUDE = 0.46f
+    /**
+     * Amplitude at full speech. The user asked for the animated waveform to be "significantly"
+     * taller and livelier (CHUNK-3B), so the peaks use most of the strip's height while staying
+     * clear of its edges.
+     */
+    const val MAX_AMPLITUDE = 0.82f
+
+    /** Spatial cycles across the recording strip: the ripple's base. Raised for a livelier wave. */
+    const val RECORDING_CYCLES = 3.0f
+
+    /** A faster, lighter second component, so the ripple never looks like one clean sine. */
+    const val RECORDING_DETAIL_CYCLES = 5.5f
+
+    /** How much the detail component contributes relative to the base. */
+    private const val RECORDING_DETAIL_WEIGHT = 0.35f
+
+    /**
+     * The envelope both waveforms are shaped by: `sin(πt)` raised to this power. It concentrates
+     * the wave into a spindle — flat and calm at the edges, tallest in the middle — which is the
+     * shape the user asked for (CHUNK-3B). It is exactly zero at both ends, so the line stays
+     * anchored to the card.
+     */
+    const val ENVELOPE_POWER = 4f
+
+    /**
+     * The resting pill's own shape: a clean sine of about two and a half cycles, drawn at a fixed
+     * phase (it only breathes, it never travels). Deliberately **not** the recording surface: at
+     * near-zero amplitude that drew an almost flat line that read as a rendering glitch on the
+     * small pill.
+     */
+    const val RESTING_CYCLES = 2.5f
+
+    /** Peak height of the resting wave, as a fraction of the available half-height. */
+    const val RESTING_AMPLITUDE = 0.80f
 
     /** Maps a 0..1 audio level to waveform amplitude, as a fraction of the available half-height. */
     fun amplitudeFor(audioLevel: Float): Float {
@@ -99,13 +132,30 @@ object PillDock {
         val out = FloatArray(segments + 1)
         for (i in 0..segments) {
             val t = i.toFloat() / segments
-            val wave = sin(t * TWO_PI * 1.5f + phase) +
-                sin(t * TWO_PI * 2.75f - phase * 1.37f) * 0.35f
-            val taper = sin(t * PI_F)
-            out[i] = (wave / 1.35f) * taper * amp
+            val wave = sin(t * TWO_PI * RECORDING_CYCLES + phase) +
+                sin(t * TWO_PI * RECORDING_DETAIL_CYCLES - phase * 1.37f) * RECORDING_DETAIL_WEIGHT
+            out[i] = (wave / (1f + RECORDING_DETAIL_WEIGHT)) * envelope(t) * amp
         }
         return out
     }
+
+    /**
+     * The resting pill's static waveform, scaled to [[RESTING_AMPLITUDE]]. A sine over
+     * [RESTING_CYCLES] cycles, shaped by the same spindle envelope as the recording surface, so the
+     * middle crest is the tallest and the wave fades out towards the pill's edges.
+     */
+    fun restingSamples(segments: Int = SEGMENTS): FloatArray {
+        require(segments > 0) { "segments must be positive" }
+        val out = FloatArray(segments + 1)
+        for (i in 0..segments) {
+            val t = i.toFloat() / segments
+            out[i] = sin(t * TWO_PI * RESTING_CYCLES) * envelope(t) * RESTING_AMPLITUDE
+        }
+        return out
+    }
+
+    /** `sin(πt)` to [ENVELOPE_POWER]: zero at both ends, one at the middle. */
+    private fun envelope(t: Float): Float = sin(t * PI_F).pow(ENVELOPE_POWER)
 
     private const val TWO_PI = (2.0 * PI).toFloat()
     private const val PI_F = PI.toFloat()

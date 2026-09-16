@@ -16,6 +16,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -342,7 +343,10 @@ class FloatingOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                // Observe touches that land outside the pill (without stealing them from the app
+                // underneath) so an outside tap can dismiss the ··· panel and minimise the card.
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.END
@@ -379,11 +383,26 @@ class FloatingOverlayService : Service() {
                         // (Cleanup itself always reads the store at use time, so this is display only.)
                         if (quickSettingsOpen) refreshProfiles()
                     },
+                    onDismissQuickSettings = { quickSettingsOpen = false },
                     onSelectProfile = ::selectProfile,
                     onDragStart = ::beginDrag,
                     onDragBy = ::dragBy,
                     onDragEnd = ::endDrag,
                     onDragCancel = ::endDragWithoutFling,                )
+            }
+        }
+
+        // `FLAG_WATCH_OUTSIDE_TOUCH` delivers a single ACTION_OUTSIDE for a touch that lands outside
+        // the pill, *without consuming it* — so the app underneath still receives its own tap. We get
+        // it here, before Compose sees anything, and only for that one action; everything else falls
+        // through to Compose untouched. If a future platform stops delivering it, deleting this block
+        // and the flag is the whole removal.
+        view.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                onOutsideTouch()
+                true
+            } else {
+                false
             }
         }
 
@@ -726,8 +745,37 @@ class FloatingOverlayService : Service() {
     }
 
     private fun cancelSession() {
+        // ✕ — the explicit discard. Always throws the session away.
         abandonCapture()
         resetToResting()
+    }
+
+    /**
+     * The pill's "minimise": an outside tap collapses the expanded card back to resting.
+     *
+     * Currently this behaves exactly like [cancelSession] — the user accepted that an outside tap
+     * loses the text for now — but it is deliberately its own call so the parked session-preservation
+     * work has **one** seam to change: keep the text here instead of going through
+     * [resetToResting]'s discard path.
+     */
+    private fun collapseSession() {
+        abandonCapture()
+        resetToResting()
+    }
+
+    /**
+     * A touch landed outside the pill's window. Close the `···` panel and minimise the card if it is
+     * open; do nothing when the pill is already resting. The app underneath has already received the
+     * same touch — `ACTION_OUTSIDE` is a copy, not a capture.
+     */
+    private fun onOutsideTouch() {
+        scope.launch(Dispatchers.Main.immediate) {
+            quickSettingsOpen = false
+            if (uiState != FloatingUiState.RESTING_PILL) {
+                Log.i(TAG, "Outside tap — minimising the pill")
+                collapseSession()
+            }
+        }
     }
 
     private fun commitSession() {

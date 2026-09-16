@@ -274,8 +274,9 @@ class AppSettings(context: Context) {
         /**
          * A short glide from a typical flick: snappy, with just a little momentum. The Settings
          * slider spans [MIN_PILL_FLICK_FRICTION]..[MAX_PILL_FLICK_FRICTION]; higher stops sooner.
+         * 30 is the value the user settled on while hand-testing the fling on the device (CHUNK-3B).
          */
-        const val DEFAULT_PILL_FLICK_FRICTION = 20f
+        const val DEFAULT_PILL_FLICK_FRICTION = 30f
         const val MIN_PILL_FLICK_FRICTION = 5f
         const val MAX_PILL_FLICK_FRICTION = 60f
         const val DEFAULT_HEALING_SENTENCES_COUNT = 3

@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -64,6 +66,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fi.ak.smartvoice.data.AppThemeMode
@@ -80,10 +83,17 @@ enum class FloatingUiState {
 }
 
 /** Radians per second the recording wave travels. Slow enough to stay calm, fast enough to live. */
-private const val RIPPLE_RADIANS_PER_SECOND = 3.2f
+private const val RIPPLE_RADIANS_PER_SECOND = 5.2f
 
-/** Width of the expanded card (and the quick-settings panel that hangs above it). */
+/** Width of the expanded card (and the ceiling for the quick-settings panel that hangs above it). */
 private val CARD_WIDTH = 340.dp
+
+/** The resting pill's waveform, and therefore the resting pill's whole content. */
+private val RESTING_WAVE_WIDTH = 34.dp
+private val RESTING_WAVE_HEIGHT = 16.dp
+
+/** The resting pill's outer width — the quick-settings panel's floor, so it is never narrower. */
+private val RESTING_PILL_MIN_WIDTH = RESTING_WAVE_WIDTH + Spacing.lg * 2
 
 @Composable
 fun FloatingDictationOverlay(
@@ -112,6 +122,7 @@ fun FloatingDictationOverlay(
     onCommit: () -> Unit,
     onReprocessFullText: () -> Unit,
     onToggleQuickSettings: () -> Unit,
+    onDismissQuickSettings: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onDragStart: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
@@ -159,7 +170,6 @@ fun FloatingDictationOverlay(
                         modelReady = modelReady,
                         dragModifier = dragModifier,
                         onClick = onPillClicked,
-                        onQuickSettings = onToggleQuickSettings,
                     )
 
                     FloatingUiState.RECORDING, FloatingUiState.REVIEW -> ExpandedCardView(
@@ -170,12 +180,14 @@ fun FloatingDictationOverlay(
                         isProcessing = isProcessing,
                         statusNote = statusNote,
                         errorMessage = errorMessage,
+                        quickSettingsOpen = quickSettingsOpen,
                         dragModifier = dragModifier,
                         onCancel = onCancel,
                         onToggleRecording = onToggleRecording,
                         onCommit = onCommit,
                         onReprocess = onReprocessFullText,
                         onQuickSettings = onToggleQuickSettings,
+                        onDismissQuickSettings = onDismissQuickSettings,
                     )
                 }
             }
@@ -210,13 +222,17 @@ private fun Modifier.pillDragModifier(
 /**
  * Resting pill: a small waveform that *breathes* while the cleanup model is loaded, and sits
  * still and dimmer while it is not.
+ *
+ * CHUNK-3B removed the `···` from here: on the collapsed pill it was lost screen space, and quick
+ * settings are now reached by opening the card first. What is left is just the waveform (still
+ * tappable to start), drawn with its own deliberate calm amplitude rather than the near-silent
+ * recording surface.
  */
 @Composable
 fun RestingPillView(
     modelReady: Boolean,
     dragModifier: Modifier,
     onClick: () -> Unit,
-    onQuickSettings: () -> Unit,
 ) {
     // `breath` is a State, not a value: reading it inside the layer/draw lambdas below means the
     // pulse costs a layer update per frame instead of a recomposition per frame.
@@ -233,35 +249,20 @@ fun RestingPillView(
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+        Canvas(
+            modifier = Modifier
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md)
+                .width(RESTING_WAVE_WIDTH)
+                .height(RESTING_WAVE_HEIGHT)
+                .graphicsLayer {
+                    val pulse = 1f + breath.value * 0.03f
+                    scaleX = pulse
+                    scaleY = pulse
+                },
         ) {
-            Canvas(
-                modifier = Modifier
-                    .width(30.dp)
-                    .height(14.dp)
-                    .graphicsLayer {
-                        val pulse = 1f + breath.value * 0.03f
-                        scaleX = pulse
-                        scaleY = pulse
-                    },
-            ) {
-                drawWaterSurface(
-                    phase = 0.7f,
-                    audioLevel = 0f,
-                    color = waveColor.copy(alpha = 0.7f + breath.value * 0.3f),
-                )
-            }
-            Spacer(modifier = Modifier.width(Spacing.sm))
-            Icon(
-                imageVector = Icons.Default.MoreHoriz,
-                contentDescription = "Quick settings",
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onQuickSettings),
+            drawWaterSurface(
+                values = WaterSurface.restingSamples(),
+                color = waveColor.copy(alpha = 0.7f + breath.value * 0.3f),
             )
         }
     }
@@ -301,12 +302,14 @@ fun ExpandedCardView(
     isProcessing: Boolean,
     statusNote: String?,
     errorMessage: String?,
+    quickSettingsOpen: Boolean,
     dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
     onReprocess: () -> Unit,
     onQuickSettings: () -> Unit,
+    onDismissQuickSettings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
@@ -314,12 +317,24 @@ fun ExpandedCardView(
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
 
+    // A tap anywhere on the card that a button did not consume closes the `···` panel but keeps the
+    // card (the user's "press on the text → the menu closes"). Buttons consume their own taps, so
+    // this only fires on the dead space, the text and the grip.
+    val dismissPanelModifier = if (quickSettingsOpen) {
+        Modifier.pointerInput(Unit) {
+            detectTapGestures(onTap = { onDismissQuickSettings() })
+        }
+    } else {
+        Modifier
+    }
+
     Surface(
         modifier = Modifier
             .width(CARD_WIDTH)
             .shadow(elevation = 16.dp, shape = RoundedCornerShape(Radius.lg))
             .clip(RoundedCornerShape(Radius.lg))
-            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),
+            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg))
+            .then(dismissPanelModifier),
         color = scheme.surfaceContainerHigh,
         contentColor = scheme.onSurface,
     ) {
@@ -559,7 +574,7 @@ fun QuickSettingsPanel(
 
     Surface(
         modifier = Modifier
-            .width(CARD_WIDTH)
+            .widthIn(min = RESTING_PILL_MIN_WIDTH, max = CARD_WIDTH) // hug content between these bounds
             .padding(bottom = Spacing.sm)
             .shadow(elevation = 12.dp, shape = RoundedCornerShape(Radius.lg))
             .clip(RoundedCornerShape(Radius.lg))
@@ -591,7 +606,6 @@ fun QuickSettingsPanel(
                 profiles.forEach { profile ->
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
                             .clickable { onSelectProfile(profile.id) }
                             .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
                         verticalAlignment = Alignment.CenterVertically,
@@ -610,6 +624,8 @@ fun QuickSettingsPanel(
                             } else {
                                 FontWeight.Normal
                             },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -644,23 +660,22 @@ fun WaterSurfaceWave(
 
     Canvas(modifier) {
         drawWaterSurface(
-            phase = phase.value,
-            audioLevel = audioLevel(),
+            values = WaterSurface.samples(phase.value, WaterSurface.amplitudeFor(audioLevel())),
             color = color,
         )
     }
 }
 
 /**
- * Draws the water surface as one smooth cubic-bezier line through the sampled offsets, using
- * Catmull-Rom (Cardinal) control points so the joints have no visible corners.
+ * Draws a water surface as one smooth cubic-bezier line through the sampled offsets, using
+ * Catmull-Rom (Cardinal) control points so the joints have no visible corners. [values] are the
+ * vertical offsets from the centre line, so the same drawing serves the travelling recording
+ * surface and the resting pill's static sine.
  */
 private fun DrawScope.drawWaterSurface(
-    phase: Float,
-    audioLevel: Float,
+    values: FloatArray,
     color: Color,
 ) {
-    val values = WaterSurface.samples(phase, WaterSurface.amplitudeFor(audioLevel))
     val segments = values.size - 1
     val centreY = size.height / 2f
     val halfHeight = size.height / 2f
