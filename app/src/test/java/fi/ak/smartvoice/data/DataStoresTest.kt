@@ -14,29 +14,75 @@ class DataStoresTest {
     val temp = TemporaryFolder()
 
     @Test
-    fun `dictionary store adds words and aliases sorted without duplicates and supports removal`() {
+    fun `dictionary store adds corrections and terms sorted without duplicates and supports removal`() {
         val store = DictionaryStore(temp.root)
         assertEquals(0, store.load().size)
 
-        store.addWord("Gemma")
-        store.addEntry("Parakeet", listOf("parakit", "parakeete"))
-        store.addWord("Android")
-        store.addWord("Gemma") // duplicate
-        store.addEntry("Parakeet", listOf("perakeet")) // merge alias
+        store.addCorrection("Gemma")
+        store.addCorrection("Parakeet", listOf("parakit", "parakeete"))
+        store.addCorrection("Android")
+        store.addCorrection("Gemma") // duplicate
+        store.addCorrection("Parakeet", listOf("perakeet")) // merge another mishearing
 
         val words = store.getWords()
         assertEquals(listOf("Android", "Gemma", "Parakeet"), words)
 
         val entries = store.getEntries()
         assertEquals(3, entries.size)
-        val parakeet = entries.first { it.word == "Parakeet" }
-        assertEquals(listOf("parakit", "parakeete", "perakeet"), parakeet.aliases)
+        val parakeet = entries.first { it.correct == "Parakeet" }
+        assertEquals(listOf("parakit", "parakeete", "perakeet"), parakeet.incorrect)
 
         store.removeEntry("Parakeet")
         assertEquals(listOf("Android", "Gemma"), store.getWords())
 
         store.clear()
         assertEquals(0, store.load().size)
+    }
+
+    @Test
+    fun `legacy word and aliases files migrate to correct and incorrect`() {
+        val legacy = """
+            {
+              "entries": [
+                {"word": "Parakeet", "aliases": ["parakit", "parakeete"]},
+                {"word": "Kotlin"}
+              ],
+              "words": ["Gemma", "Parakeet"]
+            }
+        """.trimIndent()
+        java.io.File(temp.root, "dictionary.json").writeText(legacy, Charsets.UTF_8)
+
+        val entries = DictionaryStore(temp.root).getEntries()
+        assertEquals(listOf("Gemma", "Kotlin", "Parakeet"), entries.map { it.correct })
+        assertEquals(
+            listOf("parakit", "parakeete"),
+            entries.first { it.correct == "Parakeet" }.incorrect,
+        )
+        assertEquals(emptyList<String>(), entries.first { it.correct == "Kotlin" }.incorrect)
+    }
+
+    @Test
+    fun `rows expand to one per mishearing plus a bare term, and the last removal drops the entry`() {
+        val store = DictionaryStore(temp.root)
+        store.addCorrection("Parakeet", listOf("parakit", "parakeete"))
+        store.addCorrection("Gemma")
+
+        val rows = DictionaryRows.of(store.getEntries())
+        assertEquals(
+            listOf(
+                DictionaryRow(incorrect = null, correct = "Gemma"),
+                DictionaryRow(incorrect = "parakit", correct = "Parakeet"),
+                DictionaryRow(incorrect = "parakeete", correct = "Parakeet"),
+            ),
+            rows,
+        )
+
+        // Removing one of two mishearings keeps the entry; removing the last drops it, so deleting
+        // a row never leaves a surprise "always spell" line behind.
+        store.removeCorrection("Parakeet", "parakit")
+        assertEquals(listOf("parakeete"), store.getEntries().first { it.correct == "Parakeet" }.incorrect)
+        store.removeCorrection("Parakeet", "parakeete")
+        assertEquals(listOf("Gemma"), store.getWords())
     }
 
     @Test

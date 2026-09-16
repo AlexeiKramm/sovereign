@@ -260,7 +260,6 @@ fun RestingPillView(
 
     Surface(
         modifier = Modifier
-            .shadow(elevation = 12.dp, shape = RoundedCornerShape(Radius.lg), ambientColor = Color.Black)
             .clip(RoundedCornerShape(Radius.lg))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(Radius.lg))
             .clickable(onClick = onClick)

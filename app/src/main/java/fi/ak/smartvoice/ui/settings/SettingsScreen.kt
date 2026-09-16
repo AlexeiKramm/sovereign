@@ -18,7 +18,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -45,9 +44,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -96,6 +93,7 @@ import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import fi.ak.smartvoice.ui.components.SettingsItemRow
 import fi.ak.smartvoice.ui.components.SettingsSectionHeader
+import fi.ak.smartvoice.ui.components.SubScreenHost
 import fi.ak.smartvoice.ui.stats.StatsScreen
 
 enum class SettingsSubScreen {
@@ -1083,36 +1081,6 @@ private fun buildVersion(context: Context): String = try {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
 } catch (_: PackageManager.NameNotFoundException) {
     "dev"
-}
-
-/**
- * Minimal host for a sub-screen that brings its own header: just a back
- * affordance, with the system back gesture wired to the same destination.
- */
-@Composable
-private fun SubScreenHost(
-    onNavigateUp: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    BackHandler(onBack = onNavigateUp)
-    Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onNavigateUp) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-        content()
-    }
 }
 
 @Composable

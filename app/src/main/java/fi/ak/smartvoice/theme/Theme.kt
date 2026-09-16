@@ -76,6 +76,18 @@ private val LightColorScheme = lightColorScheme(
     outlineVariant = LightOutlineVariant,
 )
 
+/**
+ * Whether the app should render dark, resolving [AppThemeMode.SYSTEM] against the platform.
+ * Public so the Activity can match the system bar icons to the *app's* theme rather than the
+ * system's — otherwise an app theme opposite the system leaves the clock unreadable.
+ */
+@Composable
+fun appThemeIsDark(themeMode: AppThemeMode): Boolean = when (themeMode) {
+    AppThemeMode.LIGHT -> false
+    AppThemeMode.DARK -> true
+    AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+}
+
 @Composable
 fun SmartVoiceTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
@@ -87,11 +99,7 @@ fun SmartVoiceTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val darkTheme = when (themeMode) {
-        AppThemeMode.LIGHT -> false
-        AppThemeMode.DARK -> true
-        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
-    }
+    val darkTheme = appThemeIsDark(themeMode)
 
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {

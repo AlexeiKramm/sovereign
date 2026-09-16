@@ -28,6 +28,7 @@ import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
 import fi.ak.smartvoice.data.CleaningProfile
 import fi.ak.smartvoice.data.LiteRtProcessor
+import fi.ak.smartvoice.data.DictionaryEntry
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsData
@@ -507,6 +508,10 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _usageStats = MutableStateFlow(usageStatsStore.load())
     val usageStats: StateFlow<UsageStatsData> = _usageStats.asStateFlow()
 
+    /** The shared dictionary, exposed reactively so Profiles and the pill never disagree. */
+    private val _dictionaryEntries = MutableStateFlow(dictionaryStore.getEntries())
+    val dictionaryEntries: StateFlow<List<DictionaryEntry>> = _dictionaryEntries.asStateFlow()
+
     /**
      * Re-reads everything the dashboard shows. Called when Home resumes, because
      * dictation happens in other components (the pill overlay, the IME) whose
@@ -521,6 +526,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshProfiles()
         refreshUsageStats()
         refreshInstalledPresets()
+        refreshDictionary()
     }
 
     fun refreshProfiles() {
@@ -531,6 +537,39 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setActiveProfile(id: String) {
         profileStore.setActiveProfile(id)
         refreshProfiles()
+    }
+
+    /** Saves a custom profile (created or edited) and re-reads the list. */
+    fun saveCustomProfile(profile: CleaningProfile) {
+        profileStore.saveCustomProfile(profile)
+        refreshProfiles()
+    }
+
+    /** Deletes a custom profile. The store falls back to the built-in when it was active. */
+    fun deleteCustomProfile(id: String) {
+        profileStore.deleteCustomProfile(id)
+        refreshProfiles()
+    }
+
+    fun refreshDictionary() {
+        _dictionaryEntries.value = dictionaryStore.getEntries()
+    }
+
+    /** Adds `incorrect -> correct`, or a bare "always spell" term when `incorrect` is blank. */
+    fun addDictionaryCorrection(correct: String, incorrect: String? = null) {
+        val heard = incorrect?.trim()?.takeIf { it.isNotBlank() }
+        dictionaryStore.addCorrection(correct, listOfNotNull(heard))
+        refreshDictionary()
+    }
+
+    fun removeDictionaryEntry(correct: String) {
+        dictionaryStore.removeEntry(correct)
+        refreshDictionary()
+    }
+
+    fun removeDictionaryCorrection(correct: String, incorrect: String) {
+        dictionaryStore.removeCorrection(correct, incorrect)
+        refreshDictionary()
     }
 
     fun refreshUsageStats() {

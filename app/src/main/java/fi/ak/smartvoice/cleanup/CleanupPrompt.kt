@@ -82,10 +82,10 @@ object CleanupPrompt {
                 append("\n\nCustom Vocabulary & Spelling Replacements:\n")
                 append("Always use the exact casing and spelling for these terms. If the recogniser misheard them as any of the known phonetic variants or common misspellings, replace them with the correct term:\n")
                 dictionaryEntries.forEach { entry ->
-                    if (entry.aliases.isNotEmpty()) {
-                        append("- \"${entry.word}\" (common misspellings to replace: ${entry.aliases.joinToString(", ") { "\"$it\"" }})\n")
+                    if (entry.incorrect.isNotEmpty()) {
+                        append("- \"${entry.correct}\" (common misspellings to replace: ${entry.incorrect.joinToString(", ") { "\"$it\"" }})\n")
                     } else {
-                        append("- \"${entry.word}\"\n")
+                        append("- \"${entry.correct}\"\n")
                     }
                 }
             } else if (dictionary.isNotEmpty()) {

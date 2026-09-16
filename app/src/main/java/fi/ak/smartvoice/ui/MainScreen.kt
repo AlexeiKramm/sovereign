@@ -131,7 +131,7 @@ fun MainScreen(
                     },
                 )
 
-                NavTab.PROFILES -> ProfilesScreen()
+                NavTab.PROFILES -> ProfilesScreen(viewModel = viewModel)
                 NavTab.SETTINGS -> SettingsScreen(
                     viewModel = viewModel,
                     onOpenSetup = {
