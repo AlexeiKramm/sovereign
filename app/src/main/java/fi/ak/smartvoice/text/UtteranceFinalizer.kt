@@ -28,4 +28,16 @@ object UtteranceFinalizer {
             else -> Action.APPEND_PERIOD
         }
     }
+
+    /**
+     * The text as it should be typed into the field: trimmed, with a single trailing space. The
+     * next dictation must not run into this one, and the pill has no memory of where the cursor
+     * sits between sessions, so the trailing space is the cheap guarantee of a separator. It comes
+     * after any terminal punctuation too ("Done. "), which is how sentences read anyway. Blank
+     * input stays blank: there is nothing to insert.
+     */
+    fun forInsertion(text: CharSequence?): String {
+        val trimmed = text?.toString()?.trim().orEmpty()
+        return if (trimmed.isEmpty()) "" else "$trimmed "
+    }
 }

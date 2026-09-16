@@ -39,4 +39,20 @@ class UtteranceFinalizerTest {
         assertEquals(UtteranceFinalizer.Action.APPEND_PERIOD, UtteranceFinalizer.resolve("Testing 123"))
         assertEquals(UtteranceFinalizer.Action.APPEND_PERIOD, UtteranceFinalizer.resolve("Moi kaikki"))
     }
+
+    @Test
+    fun `forInsertion trims and adds exactly one trailing space`() {
+        assertEquals("Hello world ", UtteranceFinalizer.forInsertion("Hello world"))
+        assertEquals("Hello world ", UtteranceFinalizer.forInsertion("  Hello world   "))
+        // A sentence end still gets the separator, so the next dictation is not glued on.
+        assertEquals("Done. ", UtteranceFinalizer.forInsertion("Done."))
+        assertEquals("Really? ", UtteranceFinalizer.forInsertion("Really? "))
+    }
+
+    @Test
+    fun `forInsertion leaves nothing to insert for blank text`() {
+        assertEquals("", UtteranceFinalizer.forInsertion(null))
+        assertEquals("", UtteranceFinalizer.forInsertion(""))
+        assertEquals("", UtteranceFinalizer.forInsertion("   \n\t "))
+    }
 }

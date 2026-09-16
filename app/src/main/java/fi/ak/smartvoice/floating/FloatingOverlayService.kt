@@ -931,7 +931,11 @@ class FloatingOverlayService : Service() {
         }
         val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
         if (textToInject.isNotBlank()) {
-            val injected = VoiceAccessibilityService.instance?.injectText(textToInject) ?: false
+            // A trailing space separates this session from the next: the pill has no memory of where
+            // the cursor sits between sessions, and re-dictating must not glue the new segment onto
+            // this one. It comes after terminal punctuation too ("Done. ").
+            val toType = UtteranceFinalizer.forInsertion(textToInject)
+            val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
             if (!injected) {
                 // Never fail silently: the words are on the clipboard, so tell the user how to use them.
                 Log.w(TAG, "Text injected via clipboard fallback")
