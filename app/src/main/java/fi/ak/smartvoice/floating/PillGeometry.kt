@@ -76,9 +76,9 @@ object PillDock {
 
     /**
      * Horizontal samples per draw. More is smoother; the line is drawn as a cubic bezier path
-     * through these, so this trades a little path length for a lot of smoothness cheaply.
+     * through these. Raised to 96 so the recording wave's six lobes per side stay well resolved.
      */
-    const val SEGMENTS = 56
+    const val SEGMENTS = 96
 
     /** Amplitude of near-silence — the line should still look alive when the room is quiet. */
     const val MIN_AMPLITUDE = 0.22f
@@ -92,33 +92,32 @@ object PillDock {
 
     /**
      * Lobes (half-cycles) each side of the centre for the recording wave. The wave is a *centre-node*
-     * packet — the centre is always zero and the two halves mirror with opposite sign — so this is
-     * the lobe count on one side only. Three reads clearly at 340 dp.
+     * packet — the centre is always zero and the halves mirror with opposite sign — so this is the
+     * lobe count on one side only. Six, after the user asked to double the previous three.
      */
-    const val RECORDING_LOBES = 3f
+    const val RECORDING_LOBES = 6f
 
     /**
      * Lobes each side for the small resting pill. Three gives the read the user asked for — one big,
-     * one medium, one tiny per side — which is clearer than two.
+     * one medium, one tiny per side.
      */
     const val RESTING_LOBES = 3f
 
     /**
-     * How much the recording wave's *amplitude* envelope is offset from zero, so the wave never
-     * collapses to a flat line at the moment the standing oscillation crosses zero. `0.3` keeps a
-     * visible wave at all times while still letting the lobes swing and invert.
+     * How much the recording wave's amplitude is offset from zero, so the standing wave never
+     * collapses to a flat line at the moment the oscillation crosses zero. `0.3` keeps a visible wave
+     * at all times while still letting the lobes swing and invert.
      */
     const val WAVE_FLOOR = 0.3f
 
-    /** Peak height of the small resting wave, as a fraction of the available half-height. */
-    const val RESTING_AMPLITUDE = 0.90f
-
     /**
-     * Envelope exponent: the window is `cos(πu/2)` raised to this. Any exponent above 1 keeps the
-     * line meeting the flat edges with zero slope (no kink), while `1.5` tapers more gently than a
-     * plain Hann (`2.0`), so the outer lobes stay visible rather than vanishing.
+     * Tapering window exponent: `cos(πu/2)` raised to this. Above 1 keeps zero slope at the edges (no
+     * corner) while tapering gently enough that the outer lobes stay visible.
      */
     const val ENVELOPE_POWER = 1.5f
+
+    /** Peak height of the small resting wave, as a fraction of the available half-height. */
+    const val RESTING_AMPLITUDE = 0.90f
 
     /** Maps a 0..1 audio level to waveform amplitude, as a fraction of the available half-height. */
     fun amplitudeFor(audioLevel: Float): Float {
@@ -128,17 +127,13 @@ object PillDock {
 
     /**
      * [segments] + 1 vertical offsets in `-amplitude..amplitude` (negative is *up*). The wave is a
-     * **centre-node packet**: `env(u) * carrier(u, phase)` over `u in [-1, 1]`, where the envelope
-     * fades to zero at the edges and the carrier is odd in `u`, so the centre is always exactly zero
-     * and the halves mirror with opposite signs (positive on the left, negative on the right).
+     * **centre-node packet**: `env(u) · (−sin(k·u)) · swing(phase)`, so the centre is always exactly
+     * zero and the halves mirror with opposite signs (positive on the left, negative on the right).
+     * The `swing` floor stops it collapsing to a flat line as the oscillation crosses zero.
      *
-     * The carrier is a standing wave — the antisymmetric mode of a rope pinned at the middle — with a
-     * floor so it never collapses to a flat line as the oscillation crosses zero. A travelling
-     * outward wave was tried and removed: an outward source is *symmetric* about the centre, so an
-     * antisymmetric one cannot travel without a discontinuity (a visible sharp angle at the middle).
-     *
-     * Only the overall [amplitude] and the caller's phase *speed* change with the audio level; the
-     * spatial structure never does, which is what keeps it coherent.
+     * This is a standing wave — the antisymmetric mode of a rope pinned at the middle. An
+     * outward-travelling wave was tried and rejected: an outward source is *symmetric* about the
+     * centre, so it cannot also mirror with opposite signs.
      */
     fun samples(phase: Float, amplitude: Float, segments: Int = SEGMENTS): FloatArray {
         require(segments > 0) { "segments must be positive" }
@@ -155,8 +150,8 @@ object PillDock {
 
     /**
      * The resting pill's static shape: the same centre-node packet frozen at phase 0 — one big, one
-     * medium and one tiny lobe each side, positive on the left and negative on the right, fading
-     * into a flat line at the pill's edges.
+     * medium and one tiny lobe each side, positive on the left and negative on the right, fading into
+     * a flat line at the pill's edges.
      */
     fun restingSamples(segments: Int = SEGMENTS): FloatArray {
         require(segments > 0) { "segments must be positive" }
@@ -170,9 +165,8 @@ object PillDock {
     }
 
     /**
-     * The edging window over `u in [-1, 1]`: `cos(πu/2)` to [ENVELOPE_POWER]. One at the centre,
-     * exactly zero at both edges **and** with zero slope there, so the line meets the flat edges
-     * without a visible corner while the outer lobes stay visible.
+     * Tapering window over `u in [-1, 1]`: `cos(πu/2)` to [ENVELOPE_POWER]. One at the centre, zero
+     * at both edges and with zero slope there, so the line meets the flat edges without a corner.
      */
     private fun envelope(u: Float): Float =
         cos(u * PI_F / 2f).coerceAtLeast(0f).pow(ENVELOPE_POWER)

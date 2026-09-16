@@ -105,7 +105,9 @@ class FloatingOverlayService : Service() {
     private var errorMessage by mutableStateOf<String?>(null)
     /** Drives the resting pill's breathing: it animates only while the cleanup model is ready. */
     private var cleanupModelLoaded by mutableStateOf(false)
-    private var quickSettingsOpen by mutableStateOf(false)
+    private var settingsOpen by mutableStateOf(false)
+    /** Mirrors `AppSettings.cleanupEnabled` so the settings view reflects the toggle immediately. */
+    private var cleanupEnabled by mutableStateOf(true)
     private var darkTheme by mutableStateOf(false)
     private var profiles by mutableStateOf(emptyList<CleaningProfile>())
     private var activeProfileId by mutableStateOf("")
@@ -131,9 +133,6 @@ class FloatingOverlayService : Service() {
         dragFlushScheduled = false
         applyWindowPosition()
     }
-
-    /** Runs once a layout (e.g. the `···` panel animation) has settled, to finish the re-clamp. */
-    private val reclampAfterLayout = Runnable { applyWindowPosition() }
 
     private val flingTick = object : Runnable {
         override fun run() {
@@ -207,6 +206,7 @@ class FloatingOverlayService : Service() {
         startForegroundWithNotification()
 
         darkTheme = resolveDarkTheme()
+        cleanupEnabled = settings.cleanupEnabled
         refreshProfiles()
         setupEngines()
         setupOverlayView()
@@ -373,21 +373,21 @@ class FloatingOverlayService : Service() {
                     modelReady = cleanupModelLoaded,
                     profiles = profiles,
                     activeProfileId = activeProfileId,
-                    quickSettingsOpen = quickSettingsOpen,
+                    cleanupEnabled = cleanupEnabled,
+                    settingsOpen = settingsOpen,
                     onPillClicked = { startOrResumeRecording(fresh = true) },
                     onCancel = ::cancelSession,
                     onToggleRecording = ::toggleRecording,
                     onCommit = ::commitSession,
                     onReprocessFullText = ::reprocessFullText,
-                    onToggleQuickSettings = {
-                        quickSettingsOpen = !quickSettingsOpen
+                    onToggleSettings = {
+                        settingsOpen = !settingsOpen
                         // The active profile can change from Home or the Profiles tab while the pill
-                        // lives on; re-read on open so the sheet's radio never shows a stale choice.
-                        // (Cleanup itself always reads the store at use time, so this is display only.)
-                        if (quickSettingsOpen) refreshProfiles()
+                        // lives on; re-read on open so the list never shows a stale choice.
+                        if (settingsOpen) refreshProfiles()
                     },
-                    onDismissQuickSettings = { quickSettingsOpen = false },
                     onSelectProfile = ::selectProfile,
+                    onToggleCleanup = ::toggleCleanup,
                     onDragStart = ::beginDrag,
                     onDragBy = ::dragBy,
                     onDragEnd = ::endDrag,
@@ -410,15 +410,14 @@ class FloatingOverlayService : Service() {
         }
 
         // The expanded card is wider than the resting pill, so a size change can leave the window
-        // hanging off the edge. Clamp horizontally at once (that is the width change), but defer the
-        // vertical clamp until the layout has settled: the `···` panel animates its height over
-        // ~250 ms, and re-clamping y on every one of those frames is what made the whole pill jitter
-        // and drift downward. Never while the user is moving it.
+        // hanging off the edge: clamp **horizontally** on every layout, but never vertically here.
+        // The window is anchored bottom/end, so a taller layout (the `···` panel animating its
+        // height) simply grows upward and the card stays exactly where it is. Re-clamping vertically
+        // on those frames — or shortly after them — is what made the pill jump; the vertical clamp
+        // is left to the explicit drag / fling / display-change paths instead.
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (!isDragging && flingLastNanos == 0L) {
                 applyWindowPosition(clampVertical = false)
-                view.removeCallbacks(reclampAfterLayout)
-                view.postDelayed(reclampAfterLayout, RECLAMP_SETTLE_MS)
             }
         }
 
@@ -597,12 +596,18 @@ class FloatingOverlayService : Service() {
         activeProfileId = profileStore.activeProfile().id
     }
 
-    /** Switches the active profile from the pill's quick settings, without opening the app. */
+    /** Switches the active profile from the pill's settings view, without opening the app. */
     private fun selectProfile(id: String) {
         profileStore.setActiveProfile(id)
         refreshProfiles()
-        quickSettingsOpen = false
         Log.i(TAG, "Active profile switched to $id")
+    }
+
+    /** Toggles AI cleanup from the pill's settings view; it reads the setting at use time. */
+    private fun toggleCleanup() {
+        settings.cleanupEnabled = !settings.cleanupEnabled
+        cleanupEnabled = settings.cleanupEnabled
+        Log.i(TAG, "Cleanup ${if (cleanupEnabled) "enabled" else "disabled"} from the pill")
     }
 
     fun onKeyboardOrFocusChanged(keyboardOpen: Boolean, editableFocus: Boolean) {
@@ -680,7 +685,7 @@ class FloatingOverlayService : Service() {
         audioLevel = 0f
         statusNote = null
         errorMessage = null
-        quickSettingsOpen = false
+        settingsOpen = false
 
         if (fresh) {
             previewText = ""
@@ -786,7 +791,7 @@ class FloatingOverlayService : Service() {
      */
     private fun onOutsideTouch() {
         scope.launch(Dispatchers.Main.immediate) {
-            quickSettingsOpen = false
+            settingsOpen = false
             if (uiState != FloatingUiState.RESTING_PILL) {
                 Log.i(TAG, "Outside tap — minimising the pill")
                 collapseSession()
@@ -908,7 +913,7 @@ class FloatingOverlayService : Service() {
         audioLevel = 0f
         statusNote = null
         errorMessage = null
-        quickSettingsOpen = false
+        settingsOpen = false
         isProcessing = false
         rawTextAccumulator.clear()
         committedText.clear()
@@ -1112,9 +1117,6 @@ class FloatingOverlayService : Service() {
 
         /** Below this release speed a fling is not worth starting; the pill just settles. */
         private const val FLING_MIN_VELOCITY_PX_PER_SECOND = 120f
-
-        /** How long after the last layout change the deferred vertical re-clamp runs. */
-        private const val RECLAMP_SETTLE_MS = 300L
 
         /** The error state's user-facing line. Deliberately says nothing about exceptions. */
         const val CLEANUP_UNAVAILABLE = "Cleanup is unavailable — showing your words as spoken."

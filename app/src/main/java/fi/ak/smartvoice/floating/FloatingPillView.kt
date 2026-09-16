@@ -1,34 +1,33 @@
 package fi.ak.smartvoice.floating
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -114,15 +114,20 @@ private val GLOW_PASSES = listOf(2.4f to 0.22f, 4.6f to 0.09f)
 
 private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
 
-/** Width of the expanded card (and the ceiling for the quick-settings panel that hangs above it). */
+/** Width of the expanded card (and of the settings view that replaces it). */
 private val CARD_WIDTH = 340.dp
+
+/**
+ * Fixed height of the expanded card. The dictation view and the settings view are both exactly this
+ * tall, so flipping between them never resizes the overlay window — resizing it is what made the pill
+ * shake, because a `WRAP_CONTENT` overlay's new bounds and its Compose content are not applied on the
+ * same frame. The transcript and the settings list scroll inside this fixed box.
+ */
+private val CARD_HEIGHT = 210.dp
 
 /** The resting pill's waveform, and therefore the resting pill's whole content. */
 private val RESTING_WAVE_WIDTH = 34.dp
 private val RESTING_WAVE_HEIGHT = 26.dp
-
-/** The resting pill's outer width — the quick-settings panel's floor, so it is never narrower. */
-private val RESTING_PILL_MIN_WIDTH = RESTING_WAVE_WIDTH + Spacing.lg * 2
 
 @Composable
 fun FloatingDictationOverlay(
@@ -144,15 +149,17 @@ fun FloatingDictationOverlay(
     modelReady: Boolean,
     profiles: List<CleaningProfile>,
     activeProfileId: String,
-    quickSettingsOpen: Boolean,
+    cleanupEnabled: Boolean,
+    /** True while the card shows its settings side (profiles + quick settings) instead of the text. */
+    settingsOpen: Boolean,
     onPillClicked: () -> Unit,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
     onReprocessFullText: () -> Unit,
-    onToggleQuickSettings: () -> Unit,
-    onDismissQuickSettings: () -> Unit,
+    onToggleSettings: () -> Unit,
     onSelectProfile: (String) -> Unit,
+    onToggleCleanup: () -> Unit,
     onDragStart: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -174,51 +181,34 @@ fun FloatingDictationOverlay(
                 .padding(8.dp),
             contentAlignment = Alignment.BottomEnd,
         ) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                // The panel is listed first so that, with the window anchored bottom/end, opening it
-                // grows the window upward and leaves the pill/card exactly where it was.
-                verticalArrangement = Arrangement.Bottom,
-            ) {
-                AnimatedVisibility(
-                    visible = quickSettingsOpen,
-                    enter = fadeIn(tween(Motion.fastMs)) +
-                        expandVertically(tween(Motion.standardMs), expandFrom = Alignment.Bottom),
-                    exit = fadeOut(tween(Motion.fastMs)) +
-                        shrinkVertically(tween(Motion.fastMs), shrinkTowards = Alignment.Bottom),
-                ) {
-                    QuickSettingsPanel(
-                        profiles = profiles,
-                        activeProfileId = activeProfileId,
-                        onSelectProfile = onSelectProfile,
-                    )
-                }
+            when (uiState) {
+                FloatingUiState.RESTING_PILL -> RestingPillView(
+                    modelReady = modelReady,
+                    dragModifier = dragModifier,
+                    onClick = onPillClicked,
+                )
 
-                when (uiState) {
-                    FloatingUiState.RESTING_PILL -> RestingPillView(
-                        modelReady = modelReady,
-                        dragModifier = dragModifier,
-                        onClick = onPillClicked,
-                    )
-
-                    FloatingUiState.RECORDING, FloatingUiState.REVIEW -> ExpandedCardView(
-                        uiState = uiState,
-                        previewText = previewText,
-                        rawText = rawText,
-                        audioLevel = audioLevel,
-                        isProcessing = isProcessing,
-                        statusNote = statusNote,
-                        errorMessage = errorMessage,
-                        quickSettingsOpen = quickSettingsOpen,
-                        dragModifier = dragModifier,
-                        onCancel = onCancel,
-                        onToggleRecording = onToggleRecording,
-                        onCommit = onCommit,
-                        onReprocess = onReprocessFullText,
-                        onQuickSettings = onToggleQuickSettings,
-                        onDismissQuickSettings = onDismissQuickSettings,
-                    )
-                }
+                FloatingUiState.RECORDING, FloatingUiState.REVIEW -> ExpandedCardView(
+                    uiState = uiState,
+                    previewText = previewText,
+                    rawText = rawText,
+                    audioLevel = audioLevel,
+                    isProcessing = isProcessing,
+                    statusNote = statusNote,
+                    errorMessage = errorMessage,
+                    profiles = profiles,
+                    activeProfileId = activeProfileId,
+                    cleanupEnabled = cleanupEnabled,
+                    settingsOpen = settingsOpen,
+                    dragModifier = dragModifier,
+                    onCancel = onCancel,
+                    onToggleRecording = onToggleRecording,
+                    onCommit = onCommit,
+                    onReprocess = onReprocessFullText,
+                    onToggleSettings = onToggleSettings,
+                    onSelectProfile = onSelectProfile,
+                    onToggleCleanup = onToggleCleanup,
+                )
             }
         }
     }
@@ -320,8 +310,9 @@ private fun rememberBreath(modelReady: Boolean): State<Float> {
 }
 
 /**
- * Expanded Wispr Flow-style card: live (cleaned) preview, the water-surface waveform, and the
- * action row. The quick-settings `···` is deliberately low-weight.
+ * The expanded card: a **fixed-size two-sided view**. The dictation side (transcript + actions) and
+ * the settings side (profiles + quick settings) are both exactly `CARD_WIDTH × CARD_HEIGHT`, so
+ * flipping between them never resizes the overlay window.
  */
 @Composable
 fun ExpandedCardView(
@@ -332,14 +323,88 @@ fun ExpandedCardView(
     isProcessing: Boolean,
     statusNote: String?,
     errorMessage: String?,
-    quickSettingsOpen: Boolean,
+    profiles: List<CleaningProfile>,
+    activeProfileId: String,
+    cleanupEnabled: Boolean,
+    settingsOpen: Boolean,
     dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
     onReprocess: () -> Unit,
-    onQuickSettings: () -> Unit,
-    onDismissQuickSettings: () -> Unit,
+    onToggleSettings: () -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onToggleCleanup: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+
+    Surface(
+        modifier = Modifier
+            .width(CARD_WIDTH)
+            .height(CARD_HEIGHT)
+            .shadow(elevation = 16.dp, shape = RoundedCornerShape(Radius.lg))
+            .clip(RoundedCornerShape(Radius.lg))
+            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),
+        color = scheme.surfaceContainerHigh,
+        contentColor = scheme.onSurface,
+    ) {
+        AnimatedContent(
+            targetState = settingsOpen,
+            // A small cross-slide reads as the card turning over. The container is fixed, so this
+            // animation cannot change the card's — or the window's — size.
+            transitionSpec = {
+                (fadeIn(tween(Motion.fastMs)) + slideInHorizontally { it / 5 }) togetherWith
+                    (fadeOut(tween(Motion.fastMs)) + slideOutHorizontally { -it / 5 })
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "pill-card-view",
+        ) { showSettings ->
+            if (showSettings) {
+                SettingsPanel(
+                    profiles = profiles,
+                    activeProfileId = activeProfileId,
+                    cleanupEnabled = cleanupEnabled,
+                    onSelectProfile = onSelectProfile,
+                    onToggleCleanup = onToggleCleanup,
+                    onClose = onToggleSettings,
+                )
+            } else {
+                DictationCard(
+                    uiState = uiState,
+                    previewText = previewText,
+                    rawText = rawText,
+                    audioLevel = audioLevel,
+                    isProcessing = isProcessing,
+                    statusNote = statusNote,
+                    errorMessage = errorMessage,
+                    dragModifier = dragModifier,
+                    onCancel = onCancel,
+                    onToggleRecording = onToggleRecording,
+                    onCommit = onCommit,
+                    onReprocess = onReprocess,
+                    onOpenSettings = onToggleSettings,
+                )
+            }
+        }
+    }
+}
+
+/** The dictation side of the card: transcript, status, and the ✕ · waveform · refresh · ✓ row. */
+@Composable
+private fun DictationCard(
+    uiState: FloatingUiState,
+    previewText: String,
+    rawText: String,
+    audioLevel: () -> Float,
+    isProcessing: Boolean,
+    statusNote: String?,
+    errorMessage: String?,
+    dragModifier: Modifier,
+    onCancel: () -> Unit,
+    onToggleRecording: () -> Unit,
+    onCommit: () -> Unit,
+    onReprocess: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
@@ -347,214 +412,192 @@ fun ExpandedCardView(
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
 
-    // A tap anywhere on the card that a button did not consume closes the `···` panel but keeps the
-    // card (the user's "press on the text → the menu closes"). Buttons consume their own taps, so
-    // this only fires on the dead space, the text and the grip.
-    val dismissPanelModifier = if (quickSettingsOpen) {
-        Modifier.pointerInput(Unit) {
-            detectTapGestures(onTap = { onDismissQuickSettings() })
-        }
-    } else {
-        Modifier
-    }
-
-    Surface(
-        modifier = Modifier
-            .width(CARD_WIDTH)
-            .shadow(elevation = 16.dp, shape = RoundedCornerShape(Radius.lg))
-            .clip(RoundedCornerShape(Radius.lg))
-            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg))
-            .then(dismissPanelModifier),
-        color = scheme.surfaceContainerHigh,
-        contentColor = scheme.onSurface,
-    ) {
-        Column(modifier = Modifier.padding(Spacing.lg)) {
-            // Drag grip on the left, quick settings on the right. Dragging the text or the buttons
-            // would fight scrolling and tapping, so only this strip moves the pill.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+    Column(modifier = Modifier.fillMaxSize().padding(Spacing.lg)) {
+        // Drag grip on the left, settings on the right. Dragging the text or the buttons would fight
+        // scrolling and tapping, so only this strip moves the pill.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(24.dp)
+                    .then(dragModifier),
+                contentAlignment = Alignment.CenterStart,
             ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(24.dp)
-                        .then(dragModifier),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(36.dp)
-                            .height(4.dp)
-                            .clip(CircleShape)
-                            .background(scheme.outlineVariant),
-                    )
-                }
-                Icon(
-                    imageVector = Icons.Default.MoreHoriz,
-                    contentDescription = "Quick settings",
-                    tint = scheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(28.dp)
+                        .width(36.dp)
+                        .height(4.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = onQuickSettings),
+                        .background(scheme.outlineVariant),
                 )
             }
-
-            Spacer(modifier = Modifier.height(Spacing.sm))
-
-            // Live preview — cleaned text only, unless cleanup failed.
-            Box(
+            Icon(
+                imageVector = Icons.Default.MoreHoriz,
+                contentDescription = "Quick settings",
+                tint = scheme.onSurfaceVariant,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp, max = 160.dp)
-                    .verticalScroll(scrollState),
-            ) {
-                if (displayText.isBlank() && !isProcessing) {
-                    Text(
-                        text = if (uiState == FloatingUiState.RECORDING) "Listening…" else "Tap to speak",
-                        color = scheme.onSurfaceVariant,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                    )
-                } else {
-                    Text(
-                        text = displayText,
-                        color = scheme.onSurface,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        lineHeight = 24.sp,
-                    )
-                }
-            }
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenSettings),
+            )
+        }
 
-            if (failed) {
-                Spacer(modifier = Modifier.height(Spacing.sm))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = scheme.error,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.xs))
-                    Text(
-                        text = errorMessage.orEmpty(),
-                        color = scheme.error,
-                        fontSize = 12.sp,
-                    )
-                }
-            }
+        Spacer(modifier = Modifier.height(Spacing.sm))
 
-            if (statusNote != null) {
-                Spacer(modifier = Modifier.height(Spacing.xs))
+        // Live preview — cleaned text only, unless cleanup failed. Fills the fixed-height card.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(scrollState),
+        ) {
+            if (displayText.isBlank() && !isProcessing) {
                 Text(
-                    text = statusNote,
-                    color = scheme.primary,
-                    fontSize = 11.sp,
+                    text = if (uiState == FloatingUiState.RECORDING) "Listening…" else "Tap to speak",
+                    color = scheme.onSurfaceVariant,
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp,
+                )
+            } else {
+                Text(
+                    text = displayText,
+                    color = scheme.onSurface,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 24.sp,
                 )
             }
+        }
 
-            Spacer(modifier = Modifier.height(Spacing.md))
-
-            // Action row: cancel · waveform/state · reprocess · commit.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                CircleAction(
-                    icon = Icons.Default.Close,
-                    description = "Cancel dictation",
-                    container = scheme.surfaceContainerHighest,
-                    content = scheme.onSurfaceVariant,
-                    onClick = onCancel,
+        if (failed) {
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = scheme.error,
+                    modifier = Modifier.size(14.dp),
                 )
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                Text(
+                    text = errorMessage.orEmpty(),
+                    color = scheme.error,
+                    fontSize = 12.sp,
+                )
+            }
+        }
 
-                Surface(
-                    modifier = Modifier
-                        .height(44.dp)
-                        .weight(1f)
-                        .padding(horizontal = Spacing.sm)
-                        .clip(RoundedCornerShape(22.dp))
-                        .clickable(enabled = !isProcessing, onClick = onToggleRecording),
-                    color = scheme.primaryContainer,
-                    contentColor = scheme.onPrimaryContainer,
+        if (statusNote != null) {
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                text = statusNote,
+                color = scheme.primary,
+                fontSize = 11.sp,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.md))
+
+        // Action row: cancel · waveform/state · reprocess · commit.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            CircleAction(
+                icon = Icons.Default.Close,
+                description = "Cancel dictation",
+                container = scheme.surfaceContainerHighest,
+                content = scheme.onSurfaceVariant,
+                onClick = onCancel,
+            )
+
+            Surface(
+                modifier = Modifier
+                    .height(44.dp)
+                    .weight(1f)
+                    .padding(horizontal = Spacing.sm)
+                    .clip(RoundedCornerShape(22.dp))
+                    .clickable(enabled = !isProcessing, onClick = onToggleRecording),
+                color = scheme.primaryContainer,
+                contentColor = scheme.onPrimaryContainer,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = Spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = Spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        when {
-                            isProcessing -> {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = scheme.onPrimaryContainer,
-                                )
-                                Spacer(modifier = Modifier.width(Spacing.sm))
-                                Text(
-                                    text = "Polishing…",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-
-                            uiState == FloatingUiState.RECORDING -> WaterSurfaceWave(
-                                audioLevel = audioLevel,
-                                // Error: the surface darkens instead of going silent.
-                                color = if (failed) {
-                                    scheme.onPrimaryContainer.copy(alpha = 0.35f)
-                                } else {
-                                    scheme.onPrimaryContainer
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(32.dp),
+                    when {
+                        isProcessing -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = scheme.onPrimaryContainer,
                             )
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+                            Text(
+                                text = "Polishing…",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
 
-                            else -> {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(modifier = Modifier.width(Spacing.xs))
-                                Text(
-                                    text = "Speak again",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
+                        uiState == FloatingUiState.RECORDING -> WaterSurfaceWave(
+                            audioLevel = audioLevel,
+                            // Error: the surface darkens instead of going silent.
+                            color = if (failed) {
+                                scheme.onPrimaryContainer.copy(alpha = 0.35f)
+                            } else {
+                                scheme.onPrimaryContainer
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(32.dp),
+                        )
+
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.xs))
+                            Text(
+                                text = "Speak again",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
                         }
                     }
                 }
-
-                CircleAction(
-                    icon = Icons.Default.Refresh,
-                    description = "Reprocess full text with AI",
-                    container = scheme.surfaceContainerHighest,
-                    content = if (!isProcessing && rawText.isNotBlank()) {
-                        scheme.primary
-                    } else {
-                        scheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    },
-                    enabled = !isProcessing && rawText.isNotBlank(),
-                    onClick = onReprocess,
-                )
-
-                Spacer(modifier = Modifier.width(Spacing.sm))
-
-                CircleAction(
-                    icon = Icons.Default.Check,
-                    description = "Insert text",
-                    container = scheme.primary,
-                    content = scheme.onPrimary,
-                    enabled = previewText.isNotBlank() || rawText.isNotBlank(),
-                    onClick = onCommit,
-                )
             }
+
+            CircleAction(
+                icon = Icons.Default.Refresh,
+                description = "Reprocess full text with AI",
+                container = scheme.surfaceContainerHighest,
+                content = if (!isProcessing && rawText.isNotBlank()) {
+                    scheme.primary
+                } else {
+                    scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                },
+                enabled = !isProcessing && rawText.isNotBlank(),
+                onClick = onReprocess,
+            )
+
+            Spacer(modifier = Modifier.width(Spacing.sm))
+
+            CircleAction(
+                icon = Icons.Default.Check,
+                description = "Insert text",
+                container = scheme.primary,
+                content = scheme.onPrimary,
+                enabled = previewText.isNotBlank() || rawText.isNotBlank(),
+                onClick = onCommit,
+            )
         }
     }
 }
@@ -588,80 +631,119 @@ private fun CircleAction(
 }
 
 /**
- * Compact quick-settings panel: the active profile switcher, and room for a silence quick-adjust
- * later. Rendered inside the pill's own window rather than as a `ModalBottomSheet`, because a
- * real modal needs a window token an overlay service does not have (and its full-screen scrim
- * would swallow touches meant for the app underneath).
+ * The settings side of the card: the active-profile switcher and the first quick settings. It fills
+ * exactly the card's fixed size and scrolls, because a user can create many profiles (and more quick
+ * settings are coming). Rendered inside the pill's own window, not a `ModalBottomSheet` — a real
+ * modal needs a window token an overlay service does not have.
  */
 @Composable
-fun QuickSettingsPanel(
+private fun SettingsPanel(
     profiles: List<CleaningProfile>,
     activeProfileId: String,
+    cleanupEnabled: Boolean,
     onSelectProfile: (String) -> Unit,
+    onToggleCleanup: () -> Unit,
+    onClose: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     val scrollState = rememberScrollState()
 
-    Surface(
-        modifier = Modifier
-            .widthIn(min = RESTING_PILL_MIN_WIDTH, max = CARD_WIDTH) // hug content between these bounds
-            .padding(bottom = Spacing.sm)
-            .shadow(elevation = 12.dp, shape = RoundedCornerShape(Radius.lg))
-            .clip(RoundedCornerShape(Radius.lg))
-            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),
-        color = scheme.surfaceContainerHighest,
-        contentColor = scheme.onSurface,
-    ) {
-        Column(modifier = Modifier.padding(vertical = Spacing.md)) {
+    Column(modifier = Modifier.fillMaxSize().padding(Spacing.lg)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = "Quick settings",
-                color = scheme.onSurfaceVariant,
-                fontSize = 11.sp,
+                color = scheme.onSurface,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = Spacing.lg),
+                modifier = Modifier.weight(1f),
             )
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                text = "Profile",
-                color = scheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = Spacing.lg),
-            )
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Column(
+            Icon(
+                imageVector = Icons.Default.MoreHoriz,
+                contentDescription = "Back to dictation",
+                tint = scheme.primary,
                 modifier = Modifier
-                    .heightIn(max = 220.dp)
-                    .verticalScroll(scrollState),
-            ) {
-                profiles.forEach { profile ->
-                    Row(
-                        modifier = Modifier
-                            .clickable { onSelectProfile(profile.id) }
-                            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = profile.id == activeProfileId,
-                            onClick = null,
-                        )
-                        Spacer(modifier = Modifier.width(Spacing.xs))
-                        Text(
-                            text = profile.name,
-                            color = scheme.onSurface,
-                            fontSize = 14.sp,
-                            fontWeight = if (profile.id == activeProfileId) {
-                                FontWeight.SemiBold
-                            } else {
-                                FontWeight.Normal
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onClose),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.sm))
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(scrollState),
+        ) {
+            SectionLabel("Profile")
+            profiles.forEach { profile ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectProfile(profile.id) }
+                        .padding(vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = profile.id == activeProfileId,
+                        onClick = null,
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(
+                        text = profile.name,
+                        color = scheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = if (profile.id == activeProfileId) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.md))
+
+            SectionLabel("Cleanup")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "AI cleanup",
+                        color = scheme.onSurface,
+                        fontSize = 14.sp,
+                    )
+                    Text(
+                        text = "Rewrite filler and false starts before inserting",
+                        color = scheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
+                Switch(checked = cleanupEnabled, onCheckedChange = { onToggleCleanup() })
             }
         }
     }
+}
+
+/** A small, quiet section heading inside the settings view. */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
 }
 
 /**

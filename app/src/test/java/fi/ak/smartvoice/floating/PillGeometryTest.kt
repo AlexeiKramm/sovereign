@@ -208,10 +208,20 @@ class PillGeometryTest {
             assertEquals("centre must stay a node", 0f, samples[n / 2], 1e-6f)
             assertEquals(0f, samples.first(), 1e-6f)
             assertEquals(0f, samples.last(), 1e-6f)
+            // The halves mirror with OPPOSITE sign — the look the user preferred.
             for (i in samples.indices) {
                 assertEquals(-samples[n - i], samples[i], 1e-5f)
             }
         }
+    }
+
+    @Test
+    fun `the recording wave keeps a visible wave at all times`() {
+        // The `swing` floor stops it collapsing to a flat line as the standing wave crosses zero.
+        assertTrue(WaterSurface.RECORDING_LOBES >= 5f)
+        assertTrue(WaterSurface.RESTING_LOBES >= 1f)
+        assertTrue(WaterSurface.WAVE_FLOOR in 0f..1f)
+        assertTrue("the wave must never fully collapse", WaterSurface.WAVE_FLOOR > 0.1f)
     }
 
     @Test
@@ -241,14 +251,6 @@ class PillGeometryTest {
     }
 
     @Test
-    fun `the recording wave keeps a visible wave and a centre node at all times`() {
-        assertTrue(WaterSurface.RECORDING_LOBES >= 2f)
-        assertTrue(WaterSurface.RESTING_LOBES >= 1f)
-        assertTrue(WaterSurface.WAVE_FLOOR in 0f..1f)
-        assertTrue("the wave must never fully collapse", WaterSurface.WAVE_FLOOR > 0.1f)
-    }
-
-    @Test
     fun `the wave is smooth across the centre with no sharp angle`() {
         // The bug the user saw: a travelling `sign(u)` term jumps at the centre by 2·sin(phase).
         // A smooth wave must have no large step between adjacent samples.
@@ -261,7 +263,7 @@ class PillGeometryTest {
             for (i in 1 until samples.size) {
                 maxStep = maxOf(maxStep, abs(samples[i] - samples[i - 1]))
             }
-            assertTrue("max adjacent step $maxStep suggests a jump", maxStep < 0.6f)
+            assertTrue("max adjacent step $maxStep suggests a jump", maxStep < 0.8f)
         }
     }
 
