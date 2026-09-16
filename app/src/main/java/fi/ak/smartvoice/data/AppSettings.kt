@@ -1,6 +1,7 @@
 package fi.ak.smartvoice.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModels
@@ -148,6 +149,28 @@ class AppSettings(context: Context) {
             else -> AppThemeMode.SYSTEM
         }
         set(value) = prefs.edit { putString(KEY_THEME_MODE, value.id) }
+
+    /**
+     * Calls [onChange] whenever the app's theme mode changes. The floating pill is its own window
+     * with its own `SmartVoiceTheme`, so nothing re-resolves its colours when the user picks a new
+     * theme in the app — this is that signal. Re-subscribing replaces the previous observer.
+     */
+    fun observeThemeMode(onChange: () -> Unit) {
+        removeThemeModeObserver()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_THEME_MODE) onChange()
+        }
+        themeModeObserver = listener
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun removeThemeModeObserver() {
+        themeModeObserver?.let { prefs.unregisterOnSharedPreferenceChangeListener(it) }
+        themeModeObserver = null
+    }
+
+    /** Held strongly: `SharedPreferences` keeps its listeners in a `WeakHashMap`. */
+    private var themeModeObserver: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"

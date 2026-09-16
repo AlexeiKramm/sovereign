@@ -17,9 +17,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,35 +31,47 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -66,7 +81,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -152,6 +173,10 @@ fun FloatingDictationOverlay(
     cleanupEnabled: Boolean,
     /** True while the card shows its settings side (profiles + quick settings) instead of the text. */
     settingsOpen: Boolean,
+    /** The word the user long-pressed in the review transcript, highlighted in the card. */
+    wordSelection: WordSelection?,
+    /** Non-null while a word action's input form is open (e.g. "Add to dictionary"). */
+    wordForm: WordFormState?,
     onPillClicked: () -> Unit,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
@@ -160,6 +185,10 @@ fun FloatingDictationOverlay(
     onToggleSettings: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onToggleCleanup: () -> Unit,
+    onWordSelected: (WordSelection) -> Unit,
+    onWordAction: (WordAction) -> Unit,
+    onWordFormSubmit: (String) -> Unit,
+    onWordDismiss: () -> Unit,
     onDragStart: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -200,6 +229,8 @@ fun FloatingDictationOverlay(
                     activeProfileId = activeProfileId,
                     cleanupEnabled = cleanupEnabled,
                     settingsOpen = settingsOpen,
+                    wordSelection = wordSelection,
+                    wordForm = wordForm,
                     dragModifier = dragModifier,
                     onCancel = onCancel,
                     onToggleRecording = onToggleRecording,
@@ -208,6 +239,10 @@ fun FloatingDictationOverlay(
                     onToggleSettings = onToggleSettings,
                     onSelectProfile = onSelectProfile,
                     onToggleCleanup = onToggleCleanup,
+                    onWordSelected = onWordSelected,
+                    onWordAction = onWordAction,
+                    onWordFormSubmit = onWordFormSubmit,
+                    onWordDismiss = onWordDismiss,
                 )
             }
         }
@@ -326,6 +361,8 @@ fun ExpandedCardView(
     activeProfileId: String,
     cleanupEnabled: Boolean,
     settingsOpen: Boolean,
+    wordSelection: WordSelection?,
+    wordForm: WordFormState?,
     dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
@@ -334,6 +371,10 @@ fun ExpandedCardView(
     onToggleSettings: () -> Unit,
     onSelectProfile: (String) -> Unit,
     onToggleCleanup: () -> Unit,
+    onWordSelected: (WordSelection) -> Unit,
+    onWordAction: (WordAction) -> Unit,
+    onWordFormSubmit: (String) -> Unit,
+    onWordDismiss: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
 
@@ -381,12 +422,18 @@ fun ExpandedCardView(
                     isProcessing = isProcessing,
                     statusNote = statusNote,
                     errorMessage = errorMessage,
+                    wordSelection = wordSelection,
+                    wordForm = wordForm,
                     dragModifier = dragModifier,
                     onCancel = onCancel,
                     onToggleRecording = onToggleRecording,
                     onCommit = onCommit,
                     onReprocess = onReprocess,
                     onOpenSettings = onToggleSettings,
+                    onWordSelected = onWordSelected,
+                    onWordAction = onWordAction,
+                    onWordFormSubmit = onWordFormSubmit,
+                    onWordDismiss = onWordDismiss,
                 )
             }
         }
@@ -403,18 +450,33 @@ private fun DictationCard(
     isProcessing: Boolean,
     statusNote: String?,
     errorMessage: String?,
+    wordSelection: WordSelection?,
+    wordForm: WordFormState?,
     dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
     onReprocess: () -> Unit,
     onOpenSettings: () -> Unit,
+    onWordSelected: (WordSelection) -> Unit,
+    onWordAction: (WordAction) -> Unit,
+    onWordFormSubmit: (String) -> Unit,
+    onWordDismiss: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
     val failed = errorMessage != null
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
+    // Long-press-to-fix is offered only on the settled cleaned text: while recording the preview
+    // streams and rewrites, so the word under the finger can move, and the raw fallback is not the
+    // text this feature trains the dictionary against.
+    val canFixWords = uiState == FloatingUiState.REVIEW && !failed && !isProcessing &&
+        displayText.isNotBlank()
+    val transcriptLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
+    val transcript = remember(displayText, wordSelection, scheme.primary) {
+        highlightedTranscript(displayText, wordSelection, scheme.primary)
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(Spacing.lg)) {
         // Drag grip on the left, settings on the right. Dragging the text or the buttons would fight
@@ -451,157 +513,386 @@ private fun DictationCard(
 
         Spacer(modifier = Modifier.height(Spacing.sm))
 
-        // Live preview — cleaned text only, unless cleanup failed. Fills the fixed-height card.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(scrollState),
-        ) {
-            if (displayText.isBlank() && !isProcessing) {
-                Text(
-                    text = if (uiState == FloatingUiState.RECORDING) "Listening…" else "Tap to speak",
-                    color = scheme.onSurfaceVariant,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                )
-            } else {
-                Text(
-                    text = displayText,
-                    color = scheme.onSurface,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    lineHeight = 24.sp,
-                )
-            }
-        }
-
-        if (failed) {
-            Spacer(modifier = Modifier.height(Spacing.sm))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = scheme.error,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(modifier = Modifier.width(Spacing.xs))
-                Text(
-                    text = errorMessage.orEmpty(),
-                    color = scheme.error,
-                    fontSize = 12.sp,
-                )
-            }
-        }
-
-        if (statusNote != null) {
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                text = statusNote,
-                color = scheme.primary,
-                fontSize = 11.sp,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(Spacing.md))
-
-        // Action row: cancel · waveform/state · reprocess · commit.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            CircleAction(
-                icon = Icons.Default.Close,
-                description = "Cancel dictation",
-                container = scheme.surfaceContainerHighest,
-                content = scheme.onSurfaceVariant,
-                onClick = onCancel,
-            )
-
-            Surface(
+        if (wordForm != null) {
+            // A word action's form takes the whole body: a field and its buttons do not fit beside
+            // the transcript in a 210 dp card, and the transcript is not what the user is reading
+            // while they type the fix. Tapping the form's background — anything that is not a field
+            // or a button — cancels it, the same click-away the action bar uses.
+            Box(
                 modifier = Modifier
-                    .height(44.dp)
-                    .weight(1f)
-                    .padding(horizontal = Spacing.sm)
-                    .clip(RoundedCornerShape(22.dp))
-                    .clickable(enabled = !isProcessing, onClick = onToggleRecording),
-                color = scheme.primaryContainer,
-                contentColor = scheme.onPrimaryContainer,
+                    .fillMaxWidth()
+                    .weight(1f),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = Spacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
+                WordDismissCatcher(onDismiss = onWordDismiss)
+                WordFixForm(
+                    form = wordForm,
+                    onSubmit = onWordFormSubmit,
+                    onCancel = onWordDismiss,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        } else {
+            // Live preview — cleaned text only, unless cleanup failed. Fills the fixed-height card.
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                // The scroller is a child of this Box so the action bar can be pinned to the
+                // transcript's bottom edge instead of scrolling away with the text.
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState),
                 ) {
-                    when {
-                        isProcessing -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = scheme.onPrimaryContainer,
-                            )
-                            Spacer(modifier = Modifier.width(Spacing.sm))
-                            Text(
-                                text = "Polishing…",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-
-                        uiState == FloatingUiState.RECORDING -> WaterSurfaceWave(
-                            audioLevel = audioLevel,
-                            // Error: the surface darkens instead of going silent.
-                            color = if (failed) {
-                                scheme.onPrimaryContainer.copy(alpha = 0.35f)
-                            } else {
-                                scheme.onPrimaryContainer
-                            },
+                    if (displayText.isBlank() && !isProcessing) {
+                        Text(
+                            text = if (uiState == FloatingUiState.RECORDING) "Listening…" else "Tap to speak",
+                            color = scheme.onSurfaceVariant,
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp,
+                        )
+                    } else {
+                        Text(
+                            text = transcript,
+                            color = scheme.onSurface,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 24.sp,
+                            onTextLayout = { transcriptLayout.value = it },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(32.dp),
+                                .then(
+                                    if (canFixWords) {
+                                        Modifier.pointerInput(displayText) {
+                                            detectTapGestures(onLongPress = { position ->
+                                                val offset = transcriptLayout.value
+                                                    ?.getOffsetForPosition(position)
+                                                    ?: return@detectTapGestures
+                                                WordFix.wordAt(displayText, offset)?.let(onWordSelected)
+                                            })
+                                        }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
                         )
-
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(Spacing.xs))
-                            Text(
-                                text = "Speak again",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
                     }
+                }
+
+                if (wordSelection != null) {
+                    // A tap anywhere but the bar itself dismisses the actions and returns to review.
+                    // The catcher is drawn before the bar, so Compose's last-placed-first hit testing
+                    // keeps the bar's buttons on top while the rest of the body swallows the tap.
+                    WordDismissCatcher(onDismiss = onWordDismiss)
+                    WordActionBar(
+                        selection = wordSelection,
+                        onAction = onWordAction,
+                        onDismiss = onWordDismiss,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth(),
+                    )
                 }
             }
 
-            CircleAction(
-                icon = Icons.Default.Refresh,
-                description = "Reprocess full text with AI",
-                container = scheme.surfaceContainerHighest,
-                content = if (!isProcessing && rawText.isNotBlank()) {
-                    scheme.primary
-                } else {
-                    scheme.onSurfaceVariant.copy(alpha = 0.4f)
-                },
-                enabled = !isProcessing && rawText.isNotBlank(),
-                onClick = onReprocess,
-            )
+            if (failed) {
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = scheme.error,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(
+                        text = errorMessage.orEmpty(),
+                        color = scheme.error,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.width(Spacing.sm))
+            if (statusNote != null) {
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Text(
+                    text = statusNote,
+                    color = scheme.primary,
+                    fontSize = 11.sp,
+                )
+            }
 
-            CircleAction(
-                icon = Icons.Default.Check,
-                description = "Insert text",
-                container = scheme.primary,
-                content = scheme.onPrimary,
-                enabled = previewText.isNotBlank() || rawText.isNotBlank(),
-                onClick = onCommit,
+            Spacer(modifier = Modifier.height(Spacing.md))
+
+            // Action row: cancel · waveform/state · reprocess · commit.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                CircleAction(
+                    icon = Icons.Default.Close,
+                    description = "Cancel dictation",
+                    container = scheme.surfaceContainerHighest,
+                    content = scheme.onSurfaceVariant,
+                    onClick = onCancel,
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .height(44.dp)
+                        .weight(1f)
+                        .padding(horizontal = Spacing.sm)
+                        .clip(RoundedCornerShape(22.dp))
+                        .clickable(enabled = !isProcessing, onClick = onToggleRecording),
+                    color = scheme.primaryContainer,
+                    contentColor = scheme.onPrimaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        when {
+                            isProcessing -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = scheme.onPrimaryContainer,
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.sm))
+                                Text(
+                                    text = "Polishing…",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+
+                            uiState == FloatingUiState.RECORDING -> WaterSurfaceWave(
+                                audioLevel = audioLevel,
+                                // Error: the surface darkens instead of going silent.
+                                color = if (failed) {
+                                    scheme.onPrimaryContainer.copy(alpha = 0.35f)
+                                } else {
+                                    scheme.onPrimaryContainer
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(32.dp),
+                            )
+
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.xs))
+                                Text(
+                                    text = "Speak again",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                CircleAction(
+                    icon = Icons.Default.Refresh,
+                    description = "Reprocess full text with AI",
+                    container = scheme.surfaceContainerHighest,
+                    content = if (!isProcessing && rawText.isNotBlank()) {
+                        scheme.primary
+                    } else {
+                        scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    },
+                    enabled = !isProcessing && rawText.isNotBlank(),
+                    onClick = onReprocess,
+                )
+
+                Spacer(modifier = Modifier.width(Spacing.sm))
+
+                CircleAction(
+                    icon = Icons.Default.Check,
+                    description = "Insert text",
+                    container = scheme.primary,
+                    content = scheme.onPrimary,
+                    enabled = previewText.isNotBlank() || rawText.isNotBlank(),
+                    onClick = onCommit,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The transcript as an [AnnotatedString], with the long-pressed word tinted so the user can see
+ * which word the action bar refers to.
+ */
+private fun highlightedTranscript(
+    text: String,
+    selection: WordSelection?,
+    highlight: Color,
+): AnnotatedString = buildAnnotatedString {
+    append(text)
+    if (selection != null && selection.start >= 0 && selection.end <= text.length &&
+        selection.start < selection.end
+    ) {
+        addStyle(SpanStyle(background = highlight.copy(alpha = 0.28f)), selection.start, selection.end)
+    }
+}
+
+/**
+ * A transparent layer that turns any tap reaching it into a dismissal. Placed *before* the thing it
+ * must not steal taps from (the action bar, the form's fields), so Compose's last-placed-first hit
+ * testing keeps those interactive and everything else behind it dismisses.
+ */
+@Composable
+private fun WordDismissCatcher(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures { onDismiss() }
+            },
+    )
+}
+
+/**
+ * The bar that appears over the transcript while a word is selected: the word itself, one button per
+ * [WordAction], and a way out. The actions are laid out from the catalogue, so adding one needs no
+ * change here; the row scrolls sideways so a long word plus several actions cannot clip.
+ */
+@Composable
+private fun WordActionBar(
+    selection: WordSelection,
+    onAction: (WordAction) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(Radius.md),
+        color = scheme.surfaceContainerHighest,
+        contentColor = scheme.onSurface,
+        tonalElevation = 3.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "\u201C${selection.word}\u201D",
+                color = scheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 92.dp),
             )
+            Spacer(modifier = Modifier.width(Spacing.xs))
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                WordAction.entries.forEach { action ->
+                    TextButton(
+                        onClick = { onAction(action) },
+                        contentPadding = PaddingValues(horizontal = Spacing.sm),
+                    ) {
+                        Icon(
+                            imageVector = wordActionIcon(action),
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = action.label, fontSize = 12.sp, maxLines = 1)
+                    }
+                }
+            }
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Cancel word fix",
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onDismiss),
+            )
+        }
+    }
+}
+
+/** The icon shown beside each action in the word bar. */
+private fun wordActionIcon(action: WordAction): ImageVector = when (action) {
+    WordAction.ADD_TO_DICTIONARY -> Icons.Default.BookmarkAdd
+}
+
+/**
+ * The input form a word action opens, pre-filled with the pressed word so the user edits it into
+ * what it should be. The window is made focusable by the service for the form's lifetime, which is
+ * what lets the keyboard reach this field (see `FloatingOverlayService.setOverlayFocusable`).
+ */
+@Composable
+private fun WordFixForm(
+    form: WordFormState,
+    onSubmit: (String) -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    var value by remember(form) { mutableStateOf(form.word) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val canSave = value.isNotBlank() && value.trim() != form.word.trim()
+
+    LaunchedEffect(form) {
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Text(
+            text = form.action.formTitle(form.word),
+            color = scheme.onSurface,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        OutlinedTextField(
+            value = value,
+            onValueChange = { value = it },
+            label = { Text(form.action.fieldLabel, fontSize = 12.sp) },
+            singleLine = true,
+            shape = RoundedCornerShape(Radius.sm),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (canSave) onSubmit(value) }),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onCancel) {
+                Text(text = "Cancel", fontSize = 13.sp)
+            }
+            Spacer(modifier = Modifier.width(Spacing.xs))
+            Button(
+                onClick = { onSubmit(value) },
+                enabled = canSave,
+                shape = RoundedCornerShape(Radius.sm),
+            ) {
+                Text(text = "Save", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -111,6 +112,17 @@ class FloatingOverlayService : Service() {
     private var darkTheme by mutableStateOf(false)
     private var profiles by mutableStateOf(emptyList<CleaningProfile>())
     private var activeProfileId by mutableStateOf("")
+
+    /** The word the user long-pressed in the review transcript, or null when none is selected. */
+    private var wordSelection by mutableStateOf<WordSelection?>(null)
+    /** Non-null while a word action's input form is open. */
+    private var wordForm by mutableStateOf<WordFormState?>(null)
+    /**
+     * Whether the overlay window is currently allowed to take input focus. It is non-focusable at
+     * rest (so it never steals the keyboard from the app); the word-fix form flips it on for its
+     * lifetime so the keyboard can reach the correction field.
+     */
+    private var windowFocusable = false
 
     // Drag / fling state. The pill's position is kept as floats so a slow drag is not truncated
     // into never moving; it is flushed to the window at most once per frame.
@@ -206,6 +218,8 @@ class FloatingOverlayService : Service() {
         startForegroundWithNotification()
 
         darkTheme = resolveDarkTheme()
+        // The pill is its own window, so the app changing its theme mode does not reach it by itself.
+        settings.observeThemeMode { darkTheme = resolveDarkTheme() }
         cleanupEnabled = settings.cleanupEnabled
         refreshProfiles()
         setupEngines()
@@ -234,6 +248,7 @@ class FloatingOverlayService : Service() {
         if (instance == this) {
             instance = null
         }
+        settings.removeThemeModeObserver()
         abandonCapture()
         removeOverlayView()
         scope.cancel()
@@ -345,11 +360,7 @@ class FloatingOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                // Observe touches that land outside the pill (without stealing them from the app
-                // underneath) so an outside tap can dismiss the ··· panel and minimise the card.
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            overlayFlags(focusable = false),
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.END
@@ -375,12 +386,15 @@ class FloatingOverlayService : Service() {
                     activeProfileId = activeProfileId,
                     cleanupEnabled = cleanupEnabled,
                     settingsOpen = settingsOpen,
+                    wordSelection = wordSelection,
+                    wordForm = wordForm,
                     onPillClicked = { startOrResumeRecording(fresh = true) },
                     onCancel = ::cancelSession,
                     onToggleRecording = ::toggleRecording,
                     onCommit = ::commitSession,
                     onReprocessFullText = ::reprocessFullText,
                     onToggleSettings = {
+                        dismissWordSelection()
                         settingsOpen = !settingsOpen
                         // The active profile can change from Home or the Profiles tab while the pill
                         // lives on; re-read on open so the list never shows a stale choice.
@@ -388,10 +402,15 @@ class FloatingOverlayService : Service() {
                     },
                     onSelectProfile = ::selectProfile,
                     onToggleCleanup = ::toggleCleanup,
+                    onWordSelected = ::selectWord,
+                    onWordAction = ::openWordAction,
+                    onWordFormSubmit = ::submitWordForm,
+                    onWordDismiss = ::dismissWordSelection,
                     onDragStart = ::beginDrag,
                     onDragBy = ::dragBy,
                     onDragEnd = ::endDrag,
-                    onDragCancel = ::endDragWithoutFling,                )
+                    onDragCancel = ::endDragWithoutFling,
+                )
             }
         }
 
@@ -441,6 +460,106 @@ class FloatingOverlayService : Service() {
         composeView = null
         overlayLifecycleOwner?.destroy()
         overlayLifecycleOwner = null
+    }
+
+    // --- Long-press a word: fix it --------------------------------------------
+    //
+    // The mechanism is deliberately data-driven: the view reports the pressed word, the menu is
+    // built from `WordAction.entries`, and every action's behaviour lives in one `when` in
+    // [submitWordForm]. Adding an action (say, "Replace word") is a case in the catalogue plus a
+    // branch there; the selection, the highlight, the bar and the form are all shared.
+
+    /**
+     * The window flags for the pill. [focusable] is false at rest, which is what keeps the pill from
+     * stealing the keyboard from the app underneath. The word-fix form flips it on for its lifetime:
+     * without focus the keyboard cannot reach the correction field, because a window added with
+     * `FLAG_NOT_FOCUSABLE` never receives input. `FLAG_NOT_TOUCH_MODAL` keeps touches outside the
+     * pill going to the app even while the window is focusable.
+     */
+    private fun overlayFlags(focusable: Boolean): Int {
+        val base = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            // Observe touches that land outside the pill (without stealing them from the app
+            // underneath) so an outside tap can dismiss the ··· panel and minimise the card.
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        return if (focusable) {
+            base or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        } else {
+            base or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+    }
+
+    /**
+     * Flips the overlay between "observe only" and "can take the keyboard". Re-applies the window
+     * layout, and hides the IME again on the way back so a keyboard aimed at a form that no longer
+     * exists does not linger.
+     */
+    private fun setOverlayFocusable(focusable: Boolean) {
+        if (windowFocusable == focusable) return
+        windowFocusable = focusable
+        val params = layoutParams ?: return
+        val view = composeView ?: return
+        params.flags = overlayFlags(focusable)
+        params.softInputMode = if (focusable) {
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+        } else {
+            0
+        }
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating overlay focusability", e)
+        }
+        if (!focusable) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(view.windowToken, 0)
+        }
+    }
+
+    /** A word was long-pressed in the review transcript: highlight it and offer the actions. */
+    private fun selectWord(selection: WordSelection) {
+        wordSelection = selection
+        wordForm = null
+        // The menu itself needs no typing, so the window stays non-focusable until a form opens.
+        setOverlayFocusable(false)
+        Log.i(TAG, "Word selected: '${selection.word}' (${selection.start}..${selection.end})")
+    }
+
+    /** A word action was chosen: open its input form and let the keyboard reach it. */
+    private fun openWordAction(action: WordAction) {
+        val selection = wordSelection ?: return
+        setOverlayFocusable(true)
+        wordForm = WordFormState(action = action, word = selection.word)
+        Log.i(TAG, "Word action '${action.id}' opened for '${selection.word}'")
+    }
+
+    /**
+     * The form was submitted. This is where each catalogue action does its work; today they all save
+     * the pressed word to the shared dictionary, merging into an existing entry for the typed word.
+     */
+    private fun submitWordForm(value: String) {
+        val selection = wordSelection
+        val action = wordForm?.action
+        if (selection != null && action != null) {
+            when (action) {
+                WordAction.ADD_TO_DICTIONARY -> {
+                    val fix = WordFix.correction(heard = selection.word, replacement = value)
+                    if (fix != null) {
+                        dictionaryStore.addCorrection(fix.correct, listOf(fix.incorrect))
+                        statusNote = "Added \u201C${fix.correct}\u201D to the dictionary"
+                        Log.i(TAG, "Dictionary correction saved: '${fix.incorrect}' -> '${fix.correct}'")
+                    }
+                }
+            }
+        }
+        dismissWordSelection()
+    }
+
+    /** Clears the long-press selection and form, and gives the keyboard back to the app. */
+    private fun dismissWordSelection() {
+        if (wordSelection == null && wordForm == null && !windowFocusable) return
+        wordSelection = null
+        wordForm = null
+        setOverlayFocusable(false)
     }
 
     // --- Dragging ---
@@ -686,6 +805,7 @@ class FloatingOverlayService : Service() {
         statusNote = null
         errorMessage = null
         settingsOpen = false
+        dismissWordSelection()
 
         if (fresh) {
             previewText = ""
@@ -792,6 +912,12 @@ class FloatingOverlayService : Service() {
     private fun onOutsideTouch() {
         scope.launch(Dispatchers.Main.immediate) {
             settingsOpen = false
+            // A tap outside while a word is being fixed only closes the fix (and the keyboard it
+            // raised); it must not throw the whole session away.
+            if (wordSelection != null || wordForm != null) {
+                dismissWordSelection()
+                return@launch
+            }
             if (uiState != FloatingUiState.RESTING_PILL) {
                 Log.i(TAG, "Outside tap — minimising the pill")
                 collapseSession()
@@ -858,6 +984,8 @@ class FloatingOverlayService : Service() {
     private fun reprocessFullText() {
         val textToRewrite = rawTextAccumulator.toString().trim()
         if (textToRewrite.isBlank() || isProcessing) return
+        // The transcript is about to be rewritten wholesale, so any selected word's range is stale.
+        dismissWordSelection()
 
         isProcessing = true
         statusNote = "Reprocessing entire text with LLM..."
@@ -914,6 +1042,7 @@ class FloatingOverlayService : Service() {
         statusNote = null
         errorMessage = null
         settingsOpen = false
+        dismissWordSelection()
         isProcessing = false
         rawTextAccumulator.clear()
         committedText.clear()
