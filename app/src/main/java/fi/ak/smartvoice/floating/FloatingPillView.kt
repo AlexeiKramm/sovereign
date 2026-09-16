@@ -1,19 +1,21 @@
 package fi.ak.smartvoice.floating
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,36 +33,45 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.random.Random
+import fi.ak.smartvoice.data.AppThemeMode
+import fi.ak.smartvoice.data.CleaningProfile
+import fi.ak.smartvoice.theme.Motion
+import fi.ak.smartvoice.theme.Radius
+import fi.ak.smartvoice.theme.Spacing
+import fi.ak.smartvoice.theme.SmartVoiceTheme
 
 enum class FloatingUiState {
     RESTING_PILL,
@@ -68,288 +79,537 @@ enum class FloatingUiState {
     REVIEW,
 }
 
+/** Radians per second the recording wave travels. Slow enough to stay calm, fast enough to live. */
+private const val RIPPLE_RADIANS_PER_SECOND = 3.2f
+
+/** Width of the expanded card (and the quick-settings panel that hangs above it). */
+private val CARD_WIDTH = 340.dp
+
 @Composable
 fun FloatingDictationOverlay(
+    darkTheme: Boolean,
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
-    audioLevel: Float,
+    /**
+     * A **provider**, not a value: the level changes on every audio frame, and reading it inside
+     * the waveform's draw pass means a new frame invalidates drawing only — never a recomposition
+     * of the whole card.
+     */
+    audioLevel: () -> Float,
     isProcessing: Boolean,
     statusNote: String?,
+    /** Non-null when cleanup failed; the card switches to the raw-text fallback treatment. */
+    errorMessage: String?,
+    /** True once the cleanup model is loaded, which is what the resting pill's breathing signals. */
+    modelReady: Boolean,
+    profiles: List<CleaningProfile>,
+    activeProfileId: String,
+    quickSettingsOpen: Boolean,
     onPillClicked: () -> Unit,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
     onReprocessFullText: () -> Unit,
-    onDrag: (Float, Float) -> Unit,
+    onToggleQuickSettings: () -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onDragStart: () -> Unit,
+    onDragBy: (Float, Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .wrapContentSize()
-            .padding(8.dp),
-        contentAlignment = Alignment.BottomEnd,
-    ) {
-        when (uiState) {
-            FloatingUiState.RESTING_PILL -> {
-                RestingPillView(
-                    onClick = onPillClicked,
-                    onDrag = onDrag,
-                )
-            }
-            FloatingUiState.RECORDING, FloatingUiState.REVIEW -> {
-                ExpandedCardView(
-                    uiState = uiState,
-                    previewText = previewText,
-                    rawText = rawText,
-                    audioLevel = audioLevel,
-                    isProcessing = isProcessing,
-                    statusNote = statusNote,
-                    onCancel = onCancel,
-                    onToggleRecording = onToggleRecording,
-                    onCommit = onCommit,
-                    onReprocess = onReprocessFullText,
-                    onDrag = onDrag,
-                )
+    // The overlay lives in a service window, so it does not inherit the Activity's theme: the
+    // service resolves the app's theme mode (falling back to the system) and passes it in.
+    SmartVoiceTheme(themeMode = if (darkTheme) AppThemeMode.DARK else AppThemeMode.LIGHT) {
+        val dragModifier = Modifier.pillDragModifier(
+            onDragStart = onDragStart,
+            onDragBy = onDragBy,
+            onDragEnd = onDragEnd,
+            onDragCancel = onDragCancel,
+        )
+
+        Box(
+            modifier = Modifier
+                .wrapContentSize()
+                .padding(8.dp),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                // The panel is listed first so that, with the window anchored bottom/end, opening it
+                // grows the window upward and leaves the pill/card exactly where it was.
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                AnimatedVisibility(
+                    visible = quickSettingsOpen,
+                    enter = fadeIn(tween(Motion.fastMs)) +
+                        expandVertically(tween(Motion.standardMs), expandFrom = Alignment.Bottom),
+                    exit = fadeOut(tween(Motion.fastMs)) +
+                        shrinkVertically(tween(Motion.fastMs), shrinkTowards = Alignment.Bottom),
+                ) {
+                    QuickSettingsPanel(
+                        profiles = profiles,
+                        activeProfileId = activeProfileId,
+                        onSelectProfile = onSelectProfile,
+                    )
+                }
+
+                when (uiState) {
+                    FloatingUiState.RESTING_PILL -> RestingPillView(
+                        modelReady = modelReady,
+                        dragModifier = dragModifier,
+                        onClick = onPillClicked,
+                        onQuickSettings = onToggleQuickSettings,
+                    )
+
+                    FloatingUiState.RECORDING, FloatingUiState.REVIEW -> ExpandedCardView(
+                        uiState = uiState,
+                        previewText = previewText,
+                        rawText = rawText,
+                        audioLevel = audioLevel,
+                        isProcessing = isProcessing,
+                        statusNote = statusNote,
+                        errorMessage = errorMessage,
+                        dragModifier = dragModifier,
+                        onCancel = onCancel,
+                        onToggleRecording = onToggleRecording,
+                        onCommit = onCommit,
+                        onReprocess = onReprocessFullText,
+                        onQuickSettings = onToggleQuickSettings,
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * Resting state: A sleek, docked pill with audio waveform / mic icon.
+ * Drag handling shared by the pill and the card: pointer deltas go straight to the service, which
+ * owns the window position and therefore the fling velocity (see `DragVelocityTracker` — the
+ * pointer's own coordinates are useless here, because the window moves under the finger).
+ */
+private fun Modifier.pillDragModifier(
+    onDragStart: () -> Unit,
+    onDragBy: (Float, Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+): Modifier {
+    return this.pointerInput(Unit) {
+        detectDragGestures(
+            onDragStart = { onDragStart() },
+            onDrag = { change, dragAmount ->
+                change.consume()
+                onDragBy(dragAmount.x, dragAmount.y)
+            },
+            onDragEnd = onDragEnd,
+            onDragCancel = onDragCancel,
+        )
+    }
+}
+
+/**
+ * Resting pill: a small waveform that *breathes* while the cleanup model is loaded, and sits
+ * still and dimmer while it is not.
  */
 @Composable
 fun RestingPillView(
+    modelReady: Boolean,
+    dragModifier: Modifier,
     onClick: () -> Unit,
-    onDrag: (Float, Float) -> Unit,
+    onQuickSettings: () -> Unit,
 ) {
+    // `breath` is a State, not a value: reading it inside the layer/draw lambdas below means the
+    // pulse costs a layer update per frame instead of a recomposition per frame.
+    val breath = rememberBreath(modelReady)
+    val waveColor = MaterialTheme.colorScheme.onPrimaryContainer
+
     Surface(
         modifier = Modifier
-            .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp), ambientColor = Color.Black)
-            .clip(RoundedCornerShape(24.dp))
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(Color(0x66FFFFFF), Color(0x22FFFFFF))
-                ),
-                shape = RoundedCornerShape(24.dp)
-            )
+            .shadow(elevation = 12.dp, shape = RoundedCornerShape(Radius.lg), ambientColor = Color.Black)
+            .clip(RoundedCornerShape(Radius.lg))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(Radius.lg))
             .clickable(onClick = onClick)
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    onDrag(dragAmount.x, dragAmount.y)
-                }
-            },
-        color = Color(0xFFE8DEF8), // Soft lilac pastel
-        contentColor = Color(0xFF1D192B),
+            .then(dragModifier),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
+            Canvas(
+                modifier = Modifier
+                    .width(30.dp)
+                    .height(14.dp)
+                    .graphicsLayer {
+                        val pulse = 1f + breath.value * 0.03f
+                        scaleX = pulse
+                        scaleY = pulse
+                    },
+            ) {
+                drawWaterSurface(
+                    phase = 0.7f,
+                    audioLevel = 0f,
+                    color = waveColor.copy(alpha = 0.7f + breath.value * 0.3f),
+                )
+            }
+            Spacer(modifier = Modifier.width(Spacing.sm))
             Icon(
-                imageVector = Icons.Default.GraphicEq,
-                contentDescription = "Start Voice Dictation",
-                modifier = Modifier.size(24.dp),
-                tint = Color(0xFF1D192B),
+                imageVector = Icons.Default.MoreHoriz,
+                contentDescription = "Quick settings",
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onQuickSettings),
             )
         }
     }
 }
 
 /**
- * Expanded Wispr Flow card showing live preview, dynamic waveform, and action buttons.
+ * Slow, low-frequency breathing. While no model is loaded the state is a constant zero, so a
+ * resting pill with nothing to signal costs no animation frames at all — it is not merely faded.
+ */
+@Composable
+private fun rememberBreath(modelReady: Boolean): State<Float> {
+    if (!modelReady) {
+        return remember { mutableFloatStateOf(0f) }
+    }
+    val transition = rememberInfiniteTransition(label = "pill-breath")
+    return transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pill-breath-value",
+    )
+}
+
+/**
+ * Expanded Wispr Flow-style card: live (cleaned) preview, the water-surface waveform, and the
+ * action row. The quick-settings `···` is deliberately low-weight.
  */
 @Composable
 fun ExpandedCardView(
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
-    audioLevel: Float,
+    audioLevel: () -> Float,
     isProcessing: Boolean,
     statusNote: String?,
+    errorMessage: String?,
+    dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
     onReprocess: () -> Unit,
-    onDrag: (Float, Float) -> Unit,
+    onQuickSettings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
+    val scheme = MaterialTheme.colorScheme
+    val failed = errorMessage != null
+    // The fallback: on an LLM failure we show what was actually heard so no words are lost.
+    val displayText = if (failed) rawText else previewText
 
     Surface(
         modifier = Modifier
-            .width(340.dp)
-            .shadow(elevation = 16.dp, shape = RoundedCornerShape(24.dp))
-            .clip(RoundedCornerShape(24.dp))
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(Color(0x44FFFFFF), Color(0x11FFFFFF))
-                ),
-                shape = RoundedCornerShape(24.dp)
-            )
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    onDrag(dragAmount.x, dragAmount.y)
-                }
-            },
-        color = Color(0xFF1F1F24), // Dark sleek surface
-        contentColor = Color.White,
+            .width(CARD_WIDTH)
+            .shadow(elevation = 16.dp, shape = RoundedCornerShape(Radius.lg))
+            .clip(RoundedCornerShape(Radius.lg))
+            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),
+        color = scheme.surfaceContainerHigh,
+        contentColor = scheme.onSurface,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-        ) {
-            // Live Preview Header
+        Column(modifier = Modifier.padding(Spacing.lg)) {
+            // Drag grip on the left, quick settings on the right. Dragging the text or the buttons
+            // would fight scrolling and tapping, so only this strip moves the pill.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(24.dp)
+                        .then(dragModifier),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(scheme.outlineVariant),
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.MoreHoriz,
+                    contentDescription = "Quick settings",
+                    tint = scheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onQuickSettings),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.sm))
+
+            // Live preview — cleaned text only, unless cleanup failed.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp, max = 160.dp)
                     .verticalScroll(scrollState),
             ) {
-                if (previewText.isBlank() && !isProcessing) {
+                if (displayText.isBlank() && !isProcessing) {
                     Text(
-                        text = if (uiState == FloatingUiState.RECORDING) "Listening..." else "Tap mic to speak",
-                        color = Color(0x88FFFFFF),
+                        text = if (uiState == FloatingUiState.RECORDING) "Listening…" else "Tap to speak",
+                        color = scheme.onSurfaceVariant,
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
                     )
                 } else {
                     Text(
-                        text = previewText,
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Normal,
-                        lineHeight = 22.sp,
+                        text = displayText,
+                        color = scheme.onSurface,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 24.sp,
+                    )
+                }
+            }
+
+            if (failed) {
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = scheme.error,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(
+                        text = errorMessage.orEmpty(),
+                        color = scheme.error,
+                        fontSize = 12.sp,
                     )
                 }
             }
 
             if (statusNote != null) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(Spacing.xs))
                 Text(
                     text = statusNote,
-                    color = Color(0xFFD0BCFF),
+                    color = scheme.primary,
                     fontSize = 11.sp,
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(Spacing.md))
 
-            // Action Controls Row (Wispr Flow style)
+            // Action row: cancel · waveform/state · reprocess · commit.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                // Cancel (X) Button
-                Surface(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onCancel),
-                    color = Color(0xFF2C2B30),
-                    contentColor = Color(0xFFE6E1E5),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cancel Dictation",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
+                CircleAction(
+                    icon = Icons.Default.Close,
+                    description = "Cancel dictation",
+                    container = scheme.surfaceContainerHighest,
+                    content = scheme.onSurfaceVariant,
+                    onClick = onCancel,
+                )
 
-                // Center Dynamic Waveform / Mic
                 Surface(
                     modifier = Modifier
                         .height(44.dp)
                         .weight(1f)
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = Spacing.sm)
                         .clip(RoundedCornerShape(22.dp))
                         .clickable(enabled = !isProcessing, onClick = onToggleRecording),
-                    color = Color(0xFFE8DEF8),
-                    contentColor = Color(0xFF1D192B),
+                    color = scheme.primaryContainer,
+                    contentColor = scheme.onPrimaryContainer,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                     ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = Color(0xFF1D192B),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Polishing...",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF1D192B),
-                            )
-                        } else if (uiState == FloatingUiState.RECORDING) {
-                            DynamicWaveform(
+                        when {
+                            isProcessing -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = scheme.onPrimaryContainer,
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.sm))
+                                Text(
+                                    text = "Polishing…",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+
+                            uiState == FloatingUiState.RECORDING -> WaterSurfaceWave(
                                 audioLevel = audioLevel,
+                                // Error: the surface darkens instead of going silent.
+                                color = if (failed) {
+                                    scheme.onPrimaryContainer.copy(alpha = 0.35f)
+                                } else {
+                                    scheme.onPrimaryContainer
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(26.dp),
                             )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Recording Finished",
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Speak again",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF1D192B),
-                            )
+
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.xs))
+                                Text(
+                                    text = "Speak again",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                 }
 
-                // Reprocess Full Text Button
-                Surface(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = !isProcessing && rawText.isNotBlank(), onClick = onReprocess),
-                    color = Color(0xFF2C2B30),
-                    contentColor = if (rawText.isNotBlank()) Color(0xFFD0BCFF) else Color(0x44FFFFFF),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Reprocess Full Text with LLM",
-                            modifier = Modifier.size(20.dp),
+                CircleAction(
+                    icon = Icons.Default.Refresh,
+                    description = "Reprocess full text with AI",
+                    container = scheme.surfaceContainerHighest,
+                    content = if (!isProcessing && rawText.isNotBlank()) {
+                        scheme.primary
+                    } else {
+                        scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    },
+                    enabled = !isProcessing && rawText.isNotBlank(),
+                    onClick = onReprocess,
+                )
+
+                Spacer(modifier = Modifier.width(Spacing.sm))
+
+                CircleAction(
+                    icon = Icons.Default.Check,
+                    description = "Insert text",
+                    container = scheme.primary,
+                    content = scheme.onPrimary,
+                    enabled = previewText.isNotBlank() || rawText.isNotBlank(),
+                    onClick = onCommit,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CircleAction(
+    icon: ImageVector,
+    description: String,
+    container: Color,
+    content: Color,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    Surface(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        color = container,
+        contentColor = content,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                modifier = Modifier.size(20.dp),
+                tint = content,
+            )
+        }
+    }
+}
+
+/**
+ * Compact quick-settings panel: the active profile switcher, and room for a silence quick-adjust
+ * later. Rendered inside the pill's own window rather than as a `ModalBottomSheet`, because a
+ * real modal needs a window token an overlay service does not have (and its full-screen scrim
+ * would swallow touches meant for the app underneath).
+ */
+@Composable
+fun QuickSettingsPanel(
+    profiles: List<CleaningProfile>,
+    activeProfileId: String,
+    onSelectProfile: (String) -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val scrollState = rememberScrollState()
+
+    Surface(
+        modifier = Modifier
+            .width(CARD_WIDTH)
+            .padding(bottom = Spacing.sm)
+            .shadow(elevation = 12.dp, shape = RoundedCornerShape(Radius.lg))
+            .clip(RoundedCornerShape(Radius.lg))
+            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),
+        color = scheme.surfaceContainerHighest,
+        contentColor = scheme.onSurface,
+    ) {
+        Column(modifier = Modifier.padding(vertical = Spacing.md)) {
+            Text(
+                text = "Quick settings",
+                color = scheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = Spacing.lg),
+            )
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                text = "Profile",
+                color = scheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = Spacing.lg),
+            )
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 220.dp)
+                    .verticalScroll(scrollState),
+            ) {
+                profiles.forEach { profile ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectProfile(profile.id) }
+                            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = profile.id == activeProfileId,
+                            onClick = null,
                         )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Commit (Checkmark) Button
-                Surface(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = previewText.isNotBlank() || rawText.isNotBlank(), onClick = onCommit),
-                    color = Color(0xFFD0BCFF), // Light accent
-                    contentColor = Color(0xFF381E72),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Accept & Inject Text",
-                            modifier = Modifier.size(22.dp),
-                            tint = Color(0xFF381E72),
+                        Spacer(modifier = Modifier.width(Spacing.xs))
+                        Text(
+                            text = profile.name,
+                            color = scheme.onSurface,
+                            fontSize = 14.sp,
+                            fontWeight = if (profile.id == activeProfileId) {
+                                FontWeight.SemiBold
+                            } else {
+                                FontWeight.Normal
+                            },
                         )
                     }
                 }
@@ -359,38 +619,77 @@ fun ExpandedCardView(
 }
 
 /**
- * Canvas-drawn dynamic responsive waveform with 7 pulsing bars reacting in real time to speech amplitude.
+ * The recording waveform, driven by its own frame clock. [audioLevel] and the phase are read
+ * inside the `Canvas` draw lambda, so a frame invalidates the draw pass only — the composition
+ * never runs per frame. That is what keeps the ripple at display rate (120 Hz) instead of
+ * recomposition rate.
  */
 @Composable
-fun DynamicWaveform(
-    audioLevel: Float,
+fun WaterSurfaceWave(
+    audioLevel: () -> Float,
+    color: Color,
     modifier: Modifier = Modifier,
 ) {
-    val barCount = 7
-    val levelClamped = audioLevel.coerceIn(0.05f, 1.0f)
+    val phase = remember { mutableFloatStateOf(0f) }
 
-    Canvas(modifier = modifier) {
-        val width = size.width
-        val height = size.height
-        val barWidth = 4.dp.toPx()
-        val spacing = (width - (barCount * barWidth)) / (barCount + 1)
-        val cornerRadius = CornerRadius(barWidth / 2, barWidth / 2)
+    LaunchedEffect(Unit) {
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSeconds = (nowNanos - lastNanos) / 1_000_000_000f
+            lastNanos = nowNanos
+            phase.value += dtSeconds * RIPPLE_RADIANS_PER_SECOND
+        }
+    }
 
-        // Waveform weights that peak in the center
-        val multipliers = floatArrayOf(0.4f, 0.7f, 0.95f, 1.1f, 0.95f, 0.7f, 0.4f)
+    Canvas(modifier) {
+        drawWaterSurface(
+            phase = phase.value,
+            audioLevel = audioLevel(),
+            color = color,
+        )
+    }
+}
 
-        for (i in 0 until barCount) {
-            val mult = multipliers[i]
-            val barHeight = (height * (levelClamped * mult).coerceIn(0.15f, 0.95f))
-            val x = spacing + i * (barWidth + spacing)
-            val y = (height - barHeight) / 2f
+/**
+ * Draws the water surface as one smooth cubic-bezier line through the sampled offsets, using
+ * Catmull-Rom (Cardinal) control points so the joints have no visible corners.
+ */
+private fun DrawScope.drawWaterSurface(
+    phase: Float,
+    audioLevel: Float,
+    color: Color,
+) {
+    val values = WaterSurface.samples(phase, WaterSurface.amplitudeFor(audioLevel))
+    val segments = values.size - 1
+    val centreY = size.height / 2f
+    val halfHeight = size.height / 2f
+    val stepX = size.width / segments
 
-            drawRoundRect(
-                color = Color(0xFF1D192B),
-                topLeft = Offset(x, y),
-                size = Size(barWidth, barHeight),
-                cornerRadius = cornerRadius,
+    fun xAt(index: Int) = index * stepX
+    fun yAt(index: Int) = centreY - values[index] * halfHeight
+
+    val path = Path().apply {
+        moveTo(xAt(0), yAt(0))
+        for (i in 0 until segments) {
+            val previous = values[(i - 1).coerceAtLeast(0)]
+            val next = values[(i + 2).coerceAtMost(segments)]
+            val control1Y = centreY - (values[i] + (values[i + 1] - previous) / 6f) * halfHeight
+            val control2Y = centreY - (values[i + 1] - (next - values[i]) / 6f) * halfHeight
+            cubicTo(
+                xAt(i) + stepX / 3f,
+                control1Y,
+                xAt(i + 1) - stepX / 3f,
+                control2Y,
+                xAt(i + 1),
+                yAt(i + 1),
             )
         }
     }
+
+    drawPath(
+        path = path,
+        color = color,
+        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round),
+    )
 }

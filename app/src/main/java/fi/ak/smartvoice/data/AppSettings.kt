@@ -194,6 +194,30 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, value) }
 
     /**
+     * How quickly the pill's post-flick glide bleeds off, per second. Higher friction = the pill
+     * stops sooner. Exposed as a setting because "how slippery the pill feels" is a taste question
+     * best settled by flicking it; the pill's travel distance is `releaseSpeed / this`.
+     */
+    var pillFlickFriction: Float
+        get() = prefs.getFloat(KEY_PILL_FLICK_FRICTION, DEFAULT_PILL_FLICK_FRICTION)
+        set(value) = prefs.edit { putFloat(KEY_PILL_FLICK_FRICTION, value) }
+
+    /**
+     * Where the user last left the pill, in pixels from the screen's END and BOTTOM edges
+     * (the overlay window's gravity is `BOTTOM or END`). [PILL_POSITION_UNSET] means "never
+     * dragged" — the pill then docks bottom-right at its default inset. The service clamps
+     * the stored value to the screen on restore, so a change of display or rotation cannot
+     * strand the pill off-screen.
+     */
+    var floatingPillX: Int
+        get() = prefs.getInt(KEY_FLOATING_PILL_X, PILL_POSITION_UNSET)
+        set(value) = prefs.edit { putInt(KEY_FLOATING_PILL_X, value) }
+
+    var floatingPillY: Int
+        get() = prefs.getInt(KEY_FLOATING_PILL_Y, PILL_POSITION_UNSET)
+        set(value) = prefs.edit { putInt(KEY_FLOATING_PILL_Y, value) }
+
+    /**
      * Whether the first-launch onboarding wizard has been finished (or dismissed) once.
      * Re-running it from Settings must **not** clear this: it exists so the wizard does
      * not reappear on every launch, not to gate the re-run entry point.
@@ -235,11 +259,25 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
+        private const val KEY_PILL_FLICK_FRICTION = "pill_flick_friction"
+        private const val KEY_FLOATING_PILL_X = "floating_pill_x"
+        private const val KEY_FLOATING_PILL_Y = "floating_pill_y"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
 
         const val DEFAULT_FLOATING_PILL_ENABLED = true
         const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
+
+        /** Stored pill position meaning "never dragged — use the default corner dock". */
+        const val PILL_POSITION_UNSET = -1
+
+        /**
+         * A short glide from a typical flick: snappy, with just a little momentum. The Settings
+         * slider spans [MIN_PILL_FLICK_FRICTION]..[MAX_PILL_FLICK_FRICTION]; higher stops sooner.
+         */
+        const val DEFAULT_PILL_FLICK_FRICTION = 20f
+        const val MIN_PILL_FLICK_FRICTION = 5f
+        const val MAX_PILL_FLICK_FRICTION = 60f
         const val DEFAULT_HEALING_SENTENCES_COUNT = 3
         const val DEFAULT_ONBOARDING_COMPLETED = false
 

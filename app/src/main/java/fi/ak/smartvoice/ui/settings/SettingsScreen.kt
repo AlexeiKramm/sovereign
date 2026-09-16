@@ -59,6 +59,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -173,6 +174,7 @@ fun SettingsScreen(
     val floatingPillEnabled by viewModel.floatingPillEnabled.collectAsStateWithLifecycle()
     val floatingPillOnlyWhenKeyboardOpen by viewModel.floatingPillOnlyWhenKeyboardOpen.collectAsStateWithLifecycle()
     val floatingPillAutoCommit by viewModel.floatingPillAutoCommit.collectAsStateWithLifecycle()
+    val pillFlickFriction by viewModel.pillFlickFriction.collectAsStateWithLifecycle()
     val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
     val isAccessibilityPermissionGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
 
@@ -650,6 +652,42 @@ fun SettingsScreen(
                                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                                 checkedTrackColor = MaterialTheme.colorScheme.primary,
                             ),
+                        )
+                    }
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    // Setting 3: How far the pill glides after a flick. Tuned by feel, so the
+                    // service reads it on every flick — dragging the slider changes the next one.
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Flick friction",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "%.0f".format(
+                                    java.util.Locale.US,
+                                    pillFlickFriction,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            text = "How far the pill glides after you flick it. Higher stops sooner; lower lets it slide further.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Slider(
+                            value = pillFlickFriction,
+                            onValueChange = viewModel::setPillFlickFriction,
+                            valueRange = AppSettings.MIN_PILL_FLICK_FRICTION..AppSettings.MAX_PILL_FLICK_FRICTION,
+                            steps = 54,
                         )
                     }
                 }

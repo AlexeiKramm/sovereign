@@ -466,6 +466,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _floatingPillAutoCommit = MutableStateFlow(settings.floatingPillAutoCommit)
     val floatingPillAutoCommit: StateFlow<Boolean> = _floatingPillAutoCommit.asStateFlow()
 
+    private val _pillFlickFriction = MutableStateFlow(settings.pillFlickFriction)
+    val pillFlickFriction: StateFlow<Float> = _pillFlickFriction.asStateFlow()
+
     private val _isOverlayPermissionGranted = MutableStateFlow(Settings.canDrawOverlays(app))
     val isOverlayPermissionGranted: StateFlow<Boolean> = _isOverlayPermissionGranted.asStateFlow()
 
@@ -705,6 +708,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setFloatingPillAutoCommit(enabled: Boolean) {
         settings.floatingPillAutoCommit = enabled
         _floatingPillAutoCommit.value = enabled
+    }
+
+    /**
+     * The pill's flick friction. Written straight through to settings; the overlay service reads it
+     * per flick, so the change is felt on the next flick without restarting anything.
+     */
+    fun setPillFlickFriction(friction: Float) {
+        val clamped = friction.coerceIn(
+            AppSettings.MIN_PILL_FLICK_FRICTION,
+            AppSettings.MAX_PILL_FLICK_FRICTION,
+        )
+        settings.pillFlickFriction = clamped
+        _pillFlickFriction.value = clamped
     }
 
     /** What the tier policy would decide for the next utterance, for the screen to display. */

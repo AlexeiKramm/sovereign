@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
@@ -40,6 +41,8 @@ import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.SeamHealer
 import fi.ak.smartvoice.data.AppSettings
+import fi.ak.smartvoice.data.AppThemeMode
+import fi.ak.smartvoice.data.CleaningProfile
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
@@ -97,6 +100,78 @@ class FloatingOverlayService : Service() {
     private var audioLevel by mutableFloatStateOf(0f)
     private var isProcessing by mutableStateOf(false)
     private var statusNote by mutableStateOf<String?>(null)
+    /** Non-null when cleanup failed: the card shows raw ASR and a friendly warning. */
+    private var errorMessage by mutableStateOf<String?>(null)
+    /** Drives the resting pill's breathing: it animates only while the cleanup model is ready. */
+    private var cleanupModelLoaded by mutableStateOf(false)
+    private var quickSettingsOpen by mutableStateOf(false)
+    private var darkTheme by mutableStateOf(false)
+    private var profiles by mutableStateOf(emptyList<CleaningProfile>())
+    private var activeProfileId by mutableStateOf("")
+
+    // Drag / fling state. The pill's position is kept as floats so a slow drag is not truncated
+    // into never moving; it is flushed to the window at most once per frame.
+    private var dragOffsetX = 0f
+    private var dragOffsetY = 0f
+    private var isDragging = false
+    private var dragFlushScheduled = false
+    private val dragVelocity = DragVelocityTracker()
+
+    // Fling: one decaying velocity vector for both axes (see PillFling), stepped per frame.
+    private var fling = PillFling()
+    private var flingVelocityX = 0f
+    private var flingVelocityY = 0f
+    private var flingLastNanos = 0L
+    private var flingStartedAtNanos = 0L
+    private var flingStartX = 0f
+    private var flingStartY = 0f
+
+    private val dragFlush = Runnable {
+        dragFlushScheduled = false
+        applyWindowPosition()
+    }
+
+    private val flingTick = object : Runnable {
+        override fun run() {
+            val startedAt = flingLastNanos
+            if (startedAt == 0L) return
+            val now = System.nanoTime()
+            // A dropped frame should not teleport the pill; cap the step at ~3 frames.
+            val dtSeconds = ((now - startedAt) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            flingLastNanos = now
+
+            val step = fling.advance(dragOffsetX, dragOffsetY, flingVelocityX, flingVelocityY, dtSeconds)
+            flingVelocityX = step.velocityX
+            flingVelocityY = step.velocityY
+
+            // Bounce nothing: hitting an edge drops only the outward component, so the pill slides
+            // along the edge while the rest of the momentum bleeds off.
+            val (maxX, maxY) = maxOffsets()
+            var nextX = step.x
+            var nextY = step.y
+            if (nextX < 0f || nextX > maxX) {
+                nextX = nextX.coerceIn(0f, maxX.toFloat())
+                flingVelocityX = 0f
+            }
+            if (nextY < 0f || nextY > maxY) {
+                nextY = nextY.coerceIn(0f, maxY.toFloat())
+                flingVelocityY = 0f
+            }
+            dragOffsetX = nextX
+            dragOffsetY = nextY
+            pushWindowPosition()
+
+            if (fling.isFinished(flingVelocityX, flingVelocityY)) {
+                val travelled = kotlin.math.hypot(dragOffsetX - flingStartX, dragOffsetY - flingStartY)
+                val elapsedMs = (System.nanoTime() - flingStartedAtNanos) / 1_000_000
+                Log.i(TAG, "Fling settled: travelled %.0f px in %d ms".format(travelled, elapsedMs))
+                stopFling()
+                persistPillPosition()
+                return
+            }
+            composeView?.postOnAnimation(this)
+        }
+    }
 
     // Accumulators
     private val rawTextAccumulator = StringBuilder()
@@ -127,6 +202,8 @@ class FloatingOverlayService : Service() {
         createNotificationChannel()
         startForegroundWithNotification()
 
+        darkTheme = resolveDarkTheme()
+        refreshProfiles()
         setupEngines()
         setupOverlayView()
         updateOverlayVisibility()
@@ -141,6 +218,13 @@ class FloatingOverlayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        darkTheme = resolveDarkTheme()
+        // The display may have rotated or resized: re-clamp so the pill cannot be stranded off-screen.
+        composeView?.post { applyWindowPosition() }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (instance == this) {
@@ -151,6 +235,7 @@ class FloatingOverlayService : Service() {
         scope.cancel()
         localEngine.unload()
         cleanupEngine?.unload()
+        cleanupModelLoaded = false
         asrDispatcher.close()
         cleanupDispatcher.close()
         Log.i(TAG, "FloatingOverlayService destroyed")
@@ -248,8 +333,9 @@ class FloatingOverlayService : Service() {
         }
 
         val density = resources.displayMetrics.density
-        val initialX = (16 * density).toInt()
-        val initialY = (90 * density).toInt()
+        val start = PillDock.restore(settings.floatingPillX, settings.floatingPillY, density)
+        dragOffsetX = start.x.toFloat()
+        dragOffsetY = start.y.toFloat()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -260,8 +346,8 @@ class FloatingOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.END
-            x = initialX
-            y = initialY
+            x = start.x
+            y = start.y
         }
         layoutParams = params
 
@@ -269,20 +355,42 @@ class FloatingOverlayService : Service() {
             overlayOwner.attach(this)
             setContent {
                 FloatingDictationOverlay(
+                    darkTheme = darkTheme,
                     uiState = uiState,
                     previewText = previewText,
                     rawText = rawText,
-                    audioLevel = audioLevel,
+                    audioLevel = { audioLevel },
                     isProcessing = isProcessing,
                     statusNote = statusNote,
+                    errorMessage = errorMessage,
+                    modelReady = cleanupModelLoaded,
+                    profiles = profiles,
+                    activeProfileId = activeProfileId,
+                    quickSettingsOpen = quickSettingsOpen,
                     onPillClicked = { startOrResumeRecording(fresh = true) },
                     onCancel = ::cancelSession,
                     onToggleRecording = ::toggleRecording,
                     onCommit = ::commitSession,
                     onReprocessFullText = ::reprocessFullText,
-                    onDrag = ::handleDrag,
-                )
+                    onToggleQuickSettings = {
+                        quickSettingsOpen = !quickSettingsOpen
+                        // The active profile can change from Home or the Profiles tab while the pill
+                        // lives on; re-read on open so the sheet's radio never shows a stale choice.
+                        // (Cleanup itself always reads the store at use time, so this is display only.)
+                        if (quickSettingsOpen) refreshProfiles()
+                    },
+                    onSelectProfile = ::selectProfile,
+                    onDragStart = ::beginDrag,
+                    onDragBy = ::dragBy,
+                    onDragEnd = ::endDrag,
+                    onDragCancel = ::endDragWithoutFling,                )
             }
+        }
+
+        // The expanded card is wider than the resting pill, so a size change can leave the window
+        // hanging off the edge: re-clamp after every layout, but never while the user is moving it.
+        view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (!isDragging && flingLastNanos == 0L) applyWindowPosition()
         }
 
         composeView = view
@@ -294,6 +402,7 @@ class FloatingOverlayService : Service() {
     }
 
     private fun removeOverlayView() {
+        stopFling()
         composeView?.let { view ->
             try {
                 windowManager.removeView(view)
@@ -306,18 +415,160 @@ class FloatingOverlayService : Service() {
         overlayLifecycleOwner = null
     }
 
-    private fun handleDrag(dx: Float, dy: Float) {
+    // --- Dragging ---
+    //
+    // `updateViewLayout` is a real window relayout, so the old code's one-call-per-pointer-event
+    // could miss frames at 120 Hz. Instead the pointer deltas accumulate in floats and a single
+    // frame-coalesced flush writes them to the window. The release velocity comes from the window
+    // offset's own trajectory (`DragVelocityTracker`) and the glide from `PillFling` — one decaying
+    // vector for both axes, so a diagonal flick stays diagonal.
+
+    private fun beginDrag() {
+        stopFling()
+        isDragging = true
+        layoutParams?.let {
+            dragOffsetX = it.x.toFloat()
+            dragOffsetY = it.y.toFloat()
+        }
+        dragVelocity.reset(System.nanoTime(), dragOffsetX, dragOffsetY)
+    }
+
+    private fun dragBy(dx: Float, dy: Float) {
+        // Gravity is BOTTOM | END: moving the finger right/up decreases x/y (the distance from
+        // the anchored corner). Both axes are treated identically.
+        dragOffsetX -= dx
+        dragOffsetY -= dy
+        dragVelocity.sample(System.nanoTime(), dragOffsetX, dragOffsetY)
+        if (!dragFlushScheduled) {
+            dragFlushScheduled = true
+            composeView?.postOnAnimation(dragFlush)
+        }
+    }
+
+    private fun endDrag() {
+        isDragging = false
+        val view = composeView
+        val velocity = dragVelocity.velocity()
+        if (view == null || velocity.speed < FLING_MIN_VELOCITY_PX_PER_SECOND) {
+            applyWindowPosition()
+            persistPillPosition()
+            return
+        }
+
+        // Read the friction per flick, so tuning it in Settings takes effect immediately.
+        fling = PillFling(settings.pillFlickFriction)
+        flingVelocityX = velocity.x
+        flingVelocityY = velocity.y
+        flingStartedAtNanos = System.nanoTime()
+        flingStartX = dragOffsetX
+        flingStartY = dragOffsetY
+        flingLastNanos = flingStartedAtNanos
+        view.postOnAnimation(flingTick)
+        Log.i(
+            TAG,
+            "Fling %.0f px/s (friction %.1f/s -> predicted ~%.0f px)".format(
+                velocity.speed,
+                settings.pillFlickFriction,
+                fling.travelFor(velocity.speed),
+            ),
+        )
+    }
+
+    private fun endDragWithoutFling() {
+        isDragging = false
+        stopFling()
+        applyWindowPosition()
+        persistPillPosition()
+    }
+
+    private fun stopFling() {
+        flingVelocityX = 0f
+        flingVelocityY = 0f
+        flingLastNanos = 0L
+    }
+
+    /** Clamps the pending position to the screen and writes it to the window if it changed. */
+    private fun applyWindowPosition() {
         val params = layoutParams ?: return
         val view = composeView ?: return
-        // Since gravity is BOTTOM | END, dragging left (dx < 0) increases x distance from END
-        params.x = (params.x - dx.toInt()).coerceAtLeast(0)
-        // Dragging up (dy < 0) increases y distance from BOTTOM
-        params.y = (params.y - dy.toInt()).coerceAtLeast(0)
+        val clamped = clampToScreen(view)
+        // Only the clamped case collapses the fractional offset: staying in bounds must keep the
+        // fraction, or a slow drag would lose sub-pixel movement and the fling's per-frame edge
+        // check would misread every frame as "clamped".
+        if (clamped != desiredPoint()) {
+            dragOffsetX = clamped.x.toFloat()
+            dragOffsetY = clamped.y.toFloat()
+        }
+        writeWindowPosition(clamped)
+    }
+
+    /** Writes the window pixels without touching the fractional offsets — used by the fling. */
+    private fun pushWindowPosition() {
+        val view = composeView ?: return
+        writeWindowPosition(clampToScreen(view))
+    }
+
+    private fun writeWindowPosition(point: PillPoint) {
+        val params = layoutParams ?: return
+        val view = composeView ?: return
+        if (params.x == point.x && params.y == point.y) return
+        params.x = point.x
+        params.y = point.y
         try {
             windowManager.updateViewLayout(view, params)
         } catch (e: Exception) {
             Log.e(TAG, "Error updating overlay layout", e)
         }
+    }
+
+    private fun desiredPoint(): PillPoint = PillPoint(dragOffsetX.toInt(), dragOffsetY.toInt())
+
+    private fun clampToScreen(view: View): PillPoint {
+        val margin = (PillDock.DRAG_MARGIN_DP * resources.displayMetrics.density).toInt()
+        val screen = windowManager.currentWindowMetrics.bounds
+        return PillDock.clamp(
+            point = desiredPoint(),
+            screenWidthPx = screen.width(),
+            screenHeightPx = screen.height(),
+            viewWidthPx = view.width,
+            viewHeightPx = view.height,
+            marginPx = margin,
+        )
+    }
+
+    /** The largest offsets that still keep the whole view on screen. */
+    private fun maxOffsets(): Pair<Int, Int> {
+        val view = composeView ?: return 0 to 0
+        val margin = (PillDock.DRAG_MARGIN_DP * resources.displayMetrics.density).toInt()
+        val screen = windowManager.currentWindowMetrics.bounds
+        return (screen.width() - view.width - margin).coerceAtLeast(0) to
+            (screen.height() - view.height - margin).coerceAtLeast(0)
+    }
+
+    private fun persistPillPosition() {
+        val params = layoutParams ?: return
+        settings.floatingPillX = params.x
+        settings.floatingPillY = params.y
+    }
+
+    private fun resolveDarkTheme(): Boolean = when (settings.themeMode) {
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+        AppThemeMode.SYSTEM -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    }
+
+    private fun refreshProfiles() {
+        profiles = profileStore.allProfiles()
+        activeProfileId = profileStore.activeProfile().id
+    }
+
+    /** Switches the active profile from the pill's quick settings, without opening the app. */
+    private fun selectProfile(id: String) {
+        profileStore.setActiveProfile(id)
+        refreshProfiles()
+        quickSettingsOpen = false
+        Log.i(TAG, "Active profile switched to $id")
     }
 
     fun onKeyboardOrFocusChanged(keyboardOpen: Boolean, editableFocus: Boolean) {
@@ -345,7 +596,13 @@ class FloatingOverlayService : Service() {
         scope.launch(cleanupDispatcher) {
             val engine = engineForUtterance()
             if (!engine.isLoaded) {
-                engine.load()
+                val result = engine.load()
+                cleanupModelLoaded = engine.isLoaded
+                if (result.isFailure) {
+                    Log.w(TAG, "Cleanup model prefetch failed: ${result.exceptionOrNull()?.message}")
+                }
+            } else {
+                cleanupModelLoaded = true
             }
         }
     }
@@ -388,6 +645,8 @@ class FloatingOverlayService : Service() {
         uiState = FloatingUiState.RECORDING
         audioLevel = 0f
         statusNote = null
+        errorMessage = null
+        quickSettingsOpen = false
 
         if (fresh) {
             previewText = ""
@@ -536,13 +795,18 @@ class FloatingOverlayService : Service() {
             val engine = engineForUtterance()
             if (!engine.isLoaded) {
                 val loadRes = engine.load()
+                cleanupModelLoaded = engine.isLoaded
                 if (loadRes.isFailure) {
+                    // Reviews are non-destructive: the text on screen is already safe, so this is
+                    // an advisory note rather than the raw-text fallback treatment.
                     withContext(Dispatchers.Main.immediate) {
                         isProcessing = false
-                        statusNote = "Failed to load cleanup model"
+                        statusNote = "Couldn't reload the cleanup model"
                     }
                     return@launch
                 }
+            } else {
+                cleanupModelLoaded = true
             }
 
             val activeProfile = profileStore.activeProfile()
@@ -577,6 +841,8 @@ class FloatingOverlayService : Service() {
         rawText = ""
         audioLevel = 0f
         statusNote = null
+        errorMessage = null
+        quickSettingsOpen = false
         isProcessing = false
         rawTextAccumulator.clear()
         committedText.clear()
@@ -616,15 +882,19 @@ class FloatingOverlayService : Service() {
                 // recording and the ASR pipeline keep running normally on their own threads).
                 if (!engine.isLoaded) {
                     val loadResult = withContext(cleanupDispatcher) { engine.load() }
+                    cleanupModelLoaded = engine.isLoaded
                     if (loadResult.isFailure) {
-                        val reason = loadResult.exceptionOrNull()?.message ?: "unknown"
-                        Log.e(TAG, "LLM cleanup engine failed to load: $reason")
-                        statusNote = "⚠ LLM unavailable: $reason"
+                        // Never surface the exception text: it is noise to a user mid-sentence.
+                        // The raw ASR still lands below, so no words are lost.
+                        Log.e(TAG, "LLM cleanup engine failed to load: ${loadResult.exceptionOrNull()?.message}")
+                        errorMessage = CLEANUP_UNAVAILABLE
                         // Fall through to raw-append below
                     }
                 }
 
                 if (engine.isLoaded) {
+                    cleanupModelLoaded = true
+                    errorMessage = null
                     if (!cleanupEngaged) {
                         cleanupPipeline.begin(committedText.toString())
                         cleanupEngaged = true
@@ -723,6 +993,7 @@ class FloatingOverlayService : Service() {
         cleanupEngine?.let { existing ->
             if (existing.isServing(settings)) return existing
             existing.unload()
+            cleanupModelLoaded = false
         }
         return LiteRtLmCleanupEngine(
             context = this,
@@ -753,6 +1024,7 @@ class FloatingOverlayService : Service() {
 
         override fun unload() {
             cleanupEngine?.unload()
+            cleanupModelLoaded = false
         }
 
         override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
@@ -771,6 +1043,12 @@ class FloatingOverlayService : Service() {
         private const val TAG = "FloatingOverlay"
         private const val CHANNEL_ID = "smartvoice_floating_pill"
         private const val NOTIFICATION_ID = 4001
+
+        /** Below this release speed a fling is not worth starting; the pill just settles. */
+        private const val FLING_MIN_VELOCITY_PX_PER_SECOND = 120f
+
+        /** The error state's user-facing line. Deliberately says nothing about exceptions. */
+        const val CLEANUP_UNAVAILABLE = "Cleanup is unavailable — showing your words as spoken."
 
         @Volatile
         var instance: FloatingOverlayService? = null
