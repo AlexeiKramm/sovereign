@@ -350,11 +350,16 @@ fun ExpandedCardView(
     ) {
         AnimatedContent(
             targetState = settingsOpen,
-            // A small cross-slide reads as the card turning over. The container is fixed, so this
-            // animation cannot change the card's — or the window's — size.
+            // Direction is chosen from *where we are going*, not from the previous animation, so a
+            // rapid double-tap cannot flip it: opening always slides the settings in from the right
+            // (card turns right→left) and returning always slides the dictation in from the left.
             transitionSpec = {
-                (fadeIn(tween(Motion.fastMs)) + slideInHorizontally { it / 5 }) togetherWith
-                    (fadeOut(tween(Motion.fastMs)) + slideOutHorizontally { -it / 5 })
+                val incomingFromRight = targetState
+                val incoming = fadeIn(tween(Motion.fastMs)) +
+                    slideInHorizontally { if (incomingFromRight) it / 5 else -it / 5 }
+                val outgoing = fadeOut(tween(Motion.fastMs)) +
+                    slideOutHorizontally { if (incomingFromRight) -it / 5 else it / 5 }
+                incoming togetherWith outgoing
             },
             modifier = Modifier.fillMaxSize(),
             label = "pill-card-view",
