@@ -57,6 +57,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.Executors
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.Manifest
@@ -430,7 +431,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         settings.pauseSilenceSeconds = parsed
         localEngine.applyPauseSilence(parsed)
         _loadProbe.value = null
-        _timingNote.value = "Sentence pause set to %.1f s".format(parsed)
+        _timingNote.value = String.format(Locale.US, "Sentence pause set to %.1f s", parsed)
     }
 
     fun onStopFieldChange(text: String) {
@@ -441,8 +442,21 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _timingNote.value = if (parsed == 0f) {
             "Auto-stop disabled (manual stop only)"
         } else {
-            "Auto-stop set to %.1f s".format(parsed)
+            String.format(Locale.US, "Auto-stop set to %.1f s", parsed)
         }
+    }
+
+    /**
+     * Slider entry points for the Basic screen's two timing selectors. The slider owns the 0.5 s
+     * step; these keep the single write path — settings, the recogniser's config and the status
+     * note — in one place rather than duplicating it in the screen.
+     */
+    fun setPauseSilenceSeconds(seconds: Float) {
+        onPauseFieldChange(ListenerTimings.formatSeconds(seconds))
+    }
+
+    fun setStopAfterSilenceSeconds(seconds: Float) {
+        onStopFieldChange(ListenerTimings.formatSeconds(seconds))
     }
 
     fun onHealingSentencesCountChange(count: Int) {

@@ -1,16 +1,26 @@
 package fi.ak.smartvoice.ui.settings
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -18,37 +28,33 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
@@ -56,10 +62,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,32 +72,37 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
 import fi.ak.smartvoice.data.LiteRtProcessor
-import fi.ak.smartvoice.device.DeviceHardware
 import fi.ak.smartvoice.engine.EnginePreference
 import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
-import fi.ak.smartvoice.theme.BadgeOrange
-import fi.ak.smartvoice.theme.BadgeSlate
+import fi.ak.smartvoice.theme.Motion
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ServerStatus
 import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
-import fi.ak.smartvoice.ui.models.ModelsScreen
-import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import fi.ak.smartvoice.ui.components.SettingsItemRow
 import fi.ak.smartvoice.ui.components.SettingsSectionHeader
+import fi.ak.smartvoice.ui.components.SettingsSliderRow
+import fi.ak.smartvoice.ui.components.SettingsToggleRow
 import fi.ak.smartvoice.ui.components.SubScreenHost
+import fi.ak.smartvoice.ui.models.ModelsScreen
 import fi.ak.smartvoice.ui.stats.StatsScreen
+import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
+import java.util.Locale
 
 enum class SettingsSubScreen {
     MAIN,
@@ -102,8 +110,15 @@ enum class SettingsSubScreen {
     BENCHMARK,
     MODELS,
     TRANSCRIBE,
+    LEGACY,
 }
 
+/**
+ * Settings, split the way the plan asks: a **Basic** surface of plain-language controls with a
+ * collapsed **Advanced** section underneath, then the diagnostics tools, then a deliberately
+ * quiet **Legacy** door for the development knobs (pill master switch, transcription mode, server
+ * URL, flick feel) that most people never touch. Nothing was removed; only re-homed.
+ */
 @Composable
 fun SettingsScreen(
     viewModel: DictationViewModel,
@@ -145,6 +160,15 @@ fun SettingsScreen(
             }
             return
         }
+        SettingsSubScreen.LEGACY -> {
+            SubScreenHost(
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+                modifier = modifier,
+            ) {
+                LegacySettingsScreen(viewModel = viewModel)
+            }
+            return
+        }
         SettingsSubScreen.MAIN -> {
             // Render main settings below
         }
@@ -152,34 +176,25 @@ fun SettingsScreen(
 
     val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
-    val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
-    val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
-    val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
-    val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
-    val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
-    val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
-    val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
-    val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
-    val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
-    val litertCompatNote by viewModel.litertCompatibilityNote.collectAsStateWithLifecycle()
-    val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
-    val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
-    val hwProfile = remember { DeviceHardware.getProfile(context) }
-
-    val floatingPillEnabled by viewModel.floatingPillEnabled.collectAsStateWithLifecycle()
     val floatingPillOnlyWhenKeyboardOpen by viewModel.floatingPillOnlyWhenKeyboardOpen.collectAsStateWithLifecycle()
     val floatingPillAutoCommit by viewModel.floatingPillAutoCommit.collectAsStateWithLifecycle()
-    val pillFlickFriction by viewModel.pillFlickFriction.collectAsStateWithLifecycle()
-    val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
-    val isAccessibilityPermissionGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
 
-    LifecycleResumeEffect(Unit) {
-        viewModel.refreshFloatingPillPermissions()
-        onPauseOrDispose { }
-    }
+    // The user's choice: Advanced is always collapsed on arrival, never remembered. Declared after
+    // the sub-screen branches so returning from one also starts it collapsed.
+    var advancedExpanded by remember { mutableStateOf(false) }
+
+    val pauseSeconds = SettingsControls.snap(
+        pauseField.seconds ?: AppSettings.DEFAULT_PAUSE_SILENCE_S,
+        SettingsControls.PAUSE_MIN_SECONDS,
+        SettingsControls.PAUSE_MAX_SECONDS,
+    )
+    val stopSeconds = SettingsControls.snap(
+        stopField.seconds ?: AppSettings.DEFAULT_STOP_AFTER_SILENCE_S,
+        SettingsControls.STOP_MIN_SECONDS,
+        SettingsControls.STOP_MAX_SECONDS,
+    )
 
     Column(
         modifier = modifier
@@ -196,14 +211,68 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Appearance, performance, and voice settings",
+                text = "Appearance, dictation, and voice settings",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        // --- 0. SETUP ---
-        SettingsSectionHeader(title = "Setup")
+        // --- APPEARANCE (Basic) ---
+        AppearanceCard(
+            themeMode = themeMode,
+            onThemeModeChange = viewModel::setThemeMode,
+        )
+
+        // --- DICTATION (Basic) ---
+        SettingsSectionHeader(title = "Dictation")
+        SettingsGroupCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                SettingsSliderRow(
+                    title = "Pause sensitivity",
+                    subtitle = "How long a pause splits your speech into a new segment",
+                    value = pauseSeconds,
+                    valueLabel = SettingsControls.formatSeconds(pauseSeconds),
+                    valueRange = SettingsControls.PAUSE_MIN_SECONDS..SettingsControls.PAUSE_MAX_SECONDS,
+                    steps = SettingsControls.PAUSE_STEPS,
+                    onValueChange = viewModel::setPauseSilenceSeconds,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsSliderRow(
+                    title = "Auto-stop silence",
+                    subtitle = "How long silence turns the mic off automatically",
+                    value = stopSeconds,
+                    valueLabel = SettingsControls.formatSeconds(stopSeconds),
+                    valueRange = SettingsControls.STOP_MIN_SECONDS..SettingsControls.STOP_MAX_SECONDS,
+                    steps = SettingsControls.STOP_STEPS,
+                    onValueChange = viewModel::setStopAfterSilenceSeconds,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsToggleRow(
+                    title = "Show pill only when keyboard is open",
+                    subtitle = "Hides the pill when you're not typing anywhere",
+                    checked = floatingPillOnlyWhenKeyboardOpen,
+                    onCheckedChange = viewModel::setFloatingPillOnlyWhenKeyboardOpen,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsToggleRow(
+                    title = "Auto-insert on silence",
+                    subtitle = "Automatically inserts text when the mic stops",
+                    checked = floatingPillAutoCommit,
+                    onCheckedChange = viewModel::setFloatingPillAutoCommit,
+                )
+            }
+        }
+
+        // --- RUN SETUP (kept in Basic, deliberately low-key) ---
         SettingsGroupCard {
             SettingsItemRow(
                 title = "Run setup again",
@@ -211,8 +280,8 @@ fun SettingsScreen(
                 badge = {
                     SettingsIconBadge(
                         icon = Icons.Default.Refresh,
-                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
                         contentDescription = "Setup wizard",
                     )
                 },
@@ -227,64 +296,269 @@ fun SettingsScreen(
             )
         }
 
-        // --- 1. APPEARANCE & THEME ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SettingsIconBadge(
-                        icon = Icons.Default.Palette,
-                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        contentDescription = "Theme",
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "App Theme",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Choose light, dark, or follow your system Android theme",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+        // --- ADVANCED (collapsed, visually quieter) ---
+        AdvancedSettingsSection(
+            viewModel = viewModel,
+            expanded = advancedExpanded,
+            onToggle = { advancedExpanded = !advancedExpanded },
+        )
 
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    AppThemeMode.entries.forEachIndexed { index, mode ->
-                        SegmentedButton(
-                            selected = themeMode == mode,
-                            onClick = { viewModel.setThemeMode(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = AppThemeMode.entries.size),
-                            label = { Text(mode.label) },
-                        )
-                    }
+        // --- DIAGNOSTICS & TOOLS ---
+        SettingsSectionHeader(title = "Diagnostics & Tools")
+        SettingsGroupCard {
+            SettingsItemRow(
+                title = "Usage & Battery Statistics",
+                subtitle = "Audio metrics, power draw, and transcription history",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.BarChart,
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        contentDescription = "Usage Statistics",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open Usage Stats",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.STATS },
+            )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Model Benchmarking",
+                subtitle = "Measure ASR RTF and LLM tokens/sec latency",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Speed,
+                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        contentDescription = "Model Benchmarks",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open Benchmarks",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
+            )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Voice & AI models",
+                subtitle = "Download, switch, and free up storage for on-device models",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Cloud,
+                        badgeColor = BadgeBlue,
+                        iconTint = Color.White,
+                        contentDescription = "Models",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open model manager",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.MODELS },
+            )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Transcribe a test",
+                subtitle = "Record or pick an audio file to check the pipeline",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.GraphicEq,
+                        badgeColor = BadgeGreen,
+                        iconTint = Color.White,
+                        contentDescription = "Transcribe test",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open transcribe test",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.TRANSCRIBE },
+            )
+        }
+
+        // --- LEGACY & DEVELOPMENT ---
+        SettingsGroupCard {
+            SettingsItemRow(
+                title = "Legacy & development settings",
+                subtitle = "Pill switch, transcription mode, server, and flick feel",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Build,
+                        badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        contentDescription = "Legacy settings",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open legacy settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.LEGACY },
+            )
+        }
+
+        // --- ABOUT / BUILD INFO ---
+        Text(
+            text = "Smart Voice v${buildVersion(context)} • Local On-Device AI",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(bottom = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun AppearanceCard(
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+) {
+    SettingsGroupCard {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SettingsIconBadge(
+                    icon = Icons.Default.Palette,
+                    badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                    iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    contentDescription = "Theme",
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "App Theme",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Choose light, dark, or follow your system Android theme",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                AppThemeMode.entries.forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = themeMode == mode,
+                        onClick = { onThemeModeChange(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = AppThemeMode.entries.size),
+                        label = { Text(mode.label) },
+                    )
                 }
             }
         }
+    }
+}
 
-        // --- 2. HARDWARE ACCELERATION ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+/**
+ * The collapsed Advanced section: model and memory controls, all of which existed before. It opens
+ * with a quiet row and a cross-fade/height animation, and starts collapsed every time.
+ */
+@Composable
+private fun AdvancedSettingsSection(
+    viewModel: DictationViewModel,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
+    val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
+    val litertCompatNote by viewModel.litertCompatibilityNote.collectAsStateWithLifecycle()
+    val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
+    val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
+    val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
+    val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
+    val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
+    val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
+    val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
+
+    SettingsGroupCard(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SettingsIconBadge(
+                icon = Icons.Default.Tune,
+                badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                contentDescription = null,
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Advanced",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "Model and memory controls",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse advanced settings" else "Expand advanced settings",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(animationSpec = tween(Motion.standardMs)) +
+                fadeIn(animationSpec = tween(Motion.standardMs)),
+            exit = shrinkVertically(animationSpec = tween(Motion.fastMs)) +
+                fadeOut(animationSpec = tween(Motion.fastMs)),
+        ) {
+            Column(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                SettingsDivider(startIndent = 0.dp)
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.Memory,
                         badgeColor = BadgeGreen,
-                        contentDescription = "Hardware Acceleration",
+                        contentDescription = "Hardware acceleration",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Hardware Acceleration",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
+                            text = "AI cleanup processor",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Processor used for on-device AI cleanup:",
+                            text = "Where the on-device AI cleanup runs",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -302,7 +576,6 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
                             .selectable(
                                 selected = isSelected,
                                 enabled = isSupported,
@@ -367,83 +640,271 @@ fun SettingsScreen(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.align(Alignment.End),
                 ) {
-                    Text("Re-test Compatibility", style = MaterialTheme.typography.labelMedium)
+                    Text("Re-test compatibility", style = MaterialTheme.typography.labelMedium)
                 }
 
                 SettingsDivider(startIndent = 0.dp)
 
                 val modelSupportsSpeculative = selectedLitertModel.supportsSpeculativeDecoding
+                SettingsToggleRow(
+                    title = "Speculative decoding",
+                    subtitle = if (modelSupportsSpeculative) {
+                        "Predicts multiple tokens at once for faster cleanup"
+                    } else {
+                        "The selected model does not include speculative drafting heads"
+                    },
+                    checked = litertSpeculativeDecoding && modelSupportsSpeculative,
+                    enabled = modelSupportsSpeculative,
+                    onCheckedChange = viewModel::setLitertSpeculativeDecoding,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                HealingSentencesStepper(
+                    count = healingSentencesCount,
+                    onCountChange = viewModel::onHealingSentencesCountChange,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Idle memory timeout",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Unload models automatically after a period of inactivity",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    IdleTimeoutDropdownSelector(
+                        selectedMinutes = idleTimeoutMinutes,
+                        onMinutesSelected = viewModel::onModelIdleTimeoutMinutesChange,
+                    )
+                }
+
+                SettingsDivider(startIndent = 0.dp)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SettingsIconBadge(
+                        icon = Icons.Default.BatteryChargingFull,
+                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        contentDescription = "Battery and memory",
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Battery & memory",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                SettingsToggleRow(
+                    title = "Unload models on screen off",
+                    subtitle = "Frees ~1.5 GB RAM while the device is locked",
+                    checked = unloadOnScreenOff,
+                    onCheckedChange = viewModel::onUnloadOnScreenOffChange,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsToggleRow(
+                    title = "Unload models on keyboard close",
+                    subtitle = "Frees RAM when the keyboard is dismissed (the next tap reloads)",
+                    checked = unloadOnKeyboardClose,
+                    onCheckedChange = viewModel::onUnloadOnKeyboardCloseChange,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Speculative Decoding (MTP)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            ) {
-                                Text(
-                                    text = if (modelSupportsSpeculative) "Supported" else "Unsupported",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (modelSupportsSpeculative) BadgeGreen else MaterialTheme.colorScheme.outline,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
+                    timingNote?.let { note ->
                         Text(
-                            text = if (modelSupportsSpeculative) {
-                                "Accelerates token generation by predicting multiple tokens in parallel with embedded drafter heads"
-                            } else {
-                                "The selected model does not include speculative drafting heads"
-                            },
+                            text = note,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
                         )
                     }
-                    Switch(
-                        checked = litertSpeculativeDecoding && modelSupportsSpeculative,
-                        enabled = modelSupportsSpeculative,
-                        onCheckedChange = { viewModel.setLitertSpeculativeDecoding(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary,
-                        ),
+                    OutlinedButton(
+                        onClick = { viewModel.resetTimingsToDefaults() },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Text("Reset defaults", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealingSentencesStepper(
+    count: Int,
+    onCountChange: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 16.dp),
+        ) {
+            Text(
+                text = "Healing sentences",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "How many previous sentences the AI uses as context when cleaning up",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = { onCountChange((count - 1).coerceAtLeast(0)) },
+                enabled = count > 0,
+            ) {
+                Icon(Icons.Default.Remove, contentDescription = "Fewer sentences")
+            }
+            Text(
+                text = count.toString(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(28.dp),
+            )
+            IconButton(
+                onClick = { onCountChange((count + 1).coerceAtMost(10)) },
+                enabled = count < 10,
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "More sentences")
+            }
+        }
+    }
+}
+
+/**
+ * The Legacy sub-screen: the development knobs that used to crowd the main Settings surface.
+ * The pill master switch lives here because the pill is now the app's only dictation surface —
+ * turning it off is a developer action, not a daily toggle.
+ */
+@Composable
+private fun LegacySettingsScreen(viewModel: DictationViewModel) {
+    val context = LocalContext.current
+    val floatingPillEnabled by viewModel.floatingPillEnabled.collectAsStateWithLifecycle()
+    val pillFlickFriction by viewModel.pillFlickFriction.collectAsStateWithLifecycle()
+    val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
+    val isAccessibilityPermissionGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
+    val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
+    val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
+    val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
+
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshFloatingPillPermissions()
+        onPauseOrDispose { }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Legacy",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Development and diagnostic controls. Most people never need these.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SettingsSectionHeader(title = "Dictation pill")
+        SettingsGroupCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                SettingsToggleRow(
+                    title = "Floating dictation pill",
+                    subtitle = "The pill is the app's only dictation surface. Turning it off leaves no way to dictate.",
+                    checked = floatingPillEnabled,
+                    onCheckedChange = viewModel::setFloatingPillEnabled,
+                )
+
+                if (floatingPillEnabled) {
+                    if (!isOverlayPermissionGranted || !isAccessibilityPermissionGranted) {
+                        SettingsDivider(startIndent = 0.dp)
+                        PermissionWarningCard(
+                            context = context,
+                            overlayGranted = isOverlayPermissionGranted,
+                            accessibilityGranted = isAccessibilityPermissionGranted,
+                        )
+                    }
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsSliderRow(
+                        title = "Flick friction",
+                        subtitle = "How far the pill glides after you flick it. Higher stops sooner.",
+                        value = pillFlickFriction,
+                        valueLabel = String.format(Locale.US, "%.0f", pillFlickFriction),
+                        valueRange = AppSettings.MIN_PILL_FLICK_FRICTION..AppSettings.MAX_PILL_FLICK_FRICTION,
+                        steps = 54,
+                        onValueChange = viewModel::setPillFlickFriction,
                     )
                 }
             }
         }
 
-        // --- 3. TRANSCRIPTION MODE ---
+        SettingsSectionHeader(title = "Transcription")
         SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SettingsIconBadge(
                         icon = Icons.Default.Mic,
                         badgeColor = MaterialTheme.colorScheme.primaryContainer,
                         iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        contentDescription = "Engine Mode",
+                        contentDescription = "Transcription mode",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Transcription Mode",
+                            text = "Transcription mode",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Choose between local on-device transcription and server tier",
+                            text = "Local on-device or self-hosted server",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -455,7 +916,6 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
                             .selectable(
                                 selected = isSelected,
                                 onClick = { viewModel.onEnginePreferenceChange(pref) },
@@ -479,8 +939,8 @@ fun SettingsScreen(
                             )
                             Text(
                                 text = when (pref) {
-                                    EnginePreference.LOCAL -> "On-Device: Fully private and offline with zero network calls"
-                                    EnginePreference.REMOTE -> "Self-Hosted: Transcribes via your private server"
+                                    EnginePreference.LOCAL -> "On-Device: fully private and offline with zero network calls"
+                                    EnginePreference.REMOTE -> "Self-Hosted: transcribes via your private server"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -488,445 +948,8 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
-        }
-
-        // --- 4. FLOATING DICTATION PILL (WISPR FLOW) ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SettingsIconBadge(
-                        icon = Icons.Default.GraphicEq,
-                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        contentDescription = "Floating Dictation Pill",
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Floating Dictation Pill",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Wispr Flow-style floating mic over any active keyboard",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = floatingPillEnabled,
-                        onCheckedChange = { enabled ->
-                            viewModel.setFloatingPillEnabled(enabled)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
-                }
-
-                if (floatingPillEnabled) {
-                    SettingsDivider(startIndent = 0.dp)
-
-                    // Permission Warnings & Deep links if needed
-                    if (!isOverlayPermissionGranted || !isAccessibilityPermissionGranted) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = "Permissions Required",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                                Text(
-                                    text = "The floating pill needs 'Display over other apps' to float on screen and 'Accessibility Service' to detect keyboards and inject dictation.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    if (!isOverlayPermissionGranted) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                val intent = Intent(
-                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                                    Uri.parse("package:${context.packageName}")
-                                                )
-                                                context.startActivity(intent)
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text("Grant Overlay", style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
-                                    if (!isAccessibilityPermissionGranted) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                                context.startActivity(intent)
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text("Enable Accessibility", style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Setting 1: Only when keyboard is open (Default: true)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                viewModel.setFloatingPillOnlyWhenKeyboardOpen(!floatingPillOnlyWhenKeyboardOpen)
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Only when keyboard is open",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Pill automatically shows when another keyboard opens and hides when dismissed. If off, pill remains docked on screen.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = floatingPillOnlyWhenKeyboardOpen,
-                            onCheckedChange = { viewModel.setFloatingPillOnlyWhenKeyboardOpen(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
-                    }
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    // Setting 2: Auto-commit on silence stop
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                viewModel.setFloatingPillAutoCommit(!floatingPillAutoCommit)
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Auto-commit on speech end",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Directly inject text into the active field when speech stops without waiting for checkmark tap",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = floatingPillAutoCommit,
-                            onCheckedChange = { viewModel.setFloatingPillAutoCommit(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
-                    }
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    // Setting 3: How far the pill glides after a flick. Tuned by feel, so the
-                    // service reads it on every flick — dragging the slider changes the next one.
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Flick friction",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = "%.0f".format(
-                                    java.util.Locale.US,
-                                    pillFlickFriction,
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        Text(
-                            text = "How far the pill glides after you flick it. Higher stops sooner; lower lets it slide further.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Slider(
-                            value = pillFlickFriction,
-                            onValueChange = viewModel::setPillFlickFriction,
-                            valueRange = AppSettings.MIN_PILL_FLICK_FRICTION..AppSettings.MAX_PILL_FLICK_FRICTION,
-                            steps = 54,
-                        )
-                    }
-                }
-            }
-        }
-
-        // --- 5. SPEECH TIMINGS ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SettingsIconBadge(
-                        icon = Icons.Default.Timer,
-                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        contentDescription = "Voice Pauses",
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Voice Pauses & Silence",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Adjust how long pauses trigger sentence breaks or stop recording",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = pauseField.text,
-                    onValueChange = viewModel::onPauseFieldChange,
-                    label = { Text("Sentence Pause (seconds)") },
-                    supportingText = { Text("Pause duration before finalizing a sentence and sending it to cleanup (default: 2.0s)") },
-                    isError = pauseField.invalid,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = stopField.text,
-                    onValueChange = viewModel::onStopFieldChange,
-                    label = { Text("Auto-Stop Silence (seconds)") },
-                    supportingText = { Text("Continuous silence before automatically turning off the microphone (default: 6.0s, 0 = off)") },
-                    isError = stopField.invalid,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
 
                 SettingsDivider(startIndent = 0.dp)
-
-                OutlinedTextField(
-                    value = healingSentencesCount.toString(),
-                    onValueChange = { str ->
-                        str.toIntOrNull()?.let { viewModel.onHealingSentencesCountChange(it) }
-                    },
-                    label = { Text("Seam Healing Context (sentences)") },
-                    supportingText = { Text("Number of sentences from previous speech to rewrite across pause cuts (default: 2, 0 = append only)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    timingNote?.let { note ->
-                        Text(
-                            text = note,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { viewModel.resetTimingsToDefaults() },
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    ) {
-                        Text("Reset Defaults", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-        }
-
-        // --- 5. BATTERY & MEMORY OPTIMIZATION ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SettingsIconBadge(
-                        icon = Icons.Default.BatteryChargingFull,
-                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        contentDescription = "Battery & Memory",
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Battery & Memory Optimization",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Manage RAM usage and background battery drain",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Unload Models on Screen Off",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Frees ~1.5 GB RAM and eliminates background battery consumption while device is locked",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = unloadOnScreenOff,
-                        onCheckedChange = { viewModel.onUnloadOnScreenOffChange(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
-                }
-
-                SettingsDivider(startIndent = 0.dp)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Unload Models on Keyboard Close",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Frees RAM immediately when the keyboard is dismissed (requires ~1.5s reload on next tap)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = unloadOnKeyboardClose,
-                        onCheckedChange = { viewModel.onUnloadOnKeyboardCloseChange(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
-                }
-
-                SettingsDivider(startIndent = 0.dp)
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Idle Memory Timeout",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "Automatically unload models after a period of inactivity:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    IdleTimeoutDropdownSelector(
-                        selectedMinutes = idleTimeoutMinutes,
-                        onMinutesSelected = { viewModel.onModelIdleTimeoutMinutesChange(it) },
-                    )
-                }
-            }
-        }
-
-        // --- 6. SERVER URL ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SettingsIconBadge(
-                        icon = Icons.Default.Cloud,
-                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        contentDescription = "Remote Server",
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Remote Server",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Optional private server address for remote transcription",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
 
                 OutlinedTextField(
                     value = serverUrl,
@@ -947,9 +970,9 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    when (serverStatus) {
+                    when (val status = serverStatus) {
                         is ServerStatus.Ready -> Text(
-                            "Connected (contract ${(serverStatus as ServerStatus.Ready).contractVersion})",
+                            "Connected (contract ${status.contractVersion})",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium,
@@ -976,104 +999,69 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
 
-        // --- 7. DIAGNOSTICS & TELEMETRY TOOLS ---
-        SettingsSectionHeader(title = "Diagnostics & Tools")
-        SettingsGroupCard {
-            SettingsItemRow(
-                title = "Usage & Battery Statistics",
-                subtitle = "Audio metrics, power draw, and transcription history",
-                badge = {
-                    SettingsIconBadge(
-                        icon = Icons.Default.BarChart,
-                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        contentDescription = "Usage Statistics",
-                    )
-                },
-                trailing = {
-                    androidx.compose.material3.Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Open Usage Stats",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                onClick = { currentSubScreen = SettingsSubScreen.STATS },
+@Composable
+private fun PermissionWarningCard(
+    context: Context,
+    overlayGranted: Boolean,
+    accessibilityGranted: Boolean,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Permissions required",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
-            SettingsDivider(startIndent = 72.dp)
-            SettingsItemRow(
-                title = "Model Benchmarking",
-                subtitle = "Measure ASR RTF and LLM tokens/sec latency",
-                badge = {
-                    SettingsIconBadge(
-                        icon = Icons.Default.Speed,
-                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        contentDescription = "Model Benchmarks",
-                    )
-                },
-                trailing = {
-                    androidx.compose.material3.Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Open Benchmarks",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
+            Text(
+                text = "The pill needs 'Display over other apps' to float on screen and 'Accessibility' to type into text fields.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
-            SettingsDivider(startIndent = 72.dp)
-            SettingsItemRow(
-                title = "Voice & AI models",
-                subtitle = "Download, switch, and free up storage for on-device models",
-                badge = {
-                    SettingsIconBadge(
-                        icon = Icons.Default.Cloud,
-                        badgeColor = BadgeBlue,
-                        iconTint = Color.White,
-                        contentDescription = "Models",
-                    )
-                },
-                trailing = {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Open model manager",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                onClick = { currentSubScreen = SettingsSubScreen.MODELS },
-            )
-            SettingsDivider(startIndent = 72.dp)
-            SettingsItemRow(
-                title = "Transcribe a test",
-                subtitle = "Record or pick an audio file to check the pipeline",
-                badge = {
-                    SettingsIconBadge(
-                        icon = Icons.Default.GraphicEq,
-                        badgeColor = BadgeGreen,
-                        iconTint = Color.White,
-                        contentDescription = "Transcribe test",
-                    )
-                },
-                trailing = {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Open transcribe test",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                onClick = { currentSubScreen = SettingsSubScreen.TRANSCRIBE },
-            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!overlayGranted) {
+                    OutlinedButton(
+                        onClick = {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                            context.startActivity(intent)
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Grant overlay", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                if (!accessibilityGranted) {
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Enable accessibility", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
         }
-
-        // --- ABOUT / BUILD INFO ---
-        Text(
-            text = "Smart Voice v${buildVersion(context)} • Local On-Device AI IME",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(bottom = 12.dp),
-        )
     }
 }
 
@@ -1137,7 +1125,7 @@ private fun IdleTimeoutDropdownSelector(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = Icons.Default.ArrowDropDown,
                     contentDescription = "Select idle timeout",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
