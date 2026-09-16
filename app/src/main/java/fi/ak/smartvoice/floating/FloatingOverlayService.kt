@@ -132,6 +132,9 @@ class FloatingOverlayService : Service() {
         applyWindowPosition()
     }
 
+    /** Runs once a layout (e.g. the `···` panel animation) has settled, to finish the re-clamp. */
+    private val reclampAfterLayout = Runnable { applyWindowPosition() }
+
     private val flingTick = object : Runnable {
         override fun run() {
             val startedAt = flingLastNanos
@@ -407,9 +410,16 @@ class FloatingOverlayService : Service() {
         }
 
         // The expanded card is wider than the resting pill, so a size change can leave the window
-        // hanging off the edge: re-clamp after every layout, but never while the user is moving it.
+        // hanging off the edge. Clamp horizontally at once (that is the width change), but defer the
+        // vertical clamp until the layout has settled: the `···` panel animates its height over
+        // ~250 ms, and re-clamping y on every one of those frames is what made the whole pill jitter
+        // and drift downward. Never while the user is moving it.
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (!isDragging && flingLastNanos == 0L) applyWindowPosition()
+            if (!isDragging && flingLastNanos == 0L) {
+                applyWindowPosition(clampVertical = false)
+                view.removeCallbacks(reclampAfterLayout)
+                view.postDelayed(reclampAfterLayout, RECLAMP_SETTLE_MS)
+            }
         }
 
         composeView = view
@@ -506,19 +516,24 @@ class FloatingOverlayService : Service() {
         flingLastNanos = 0L
     }
 
-    /** Clamps the pending position to the screen and writes it to the window if it changed. */
-    private fun applyWindowPosition() {
+    /**
+     * Clamps the pending position to the screen and writes it to the window if it changed.
+     *
+     * This is deliberately **non-destructive**: the drag offsets stay the user's *intended* position
+     * and the clamp only decides where the window actually sits for the current view size. Writing
+     * the clamped value back used to ratchet the pill downward every time a taller layout (the `···`
+     * panel) appeared — it never came back. Keeping the intent means the pill returns to its spot
+     * when the taller layout goes away.
+     *
+     * [clampVertical] is false for layout-driven re-clamps, so a panel animating its height cannot
+     * move the pill; the horizontal clamp still runs, because that is what the width change needs.
+     */
+    private fun applyWindowPosition(clampVertical: Boolean = true) {
         val params = layoutParams ?: return
         val view = composeView ?: return
         val clamped = clampToScreen(view)
-        // Only the clamped case collapses the fractional offset: staying in bounds must keep the
-        // fraction, or a slow drag would lose sub-pixel movement and the fling's per-frame edge
-        // check would misread every frame as "clamped".
-        if (clamped != desiredPoint()) {
-            dragOffsetX = clamped.x.toFloat()
-            dragOffsetY = clamped.y.toFloat()
-        }
-        writeWindowPosition(clamped)
+        val point = if (clampVertical) clamped else PillPoint(clamped.x, params.y)
+        writeWindowPosition(point)
     }
 
     /** Writes the window pixels without touching the fractional offsets — used by the fling. */
@@ -685,8 +700,9 @@ class FloatingOverlayService : Service() {
         localSession.begin()
         recorder.frameSink = { buffer, read ->
             localSession.onFrames(buffer, read)
-            val rms = calculatePcmRms(buffer, read)
-            audioLevel = (rms * 5f).coerceIn(0.05f, 1f)
+            // Raw RMS only: the visual level is derived on a perceptual (dB) scale by the overlay,
+            // so the mic gain is not baked in here.
+            audioLevel = calculatePcmRms(buffer, read).coerceIn(0f, 1f)
         }
 
         try {
@@ -786,7 +802,9 @@ class FloatingOverlayService : Service() {
         if (textToInject.isNotBlank()) {
             val injected = VoiceAccessibilityService.instance?.injectText(textToInject) ?: false
             if (!injected) {
+                // Never fail silently: the words are on the clipboard, so tell the user how to use them.
                 Log.w(TAG, "Text injected via clipboard fallback")
+                Toast.makeText(this, "Copied — long-press the text field to paste", Toast.LENGTH_LONG).show()
             }
         }
         recordUsageStats(deliveredText = textToInject)
@@ -1094,6 +1112,9 @@ class FloatingOverlayService : Service() {
 
         /** Below this release speed a fling is not worth starting; the pill just settles. */
         private const val FLING_MIN_VELOCITY_PX_PER_SECOND = 120f
+
+        /** How long after the last layout change the deferred vertical re-clamp runs. */
+        private const val RECLAMP_SETTLE_MS = 300L
 
         /** The error state's user-facing line. Deliberately says nothing about exceptions. */
         const val CLEANUP_UNAVAILABLE = "Cleanup is unavailable — showing your words as spoken."

@@ -105,6 +105,33 @@ class PillGeometryTest {
         assertEquals(PillPoint(0, 0), clamped)
     }
 
+    // --- Voice level mapping ------------------------------------------------
+
+    @Test
+    fun `the visual level is a dB window, so ordinary speech is not pinned at the top`() {
+        // The bug: `rms * k` saturates long before ordinary speech, which is ~-30..-20 dBFS.
+        assertEquals(0f, VoiceLevel.perceptual(0.0018f), 0.03f)   // ~ -55 dBFS -> floor
+        assertEquals(1f, VoiceLevel.perceptual(0.25f), 0.03f)     // ~ -12 dBFS -> full
+        val speech = VoiceLevel.perceptual(0.03f)                 // ~ -30 dBFS
+        assertTrue("ordinary speech should sit mid-range, was $speech", speech in 0.4f..0.8f)
+        val loud = VoiceLevel.perceptual(0.1f)                    // ~ -20 dBFS
+        assertTrue("a raised voice should have headroom, was $loud", loud in 0.7f..0.95f)
+    }
+
+    @Test
+    fun `the visual level is monotonic, clamped and safe at silence`() {
+        assertEquals(0f, VoiceLevel.perceptual(0f), 0f)
+        assertEquals(0f, VoiceLevel.perceptual(-1f), 0f)
+        assertEquals(1f, VoiceLevel.perceptual(1f), 0f)
+        var previous = -1f
+        for (i in 0..50) {
+            val value = VoiceLevel.perceptual(i / 100f)
+            assertTrue("level must rise with rms", value >= previous)
+            assertTrue(value in 0f..1f)
+            previous = value
+        }
+    }
+
     // --- The water surface -----------------------------------------------------
 
     @Test
@@ -152,28 +179,39 @@ class PillGeometryTest {
     }
 
     @Test
-    fun `the resting shape is a deliberate multi-crest wave, not the near-silent recording line`() {
-        // The bug CHUNK-3B fixes: the resting pill drew the recording surface at amplitudeFor(0),
-        // which is a flat line and reads as a rendering glitch on the small pill.
+    fun `the resting shape is a centre-node packet, not a flat line`() {
         val samples = WaterSurface.restingSamples()
         val peak = samples.maxOf { abs(it) }
         assertTrue("resting peak $peak is too flat to read as a wave", peak > 0.5f)
 
-        // Anchored flat at the pill's edges (the sine's own zero-crossings end it).
+        // The centre is always a node, and the edges are anchored flat.
+        assertEquals(0f, samples[WaterSurface.SEGMENTS / 2], 1e-6f)
         assertEquals(0f, samples.first(), 1e-6f)
         assertEquals(0f, samples.last(), 1e-6f)
+    }
 
-        // The user's reference wave: a spindle — a dominant middle crest with a trough either side
-        // and the wave fading to flat at the ends.
-        val extrema = (1 until samples.size - 1).count { i ->
-            val v = samples[i]
-            val isExtremum = (v > samples[i - 1] && v >= samples[i + 1]) ||
-                (v < samples[i - 1] && v <= samples[i + 1])
-            isExtremum && abs(v) > 0.2f
+    @Test
+    fun `the resting shape mirrors about its centre with opposite sign`() {
+        // The user's "high on the left, negative on the right" symmetry: sample[i] == -sample[n-i].
+        val samples = WaterSurface.restingSamples()
+        val n = samples.size - 1
+        for (i in samples.indices) {
+            assertEquals(-samples[n - i], samples[i], 1e-5f)
         }
-        assertEquals(3, extrema)
-        val middle = samples[WaterSurface.SEGMENTS / 2]
-        assertTrue("middle crest $middle should be the tallest", middle >= peak - 1e-6f)
+    }
+
+    @Test
+    fun `the recording wave is a centre-node antisymmetric packet at every phase`() {
+        val n = WaterSurface.SEGMENTS
+        for (phase in 0..12) {
+            val samples = WaterSurface.samples(phase = phase * 0.52f, amplitude = 1f)
+            assertEquals("centre must stay a node", 0f, samples[n / 2], 1e-6f)
+            assertEquals(0f, samples.first(), 1e-6f)
+            assertEquals(0f, samples.last(), 1e-6f)
+            for (i in samples.indices) {
+                assertEquals(-samples[n - i], samples[i], 1e-5f)
+            }
+        }
     }
 
     @Test
@@ -185,36 +223,54 @@ class PillGeometryTest {
     }
 
     @Test
-    fun `the recording ripple is multi-crest and livelier than a single sine`() {
-        // CHUNK-3B: the user asked for a higher-frequency animated waveform too.
-        assertTrue(WaterSurface.RECORDING_CYCLES >= 2f)
-        assertTrue(WaterSurface.RECORDING_DETAIL_CYCLES > WaterSurface.RECORDING_CYCLES)
-        assertTrue(WaterSurface.ENVELOPE_POWER >= 2f)
+    fun `the resting packet has a big, a medium and a tiny lobe each side`() {
+        val samples = WaterSurface.restingSamples()
+        val n = WaterSurface.SEGMENTS
+        fun at(u: Float) = samples[((u + 1f) * n / 2f).toInt()]
+
+        // Lobe centres for k = 3π sit at u = ±1/6, ±1/2, ±5/6.
+        val inner = abs(at(-1f / 6f))
+        val mid = abs(at(-1f / 2f))
+        val outer = abs(at(-5f / 6f))
+        assertTrue("inner=$inner mid=$mid outer=$outer", inner > mid && mid > outer)
+        assertTrue("the outer lobe should still be visible", outer > 0.05f)
+
+        // The user's convention: positive on the left, negative on the right.
+        assertTrue(at(-1f / 6f) > 0f)
+        assertTrue(at(1f / 6f) < 0f)
     }
 
     @Test
-    fun `both waveforms are spindle-shaped with flat edges and a tall middle`() {
-        // CHUNK-3B: the user's reference is a wave packet — calm at the ends, loudest in the centre.
+    fun `the recording wave keeps a visible wave and a centre node at all times`() {
+        assertTrue(WaterSurface.RECORDING_LOBES >= 2f)
+        assertTrue(WaterSurface.RESTING_LOBES >= 1f)
+        assertTrue(WaterSurface.WAVE_FLOOR in 0f..1f)
+        assertTrue("the wave must never fully collapse", WaterSurface.WAVE_FLOOR > 0.1f)
+    }
+
+    @Test
+    fun `the wave is smooth across the centre with no sharp angle`() {
+        // The bug the user saw: a travelling `sign(u)` term jumps at the centre by 2·sin(phase).
+        // A smooth wave must have no large step between adjacent samples.
         val waveforms = listOf(
-            WaterSurface.samples(phase = 1.1f, amplitude = 1f),
+            WaterSurface.samples(phase = 0.7f, amplitude = 1f),
             WaterSurface.restingSamples(),
         )
         for (samples in waveforms) {
-            val edge = maxOf(
-                (0..4).maxOf { abs(samples[it]) },
-                (samples.size - 5 until samples.size).maxOf { abs(samples[it]) },
-            )
-            val centre = (samples.size / 2 - 5..samples.size / 2 + 5).maxOf { abs(samples[it]) }
-            assertTrue("edge=$edge centre=$centre is not spindle-shaped", centre > 0.35f && edge < 0.1f)
+            var maxStep = 0f
+            for (i in 1 until samples.size) {
+                maxStep = maxOf(maxStep, abs(samples[i] - samples[i - 1]))
+            }
+            assertTrue("max adjacent step $maxStep suggests a jump", maxStep < 0.6f)
         }
     }
 
     @Test
-    fun `the surface travels as the phase advances`() {
+    fun `the surface oscillates as the phase advances`() {
         val atRest = WaterSurface.samples(phase = 0f, amplitude = 0.4f)
         val later = WaterSurface.samples(phase = 0.9f, amplitude = 0.4f)
         val moved = atRest.indices.count { abs(atRest[it] - later[it]) > 1e-4f }
-        assertTrue("the wave must actually travel, moved=$moved", moved > WaterSurface.SEGMENTS / 2)
+        assertTrue("the wave must actually change, moved=$moved", moved > WaterSurface.SEGMENTS / 2)
     }
 
     @Test

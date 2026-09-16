@@ -2,6 +2,8 @@ package fi.ak.smartvoice.floating
 
 import fi.ak.smartvoice.data.AppSettings
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sin
 
@@ -79,42 +81,44 @@ object PillDock {
     const val SEGMENTS = 56
 
     /** Amplitude of near-silence — the line should still look alive when the room is quiet. */
-    const val MIN_AMPLITUDE = 0.18f
+    const val MIN_AMPLITUDE = 0.22f
 
     /**
-     * Amplitude at full speech. The user asked for the animated waveform to be "significantly"
-     * taller and livelier (CHUNK-3B), so the peaks use most of the strip's height while staying
-     * clear of its edges.
+     * Amplitude at full speech. The strip is sized so the peaks can be tall without clipping; the
+     * user wanted the peak-to-line-thickness ratio of their reference (~6:1), which needs vertical
+     * room rather than a thinner line.
      */
-    const val MAX_AMPLITUDE = 0.82f
-
-    /** Spatial cycles across the recording strip: the ripple's base. Raised for a livelier wave. */
-    const val RECORDING_CYCLES = 3.0f
-
-    /** A faster, lighter second component, so the ripple never looks like one clean sine. */
-    const val RECORDING_DETAIL_CYCLES = 5.5f
-
-    /** How much the detail component contributes relative to the base. */
-    private const val RECORDING_DETAIL_WEIGHT = 0.35f
+    const val MAX_AMPLITUDE = 0.90f
 
     /**
-     * The envelope both waveforms are shaped by: `sin(πt)` raised to this power. It concentrates
-     * the wave into a spindle — flat and calm at the edges, tallest in the middle — which is the
-     * shape the user asked for (CHUNK-3B). It is exactly zero at both ends, so the line stays
-     * anchored to the card.
+     * Lobes (half-cycles) each side of the centre for the recording wave. The wave is a *centre-node*
+     * packet — the centre is always zero and the two halves mirror with opposite sign — so this is
+     * the lobe count on one side only. Three reads clearly at 340 dp.
      */
-    const val ENVELOPE_POWER = 4f
+    const val RECORDING_LOBES = 3f
 
     /**
-     * The resting pill's own shape: a clean sine of about two and a half cycles, drawn at a fixed
-     * phase (it only breathes, it never travels). Deliberately **not** the recording surface: at
-     * near-zero amplitude that drew an almost flat line that read as a rendering glitch on the
-     * small pill.
+     * Lobes each side for the small resting pill. Three gives the read the user asked for — one big,
+     * one medium, one tiny per side — which is clearer than two.
      */
-    const val RESTING_CYCLES = 2.5f
+    const val RESTING_LOBES = 3f
 
-    /** Peak height of the resting wave, as a fraction of the available half-height. */
-    const val RESTING_AMPLITUDE = 0.80f
+    /**
+     * How much the recording wave's *amplitude* envelope is offset from zero, so the wave never
+     * collapses to a flat line at the moment the standing oscillation crosses zero. `0.3` keeps a
+     * visible wave at all times while still letting the lobes swing and invert.
+     */
+    const val WAVE_FLOOR = 0.3f
+
+    /** Peak height of the small resting wave, as a fraction of the available half-height. */
+    const val RESTING_AMPLITUDE = 0.90f
+
+    /**
+     * Envelope exponent: the window is `cos(πu/2)` raised to this. Any exponent above 1 keeps the
+     * line meeting the flat edges with zero slope (no kink), while `1.5` tapers more gently than a
+     * plain Hann (`2.0`), so the outer lobes stay visible rather than vanishing.
+     */
+    const val ENVELOPE_POWER = 1.5f
 
     /** Maps a 0..1 audio level to waveform amplitude, as a fraction of the available half-height. */
     fun amplitudeFor(audioLevel: Float): Float {
@@ -123,42 +127,82 @@ object PillDock {
     }
 
     /**
-     * [segments] + 1 vertical offsets in `-amplitude..amplitude`, where negative is *up* in
-     * screen coordinates. Both ends taper to zero so the surface stays anchored to the card edge.
+     * [segments] + 1 vertical offsets in `-amplitude..amplitude` (negative is *up*). The wave is a
+     * **centre-node packet**: `env(u) * carrier(u, phase)` over `u in [-1, 1]`, where the envelope
+     * fades to zero at the edges and the carrier is odd in `u`, so the centre is always exactly zero
+     * and the halves mirror with opposite signs (positive on the left, negative on the right).
+     *
+     * The carrier is a standing wave — the antisymmetric mode of a rope pinned at the middle — with a
+     * floor so it never collapses to a flat line as the oscillation crosses zero. A travelling
+     * outward wave was tried and removed: an outward source is *symmetric* about the centre, so an
+     * antisymmetric one cannot travel without a discontinuity (a visible sharp angle at the middle).
+     *
+     * Only the overall [amplitude] and the caller's phase *speed* change with the audio level; the
+     * spatial structure never does, which is what keeps it coherent.
      */
     fun samples(phase: Float, amplitude: Float, segments: Int = SEGMENTS): FloatArray {
         require(segments > 0) { "segments must be positive" }
         val amp = amplitude.coerceIn(0f, 1f)
+        val k = RECORDING_LOBES * PI_F
+        val swing = WAVE_FLOOR + (1f - WAVE_FLOOR) * cos(phase)
         val out = FloatArray(segments + 1)
         for (i in 0..segments) {
-            val t = i.toFloat() / segments
-            val wave = sin(t * TWO_PI * RECORDING_CYCLES + phase) +
-                sin(t * TWO_PI * RECORDING_DETAIL_CYCLES - phase * 1.37f) * RECORDING_DETAIL_WEIGHT
-            out[i] = (wave / (1f + RECORDING_DETAIL_WEIGHT)) * envelope(t) * amp
+            val u = 2f * i / segments - 1f
+            out[i] = amp * envelope(u) * (-sin(k * u) * swing)
         }
         return out
     }
 
     /**
-     * The resting pill's static waveform, scaled to [[RESTING_AMPLITUDE]]. A sine over
-     * [RESTING_CYCLES] cycles, shaped by the same spindle envelope as the recording surface, so the
-     * middle crest is the tallest and the wave fades out towards the pill's edges.
+     * The resting pill's static shape: the same centre-node packet frozen at phase 0 — one big, one
+     * medium and one tiny lobe each side, positive on the left and negative on the right, fading
+     * into a flat line at the pill's edges.
      */
     fun restingSamples(segments: Int = SEGMENTS): FloatArray {
         require(segments > 0) { "segments must be positive" }
+        val k = RESTING_LOBES * PI_F
         val out = FloatArray(segments + 1)
         for (i in 0..segments) {
-            val t = i.toFloat() / segments
-            out[i] = sin(t * TWO_PI * RESTING_CYCLES) * envelope(t) * RESTING_AMPLITUDE
+            val u = 2f * i / segments - 1f
+            out[i] = -RESTING_AMPLITUDE * envelope(u) * sin(k * u)
         }
         return out
     }
 
-    /** `sin(πt)` to [ENVELOPE_POWER]: zero at both ends, one at the middle. */
-    private fun envelope(t: Float): Float = sin(t * PI_F).pow(ENVELOPE_POWER)
+    /**
+     * The edging window over `u in [-1, 1]`: `cos(πu/2)` to [ENVELOPE_POWER]. One at the centre,
+     * exactly zero at both edges **and** with zero slope there, so the line meets the flat edges
+     * without a visible corner while the outer lobes stay visible.
+     */
+    private fun envelope(u: Float): Float =
+        cos(u * PI_F / 2f).coerceAtLeast(0f).pow(ENVELOPE_POWER)
 
-    private const val TWO_PI = (2.0 * PI).toFloat()
     private const val PI_F = PI.toFloat()
+}
+
+/**
+ * Turns a raw mic RMS into a 0..1 *visual* level on a perceptual (dBFS) scale.
+ *
+ * A linear map is the reason the wave "slammed to max": ordinary speech sits at roughly -30..-20
+ * dBFS, so a `rms * k` map is already saturated by then and the first few syllables sweep the whole
+ * range. A dB window spreads the speech range evenly and leaves headroom for a raised voice.
+ */
+object VoiceLevel {
+
+    /** Below this the input is room tone; the visual level is zero. */
+    const val FLOOR_DB = -55f
+
+    /** At or above this the visual level is full (a raised voice / close mic). */
+    const val CEIL_DB = -12f
+
+    /** 0..1 visual level for a raw RMS (0..1). Monotonic, clamped, and roughly linear in dB. */
+    fun perceptual(rms: Float): Float {
+        val db = 20f * log10(rms.coerceAtLeast(MIN_RMS))
+        return ((db - FLOOR_DB) / (CEIL_DB - FLOOR_DB)).coerceIn(0f, 1f)
+    }
+
+    /** Guards `log10(0)`. Anything quieter than this is silence anyway. */
+    private const val MIN_RMS = 1e-5f
 }
 
 /** A velocity estimate in the window-offset axes (px/s). */

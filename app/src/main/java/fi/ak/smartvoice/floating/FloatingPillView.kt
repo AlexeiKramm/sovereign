@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fi.ak.smartvoice.data.AppThemeMode
@@ -75,6 +77,7 @@ import fi.ak.smartvoice.theme.Motion
 import fi.ak.smartvoice.theme.Radius
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.theme.SmartVoiceTheme
+import kotlin.math.exp
 
 enum class FloatingUiState {
     RESTING_PILL,
@@ -82,15 +85,41 @@ enum class FloatingUiState {
     REVIEW,
 }
 
-/** Radians per second the recording wave travels. Slow enough to stay calm, fast enough to live. */
-private const val RIPPLE_RADIANS_PER_SECOND = 5.2f
+/**
+ * The recording wave's phase speed, in radians per second — deliberately a **constant**. Modulating
+ * it with the level was the source of the "accelerates to max then slams down" feel: speed is the
+ * integral of the signal, so level wobble becomes visible position wobble. Only the *amplitude*
+ * reacts to the voice (see `VoiceLevel`).
+ */
+private const val RIPPLE_RADIANS_PER_SECOND = 4.5f
+
+/**
+ * Fast level follower: two cascaded one-poles (≈ critically damped, no overshoot) with a prompt
+ * attack and a softer release. Each pole is faster than the overall target by [TWO_POLE_CORRECTION].
+ */
+private const val LEVEL_ATTACK_SECONDS = 0.08f
+private const val LEVEL_RELEASE_SECONDS = 0.30f
+private const val TWO_POLE_CORRECTION = 0.64f
+
+/**
+ * Slow "swell" follower mixed into the fast one. This is what gives the wave the organic,
+ * breathing quality of a modern assistant glow rather than a VU needle: the level never simply
+ * tracks the signal, it drifts.
+ */
+private const val SWELL_SECONDS = 1.8f
+private const val SWELL_MIX = 0.25f
+
+/** Additive glow passes behind the stroke, as (width multiple, alpha). Cheap stacked strokes. */
+private val GLOW_PASSES = listOf(2.4f to 0.22f, 4.6f to 0.09f)
+
+private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
 
 /** Width of the expanded card (and the ceiling for the quick-settings panel that hangs above it). */
 private val CARD_WIDTH = 340.dp
 
 /** The resting pill's waveform, and therefore the resting pill's whole content. */
 private val RESTING_WAVE_WIDTH = 34.dp
-private val RESTING_WAVE_HEIGHT = 16.dp
+private val RESTING_WAVE_HEIGHT = 26.dp
 
 /** The resting pill's outer width — the quick-settings panel's floor, so it is never narrower. */
 private val RESTING_PILL_MIN_WIDTH = RESTING_WAVE_WIDTH + Spacing.lg * 2
@@ -251,7 +280,7 @@ fun RestingPillView(
     ) {
         Canvas(
             modifier = Modifier
-                .padding(horizontal = Spacing.lg, vertical = Spacing.md)
+                .padding(horizontal = Spacing.lg, vertical = Spacing.sm)
                 .width(RESTING_WAVE_WIDTH)
                 .height(RESTING_WAVE_HEIGHT)
                 .graphicsLayer {
@@ -263,6 +292,7 @@ fun RestingPillView(
             drawWaterSurface(
                 values = WaterSurface.restingSamples(),
                 color = waveColor.copy(alpha = 0.7f + breath.value * 0.3f),
+                strokeWidth = 1.8.dp,
             )
         }
     }
@@ -481,7 +511,7 @@ fun ExpandedCardView(
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(26.dp),
+                                    .height(32.dp),
                             )
 
                             else -> {
@@ -647,21 +677,45 @@ fun WaterSurfaceWave(
     modifier: Modifier = Modifier,
 ) {
     val phase = remember { mutableFloatStateOf(0f) }
+    val stagedLevel = remember { mutableFloatStateOf(0f) }
+    val fastLevel = remember { mutableFloatStateOf(0f) }
+    val swellLevel = remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(Unit) {
         var lastNanos = withFrameNanos { it }
         while (true) {
             val nowNanos = withFrameNanos { it }
-            val dtSeconds = (nowNanos - lastNanos) / 1_000_000_000f
+            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
             lastNanos = nowNanos
-            phase.value += dtSeconds * RIPPLE_RADIANS_PER_SECOND
+
+            // Perceptual level (dB window), then two cascaded one-poles for a soft, damped swell...
+            val target = VoiceLevel.perceptual(audioLevel())
+            val tau = (if (target > stagedLevel.value) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
+                TWO_POLE_CORRECTION
+            val follow = 1f - exp(-dtSeconds / tau)
+            stagedLevel.value += (target - stagedLevel.value) * follow
+            fastLevel.value += (stagedLevel.value - fastLevel.value) * follow
+
+            // ...plus a much slower follower that the visual mixes in, so the wave breathes.
+            val swellFollow = 1f - exp(-dtSeconds / SWELL_SECONDS)
+            swellLevel.value += (fastLevel.value - swellLevel.value) * swellFollow
+
+            // Constant speed: the wave's tempo never reacts to the voice, only its height does.
+            phase.value = (phase.value + dtSeconds * RIPPLE_RADIANS_PER_SECOND) % TWO_PI
         }
     }
 
     Canvas(modifier) {
+        // Read the states inside the draw lambda so a frame invalidates drawing only.
+        val level = fastLevel.value * (1f - SWELL_MIX) + swellLevel.value * SWELL_MIX
         drawWaterSurface(
-            values = WaterSurface.samples(phase.value, WaterSurface.amplitudeFor(audioLevel())),
+            values = WaterSurface.samples(
+                phase = phase.value,
+                amplitude = WaterSurface.amplitudeFor(level),
+            ),
             color = color,
+            // The halo follows the slow swell, so it breathes rather than flickers.
+            glowAlpha = swellLevel.value * 0.9f,
         )
     }
 }
@@ -675,6 +729,8 @@ fun WaterSurfaceWave(
 private fun DrawScope.drawWaterSurface(
     values: FloatArray,
     color: Color,
+    strokeWidth: Dp = 2.5.dp,
+    glowAlpha: Float = 0f,
 ) {
     val segments = values.size - 1
     val centreY = size.height / 2f
@@ -702,9 +758,21 @@ private fun DrawScope.drawWaterSurface(
         }
     }
 
+    // Soft additive halo behind the stroke: the "modern assistant glow" without a blur pass.
+    if (glowAlpha > 0.01f) {
+        for ((widthMultiple, alpha) in GLOW_PASSES) {
+            drawPath(
+                path = path,
+                color = color.copy(alpha = (glowAlpha * alpha).coerceIn(0f, 1f)),
+                style = Stroke(width = strokeWidth.toPx() * widthMultiple, cap = StrokeCap.Round),
+                blendMode = BlendMode.Plus,
+            )
+        }
+    }
+
     drawPath(
         path = path,
         color = color,
-        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round),
+        style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round),
     )
 }
