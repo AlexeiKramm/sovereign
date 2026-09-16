@@ -44,9 +44,6 @@ data class UsageStatsData(
             val words = if (totalDeliveredWords > 0) totalDeliveredWords else totalCleanedWords
             return (words.toDouble() / 40.0)
         }
-
-    val editWordDelta: Int
-        get() = totalCleanedWords - totalRawWords
 }
 
 class UsageStatsStore(private val filesDir: File) {

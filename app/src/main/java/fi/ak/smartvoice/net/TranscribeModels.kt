@@ -49,7 +49,6 @@ data class TranscribeResponse(
     val cleanupUnavailable: Boolean get() = warnings.contains(WARNING_CLEANUP_UNAVAILABLE)
 
     companion object {
-        const val STAGE_STT = "stt"
         const val STAGE_CLEANUP = "cleanup"
         const val WARNING_CLEANUP_UNAVAILABLE = "cleanup_unavailable"
     }

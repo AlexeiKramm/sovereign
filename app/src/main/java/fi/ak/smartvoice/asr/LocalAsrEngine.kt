@@ -318,15 +318,3 @@ class LocalAsrEngine(
         private const val MAX_FLUSH_DECODES = 512
     }
 }
-
-private fun EndpointRuleSet.toSherpaConfig(): EndpointConfig = EndpointConfig(
-    rule1 = rule1.toSherpaRule(),
-    rule2 = rule2.toSherpaRule(),
-    rule3 = rule3.toSherpaRule(),
-)
-
-private fun EndpointRuleSpec.toSherpaRule(): EndpointRule = EndpointRule(
-    mustContainNonSilence = mustContainNonSilence,
-    minTrailingSilence = minTrailingSilence,
-    minUtteranceLength = minUtteranceLength,
-)

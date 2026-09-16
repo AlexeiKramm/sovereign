@@ -46,11 +46,6 @@ object LiteRtLmModelStore {
         return file.isFile && file.length() == spec.approximateBytes
     }
 
-    fun installedBytes(context: Context, spec: LiteRtLmModelSpec): Long {
-        val file = getModelFile(context, spec)
-        return if (file.isFile) file.length() else 0L
-    }
-
     suspend fun remove(context: Context, spec: LiteRtLmModelSpec): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {

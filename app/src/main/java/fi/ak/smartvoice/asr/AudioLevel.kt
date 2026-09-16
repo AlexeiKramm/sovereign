@@ -29,16 +29,12 @@ class AudioLevel(
     private val decaySeconds: Double = DECAY_SECONDS,
 ) {
 
-    private var seconds = 0.0
     private var quietSeconds = 0.0
     private var reference = 0.0
     private var loudest = 0.0
 
     /** Seconds of continuous quiet so far. Resets to zero on any frame that counts as speech. */
     val quietFor: Double get() = quietSeconds
-
-    /** Audio has been measured this utterance at all. */
-    val hasAudio: Boolean get() = seconds > 0.0
 
     /** Something loud enough to be speech has been heard — the gate for the auto-stop. */
     val heardSpeech: Boolean get() = loudest > minQuietRms
@@ -49,7 +45,6 @@ class AudioLevel(
     /** Feeds one frame of `[-1, 1)` samples; returns [quietFor]. */
     fun onFrame(samples: FloatArray): Double {
         val duration = if (sampleRate > 0) samples.size.toDouble() / sampleRate else 0.0
-        seconds += duration
         val rms = rms(samples)
         reference = maxOf(rms, reference * exp(-duration / decaySeconds))
         loudest = maxOf(loudest, rms)
@@ -62,7 +57,6 @@ class AudioLevel(
     }
 
     fun reset() {
-        seconds = 0.0
         quietSeconds = 0.0
         reference = 0.0
         loudest = 0.0

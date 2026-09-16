@@ -28,11 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.lifecycle.setViewTreeViewModelStoreOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import fi.ak.smartvoice.R
-import fi.ak.smartvoice.asr.AudioLevel
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
 import fi.ak.smartvoice.audio.WavRecorder
@@ -192,7 +188,6 @@ class FloatingOverlayService : Service() {
     private val rawTextAccumulator = StringBuilder()
     private val committedText = StringBuilder()
     private var cleanupEngaged = false
-    private var meteringJob: Job? = null
     private var inFlightJob: Job? = null
     private var silenceMonitoringJob: Job? = null
 

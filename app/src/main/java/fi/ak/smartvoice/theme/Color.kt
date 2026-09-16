@@ -99,26 +99,7 @@ val LightOutlineVariant = Color(0xFFD8CCB9)
 // ============================================================================
 val BadgeViolet = Color(0xFF7B52AB)
 val BadgeBlue = Color(0xFF4A6FA5)
-val BadgeIndigo = Color(0xFF5560A8)
 val BadgeGreen = Color(0xFF3F7D5A)
 val BadgeCyan = Color(0xFF3A7C86)
 val BadgeOrange = Color(0xFFB26A33)
 val BadgeRose = Color(0xFFA85476)
-val BadgeSlate = Color(0xFF6E6A63)
-
-// ----------------------------------------------------------------------------
-// Compatibility aliases for legacy Settings styling and older call sites.
-// ----------------------------------------------------------------------------
-val PrimaryBlue = LightPrimary
-val PrimaryBlueLight = DarkPrimary
-val SecondaryTeal = LightSecondary
-val TertiaryAmber = LightTertiary
-val PrimaryIndigo = PrimaryBlue
-val PrimaryIndigoLight = PrimaryBlueLight
-
-val SettingsDarkBackground = DarkBackground
-val SettingsDarkSurface = DarkSurface
-val SettingsDarkCard = DarkSurfaceContainer
-val SettingsDarkCardElevated = DarkSurfaceContainerHigh
-val SettingsDarkBorder = DarkOutlineVariant
-val SettingsDarkDivider = DarkOutlineVariant

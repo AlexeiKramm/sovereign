@@ -28,12 +28,6 @@ object CleanupPrompt {
      */
     const val MAX_TOKENS = 512
 
-    /**
-     * D-015's "predict, do not fail": the carried context is trimmed to fit rather than being allowed
-     * to overflow the window. Counted in characters because tokens are not available before the pass.
-     */
-    const val CONTEXT_CHAR_BUDGET = 1_500
-
     /** What the model must never do: answer, explain, summarise, translate (D-022's safety core). */
     const val SAFETY_CORE =
         "You clean and format transcribed speech. Return only the cleaned text, without commentary, explanations, or quotes."

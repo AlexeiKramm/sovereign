@@ -13,7 +13,6 @@ data class LiteRtLmModelSpec(
     val sha256: String,
     val approximateBytes: Long,
     val note: String,
-    val targetSoc: String = "ANY",
     val targetHardware: String = "GPU / CPU (Universal)",
     val supportsSpeculativeDecoding: Boolean = true,
     val supportsGpu: Boolean = true,
@@ -22,11 +21,6 @@ data class LiteRtLmModelSpec(
 
     fun isInstalled(context: android.content.Context): Boolean =
         LiteRtLmModelStore.isInstalled(context, this)
-
-    fun isDeviceCompatible(deviceSoc: String): Boolean {
-        if (targetSoc.equals("ANY", ignoreCase = true)) return true
-        return targetSoc.equals(deviceSoc, ignoreCase = true)
-    }
 }
 
 object LiteRtLmModels {

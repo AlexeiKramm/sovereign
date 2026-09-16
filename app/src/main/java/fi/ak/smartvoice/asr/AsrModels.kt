@@ -260,15 +260,12 @@ object AsrModels {
     fun byId(id: String): AsrModelSpec = CATALOG.firstOrNull { it.id == id } ?: NEMOTRON
 
     /** Backward-compatibility aliases for Nemotron 3.5 default */
-    val DEFAULT_MODEL: AsrModelSpec = NEMOTRON
     val REPO: String get() = NEMOTRON.repo
     val REVISION: String get() = NEMOTRON.revision
     val DIRECTORY: String get() = NEMOTRON.directoryName
     val FILES: List<AsrModelFile> get() = NEMOTRON.files
     val TOTAL_BYTES: Long get() = NEMOTRON.totalBytes
-    const val CHUNK_MS = 560
     const val SAMPLE_RATE = 16_000
-    const val CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_MS / 1000
 
     fun directory(filesDir: File): File = NEMOTRON.directory(filesDir)
 

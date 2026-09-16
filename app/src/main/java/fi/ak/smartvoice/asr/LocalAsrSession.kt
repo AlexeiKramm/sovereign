@@ -87,8 +87,6 @@ class LocalAsrSession(
     var droppedFrames: Int = 0
         private set
 
-    val isOpen: Boolean get() = queue != null
-
     /** Opens an utterance: a fresh queue, ready to receive frames before the model is loaded. */
     fun begin() {
         abort()

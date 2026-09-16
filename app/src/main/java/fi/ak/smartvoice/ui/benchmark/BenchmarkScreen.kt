@@ -45,7 +45,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -66,7 +65,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import fi.ak.smartvoice.theme.BadgeCyan
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeOrange
-import fi.ak.smartvoice.theme.PrimaryBlue
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
@@ -90,7 +88,6 @@ import fi.ak.smartvoice.asr.OfflineVadAsrEngine
 import fi.ak.smartvoice.audio.WavReader
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
-import fi.ak.smartvoice.cleanup.CleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
 import fi.ak.smartvoice.cleanup.LiteRtLmModels

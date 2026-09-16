@@ -255,9 +255,6 @@ class AppSettings(context: Context) {
 
         const val LANGUAGE_AUTO = "auto"
 
-        /** What the language chip cycles through: auto first, then the languages actually used. */
-        val LANGUAGE_CYCLE = listOf(LANGUAGE_AUTO, "fi", "en", "ru")
-
         private const val PREFS_NAME = "smart_voice"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_CLEANUP = "cleanup_enabled"

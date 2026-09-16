@@ -38,7 +38,6 @@ object Radius {
 object Motion {
     const val fastMs = 150
     const val standardMs = 250
-    const val slowMs = 350
 
     /** Emphasised decelerate — the default for something entering the screen. */
     val standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)

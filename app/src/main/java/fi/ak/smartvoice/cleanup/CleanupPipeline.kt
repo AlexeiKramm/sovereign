@@ -5,7 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The queue between the recogniser and the cursor: D-021's design, made real — cleanup runs per unit,
@@ -16,8 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *   decode at a time. Concurrency here is between the *stages* (ASR on the CPU, cleanup on the NPU),
  *   not within a stage — which is what D-017 named as the case where overlap actually pays.
  * - **Submitting never blocks.** The ASR worker calls [submit] between frames, so it must not wait for
- *   an LLM; the channel is unbounded and [queued] is published instead, because a backlog is a number to
- *   show (D-021's gate: cleanup must sustain faster than realtime) rather than a stall to introduce.
+ *   an LLM; the channel is unbounded (D-021's gate: cleanup should sustain faster than realtime, but a
+ *   backlog must never stall the recogniser).
  * - **A crashed pass fails closed.** Anything thrown while cleaning becomes a failed pass, so the unit's
  *   own text is committed and the utterance survives; a dead worker would silently stop committing text.
  */
@@ -38,11 +37,6 @@ class CleanupPipeline(
 
     private var queue: Channel<CleanupUnit>? = null
     private var worker: Job? = null
-
-    private val pending = AtomicInteger(0)
-
-    /** Units waiting for their pass. Published because "the LLM is behind" must be visible. */
-    val queued: Int get() = pending.get()
 
     /** The carried context and counters for the utterance in progress. */
     val state = UtteranceCleanupState()
@@ -102,7 +96,6 @@ class CleanupPipeline(
                 lastPass = finalPass
                 val effectiveSeam = if (finalPass.cleaned) seam else null
                 onCommitted(state.onPass(finalPass, effectiveSeam))
-                pending.decrementAndGet()
             }
         }
     }
@@ -118,7 +111,6 @@ class CleanupPipeline(
         val channel = queue ?: return
         if (unit.isBlank()) return
         if (channel.trySend(CleanupUnit(unit, seam)).isSuccess) {
-            pending.incrementAndGet()
             submitted++
         }
     }
@@ -133,7 +125,6 @@ class CleanupPipeline(
         queue = null
         worker?.join()
         worker = null
-        pending.set(0)
         engine.closeSession()
     }
 
@@ -144,7 +135,6 @@ class CleanupPipeline(
         queue = null
         worker?.cancel()
         worker = null
-        pending.set(0)
         submitted = 0
         lastPass = null
         if (wasActive) {

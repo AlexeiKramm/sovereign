@@ -134,7 +134,6 @@ class TranscribeClient(private val baseUrl: String) {
 
     companion object {
         const val CLEANUP_FULL = "full"
-        const val CLEANUP_OFF = "off"
 
         private const val CONNECT_TIMEOUT_MS = 5_000
         private const val READ_TIMEOUT_MS = 120_000

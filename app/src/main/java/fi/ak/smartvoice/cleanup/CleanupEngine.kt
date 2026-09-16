@@ -20,7 +20,6 @@ data class CleanupPass(
     val decodeTimeMs: Double = 0.0,
     val promptTokens: Long = 0L,
     val generatedTokens: Long = 0L,
-    val stopReason: String = "",
     val promptSent: String = "",
 ) {
     companion object {

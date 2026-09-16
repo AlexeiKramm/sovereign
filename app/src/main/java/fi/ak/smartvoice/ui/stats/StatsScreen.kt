@@ -54,11 +54,9 @@ import androidx.compose.ui.unit.dp
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.UtteranceRecord
-import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeCyan
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeOrange
-import fi.ak.smartvoice.theme.BadgeSlate
 import fi.ak.smartvoice.theme.BadgeViolet
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
