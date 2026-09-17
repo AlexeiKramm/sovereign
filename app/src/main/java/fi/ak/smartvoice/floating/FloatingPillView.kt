@@ -106,6 +106,7 @@ import fi.ak.smartvoice.theme.Motion
 import fi.ak.smartvoice.theme.Radius
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.theme.SmartVoiceTheme
+import fi.ak.smartvoice.ui.rememberPinnedToBottom
 import kotlin.math.exp
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -696,6 +697,8 @@ private fun DictationCard(
     val failed = errorMessage != null
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
+    // Dictation only appends, so keep the newest line visible unless the user has scrolled up.
+    rememberPinnedToBottom(scrollState, displayText)
     // Long-press-to-fix is offered only on the settled cleaned text: while recording the preview
     // streams and rewrites, so the word under the finger can move, and the raw fallback is not the
     // text this feature trains the dictionary against.
