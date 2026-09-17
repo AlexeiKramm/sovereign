@@ -195,7 +195,8 @@ fun FloatingDictationOverlay(
     statusNote: String?,
     /** Non-null when cleanup failed; the card switches to the raw-text fallback treatment. */
     errorMessage: String?,
-    /** True once the cleanup model is loaded, which is what the resting pill's breathing signals. */
+    /** True once everything this configuration needs is resident, which is what the resting pill's
+     * breathing signals: ASR loaded, and either the cleanup model loaded or cleanup disabled. */
     modelReady: Boolean,
     profiles: List<CleaningProfile>,
     activeProfileId: String,
@@ -334,9 +335,9 @@ private fun Modifier.pillDragModifier(
 }
 
 /**
- * The minimized pill: at rest it is a small waveform that *breathes* while the cleanup model is
- * loaded and sits still while it is not; during quick capture the same box becomes a live
- * listening surface, then a processing spinner, then a one-line result.
+ * The minimized pill: at rest it is a small waveform that *breathes* while the engines this
+ * configuration needs are resident and sits still while they are not; during quick capture the same
+ * box becomes a live listening surface, then a processing spinner, then a one-line result.
  *
  * All four phases are one composable on purpose — see [MinimizedPillPhase]. Nothing here changes
  * the window's height, so the pill never resizes during a hold.
@@ -549,8 +550,9 @@ private suspend fun AwaitPointerEventScope.awaitRelease(pointerId: PointerId) {
 }
 
 /**
- * Slow, low-frequency breathing. While no model is loaded the state is a constant zero, so a
- * resting pill with nothing to signal costs no animation frames at all — it is not merely faded.
+ * Slow, low-frequency breathing. While the configuration is not warm the state is a constant zero,
+ * so a resting pill with nothing to signal costs no animation frames at all — it is not merely
+ * faded.
  */
 @Composable
 private fun rememberBreath(modelReady: Boolean): State<Float> {

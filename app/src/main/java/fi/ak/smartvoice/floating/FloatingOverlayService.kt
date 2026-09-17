@@ -47,6 +47,7 @@ import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.engine.Engine
+import fi.ak.smartvoice.engine.ModelResidency
 import fi.ak.smartvoice.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -101,7 +102,9 @@ class FloatingOverlayService : Service() {
     private var statusNote by mutableStateOf<String?>(null)
     /** Non-null when cleanup failed: the card shows raw ASR and a friendly warning. */
     private var errorMessage by mutableStateOf<String?>(null)
-    /** Drives the resting pill's breathing: it animates only while the cleanup model is ready. */
+    /** True once the ASR recogniser is resident; the other half of the pill's warm indicator. */
+    private var asrModelLoaded by mutableStateOf(false)
+    /** True once the cleanup LLM is resident. Only relevant while `cleanupEnabled` is true. */
     private var cleanupModelLoaded by mutableStateOf(false)
     private var settingsOpen by mutableStateOf(false)
     /** Mirrors `AppSettings.cleanupEnabled` so the settings view reflects the toggle immediately. */
@@ -228,7 +231,6 @@ class FloatingOverlayService : Service() {
         setupEngines()
         setupOverlayView()
         updateOverlayVisibility()
-        prefetchCleanupEngine()
         Log.i(TAG, "FloatingOverlayService initialized")
     }
 
@@ -257,6 +259,7 @@ class FloatingOverlayService : Service() {
         scope.cancel()
         localEngine.unload()
         cleanupEngine?.unload()
+        asrModelLoaded = false
         cleanupModelLoaded = false
         asrDispatcher.close()
         cleanupDispatcher.close()
@@ -384,7 +387,13 @@ class FloatingOverlayService : Service() {
                     isProcessing = isProcessing,
                     statusNote = statusNote,
                     errorMessage = errorMessage,
-                    modelReady = cleanupModelLoaded,
+                    // Breathing means "everything this configuration needs is resident", which is
+                    // ASR plus the LLM unless the user turned cleanup off.
+                    modelReady = ModelResidency.isFullyWarm(
+                        asrLoaded = asrModelLoaded,
+                        cleanupEnabled = cleanupEnabled,
+                        cleanupLoaded = cleanupModelLoaded,
+                    ),
                     profiles = profiles,
                     activeProfileId = activeProfileId,
                     cleanupEnabled = cleanupEnabled,
@@ -756,23 +765,43 @@ class FloatingOverlayService : Service() {
         }
 
         updateOverlayVisibility()
-        if (keyboardOpen) {
-            prefetchCleanupEngine()
-        }
     }
 
-    private fun prefetchCleanupEngine() {
-        if (!settings.cleanupEnabled) return
-        scope.launch(cleanupDispatcher) {
+    /**
+     * Loads everything the current configuration needs, in the order the latency cares about:
+     * **ASR first** (the first frames must be recognised as soon as possible), then the cleanup LLM
+     * once ASR has reported loaded.
+     *
+     * Sequential rather than parallel on purpose: the engines run on separate single-thread
+     * dispatchers, and racing two large allocations for CPU and memory bandwidth is exactly how a
+     * low-end device spikes into OOM. The LLM is not needed until the first *unit* is emitted (after
+     * a pause), so serialising costs almost nothing in perceived latency.
+     *
+     * Called from [beginCapture] only: nothing loads because a keyboard appeared or the service
+     * started. The lazy load in [onAsrUnit] stays as the safety net if this warm-up loses a race.
+     */
+    private fun warmEngines() {
+        scope.launch {
+            Log.i(TAG, "Warming engines at capture start")
+            val asrAvailable = withContext(asrDispatcher) { localEngine.load() }
+            asrModelLoaded = asrAvailable is LocalAsrEngine.Availability.Loaded
+            Log.i(TAG, "ASR warm: $asrAvailable in ${localEngine.lastLoadMillis}ms")
+            // No ASR means no text, so there is nothing for cleanup to do; skip the allocation.
+            if (!asrModelLoaded) return@launch
+            if (!settings.cleanupEnabled) return@launch
+
             val engine = engineForUtterance()
-            if (!engine.isLoaded) {
-                val result = engine.load()
-                cleanupModelLoaded = engine.isLoaded
-                if (result.isFailure) {
-                    Log.w(TAG, "Cleanup model prefetch failed: ${result.exceptionOrNull()?.message}")
-                }
-            } else {
+            if (engine.isLoaded) {
                 cleanupModelLoaded = true
+                Log.i(TAG, "Cleanup model already warm")
+                return@launch
+            }
+            val result = withContext(cleanupDispatcher) { engine.load() }
+            cleanupModelLoaded = engine.isLoaded
+            if (result.isFailure) {
+                Log.w(TAG, "Cleanup model warm-up failed: ${result.exceptionOrNull()?.message}")
+            } else {
+                Log.i(TAG, "Cleanup model warm in ${engine.lastLoadMs}ms")
             }
         }
     }
@@ -853,12 +882,12 @@ class FloatingOverlayService : Service() {
         }
         cleanupEngaged = false
 
-        if (settings.cleanupEnabled) {
-            prefetchCleanupEngine()
-        }
-
         localEngine.applyModel(settings.asrModel, filesDir)
         localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
+
+        // Warm at capture start and nowhere else. After the two apply calls, because both can unload
+        // a resident model that no longer matches the settings.
+        warmEngines()
 
         localSession.begin()
         recorder.frameSink = { buffer, read ->
@@ -882,6 +911,7 @@ class FloatingOverlayService : Service() {
 
         scope.launch {
             val availability = localSession.open(settings.language)
+            asrModelLoaded = availability is LocalAsrEngine.Availability.Loaded
             if (availability !is LocalAsrEngine.Availability.Loaded) {
                 val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: "model not ready"
                 statusNote = "ASR unavailable: $reason"
