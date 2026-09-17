@@ -67,10 +67,13 @@ class DownloadNotifications(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setProgress(PROGRESS_MAX, percent(progress), progress == null)
             .setContentText(
-                if (progress == null) {
-                    "Starting…"
-                } else {
-                    "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB"
+                when {
+                    progress == null -> "Starting…"
+                    // A preset has two halves; naming the stage is the only way to tell which model
+                    // the bytes belong to.
+                    progress.stage != null ->
+                        "${progress.stage} • ${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB"
+                    else -> "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB"
                 },
             )
             .addAction(NotificationCompat.Action(0, "Cancel", cancel))

@@ -26,6 +26,8 @@ data class DownloadProgress(
     val totalFiles: Int,
     val downloadedBytes: Long,
     val totalBytes: Long,
+    /** Which stage of a multi-stage request this is, or null for a single-stage download. */
+    val stage: String? = null,
 ) {
     companion object {
         /** A zeroed bar for an artifact nobody has fetched a byte of yet. */

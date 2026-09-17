@@ -8,9 +8,8 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -37,39 +36,53 @@ class ModelDownloadWorker(
         // the `.part` file means another kill costs at most the bytes in flight.
         foregroundAllowed = tryForeground(notifier.foregroundInfo(id, plan.label, progress = null))
 
-        val latest = MutableStateFlow<DownloadProgress?>(null)
+        val latest = Channel<DownloadProgress>(Channel.CONFLATED)
         var lastPublishedAt = 0L
 
         // The downloader reports progress from a blocking loop, so the publishing is a second
-        // coroutine: the callback writes into a conflated StateFlow and this collects it, one
-        // WorkManager update a second rather than hundreds of rows for one file.
+        // coroutine: the callback sends into a conflated channel and this drains it, one WorkManager
+        // update a second rather than hundreds of rows for one file. The channel is closed after the
+        // walk and joined, so the final stage's update is never lost to a cancellation race.
         val outcome = coroutineScope {
             val publisher = launch {
-                latest.collect { published ->
-                    if (published != null) {
-                        lastPublished = published
-                        setProgress(published.toData())
-                        if (foregroundAllowed) {
-                            foregroundAllowed =
-                                tryForeground(notifier.foregroundInfo(id, plan.label, published))
-                        }
+                for (published in latest) {
+                    lastPublished = published
+                    setProgress(published.toData())
+                    if (foregroundAllowed) {
+                        foregroundAllowed =
+                            tryForeground(notifier.foregroundInfo(id, plan.label, published))
                     }
                 }
             }
             val result = withContext(Dispatchers.IO) {
-                ArtifactDownloader(
-                    directory = plan.directory,
-                    files = plan.files,
-                    onProgress = { progress ->
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastPublishedAt >= PROGRESS_INTERVAL_MS || progress.overall >= 1f) {
-                            lastPublishedAt = now
-                            latest.value = progress
-                        }
-                    },
-                ).download(isCancelled = { isStopped })
+                // Stages run in order and their bytes add up, so a preset's bar climbs once across
+                // both models instead of jumping back to zero for the cleanup half. A stage that
+                // fails or is cancelled stops the walk; anything finished before it is already on
+                // disk, so a retry skips it via the downloader's own length check.
+                var completedBytes = 0L
+                var outcome: DownloadOutcome = DownloadOutcome.Complete
+                for (stage in plan.stages) {
+                    val stageOutcome = ArtifactDownloader(
+                        directory = stage.directory,
+                        files = stage.files,
+                        onProgress = { progress ->
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastPublishedAt >= PROGRESS_INTERVAL_MS || progress.overall >= 1f) {
+                                lastPublishedAt = now
+                                latest.trySend(progress.acrossPlan(stage, completedBytes, plan.totalBytes))
+                            }
+                        },
+                    ).download(isCancelled = { isStopped })
+                    if (stageOutcome !is DownloadOutcome.Complete) {
+                        outcome = stageOutcome
+                        break
+                    }
+                    completedBytes += stage.totalBytes
+                }
+                outcome
             }
-            publisher.cancelAndJoin()
+            latest.close()
+            publisher.join()
             result
         }
 

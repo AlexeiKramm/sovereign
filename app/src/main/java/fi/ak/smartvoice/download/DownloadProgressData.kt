@@ -11,6 +11,7 @@ fun DownloadProgress.toData(): Data = Data.Builder()
     .putInt(DownloadKeys.TOTAL_FILES, totalFiles)
     .putLong(DownloadKeys.DOWNLOADED_BYTES, downloadedBytes)
     .putLong(DownloadKeys.TOTAL_BYTES, totalBytes)
+    .putString(DownloadKeys.STAGE, stage)
     .build()
 
 /** Null when the work has not written progress yet — which is what "queued, not started" looks like. */
@@ -25,6 +26,7 @@ fun downloadProgressFrom(data: Data): DownloadProgress? {
         totalFiles = data.getInt(DownloadKeys.TOTAL_FILES, 0),
         downloadedBytes = data.getLong(DownloadKeys.DOWNLOADED_BYTES, 0L),
         totalBytes = data.getLong(DownloadKeys.TOTAL_BYTES, 0L),
+        stage = data.getString(DownloadKeys.STAGE),
     )
 }
 

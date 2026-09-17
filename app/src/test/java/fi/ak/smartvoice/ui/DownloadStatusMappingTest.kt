@@ -57,6 +57,20 @@ class DownloadStatusMappingTest {
         failureReason = reason,
     )
 
+    private fun preset(
+        id: String = "streaming",
+        state: DownloadRunState,
+        progress: DownloadProgress? = null,
+        waitingForNetwork: Boolean = false,
+        reason: String? = null,
+    ) = DownloadSnapshot(
+        request = DownloadRequest.Preset(id),
+        state = state,
+        progress = progress,
+        waitingForNetwork = waitingForNetwork,
+        failureReason = reason,
+    )
+
     @Test
     fun `nothing on disk and nothing queued is missing`() {
         assertEquals(ModelStatus.Missing, modelStatusFor(false, model, emptyList()))
@@ -244,5 +258,98 @@ class DownloadStatusMappingTest {
 
         assertTrue(states.getValue(model).queued)
         assertFalse(states.getValue(model).waitingForWifi)
+    }
+
+    // ------------------------------------------------------------------ wizard preset
+
+    private val stageProgress = progress.copy(stage = "speech model")
+
+    @Test
+    fun `no preset work leaves the wizard idle`() {
+        assertEquals(
+            DictationViewModel.OnboardingDownload.Idle,
+            onboardingDownloadFor(listOf(asr(state = DownloadRunState.RUNNING, progress = progress))),
+        )
+    }
+
+    @Test
+    fun `a running preset reports its stage and overall progress`() {
+        val download = onboardingDownloadFor(
+            listOf(preset(state = DownloadRunState.RUNNING, progress = stageProgress)),
+        )
+
+        val running = download as DictationViewModel.OnboardingDownload.Running
+        assertEquals("streaming", running.presetId)
+        assertEquals(DictationViewModel.OnboardingDownload.Stage.ASR, running.stage)
+        assertEquals(0.25f, running.overall, 1e-6f)
+        assertFalse(running.waitingForWifi)
+    }
+
+    @Test
+    fun `the cleanup stage is recognised from the worker's label`() {
+        val download = onboardingDownloadFor(
+            listOf(
+                preset(
+                    state = DownloadRunState.RUNNING,
+                    progress = progress.copy(stage = "cleanup model", overall = 0.9f),
+                ),
+            ),
+        )
+
+        val running = download as DictationViewModel.OnboardingDownload.Running
+        assertEquals(DictationViewModel.OnboardingDownload.Stage.CLEANUP, running.stage)
+    }
+
+    @Test
+    fun `a preset queued behind another download is running, not waiting for wifi`() {
+        val download = onboardingDownloadFor(
+            listOf(
+                asr(state = DownloadRunState.RUNNING, progress = progress),
+                preset(state = DownloadRunState.QUEUED, waitingForNetwork = true),
+            ),
+        )
+
+        val running = download as DictationViewModel.OnboardingDownload.Running
+        assertFalse("the queue is why it is waiting, not the network", running.waitingForWifi)
+        assertEquals(0f, running.overall, 1e-6f)
+    }
+
+    @Test
+    fun `a lone wifi-constrained preset is waiting for wifi`() {
+        val download = onboardingDownloadFor(
+            listOf(preset(state = DownloadRunState.QUEUED, waitingForNetwork = true)),
+        )
+
+        val running = download as DictationViewModel.OnboardingDownload.Running
+        assertTrue(running.waitingForWifi)
+    }
+
+    @Test
+    fun `a finished preset is ready, a failed one carries the reason`() {
+        assertEquals(
+            DictationViewModel.OnboardingDownload.Ready("streaming"),
+            onboardingDownloadFor(listOf(preset(state = DownloadRunState.SUCCEEDED))),
+        )
+        assertEquals(
+            DictationViewModel.OnboardingDownload.Failed("streaming", "HTTP 404"),
+            onboardingDownloadFor(listOf(preset(state = DownloadRunState.FAILED, reason = "HTTP 404"))),
+        )
+        assertEquals(
+            DictationViewModel.OnboardingDownload.Idle,
+            onboardingDownloadFor(listOf(preset(state = DownloadRunState.CANCELLED))),
+        )
+    }
+
+    @Test
+    fun `an active preset wins over an older finished one`() {
+        val download = onboardingDownloadFor(
+            listOf(
+                preset(id = "compact", state = DownloadRunState.SUCCEEDED),
+                preset(id = "streaming", state = DownloadRunState.RUNNING, progress = stageProgress),
+            ),
+        )
+
+        val running = download as DictationViewModel.OnboardingDownload.Running
+        assertEquals("streaming", running.presetId)
     }
 }

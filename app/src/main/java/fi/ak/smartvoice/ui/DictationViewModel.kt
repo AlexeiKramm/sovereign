@@ -27,13 +27,12 @@ import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
-import fi.ak.smartvoice.download.ArtifactDownloader
-import fi.ak.smartvoice.download.DownloadOutcome
 import fi.ak.smartvoice.download.DownloadProgress
 import fi.ak.smartvoice.download.DownloadRequest
 import fi.ak.smartvoice.download.DownloadRunState
 import fi.ak.smartvoice.download.DownloadSnapshot
 import fi.ak.smartvoice.download.ModelDownloads
+import fi.ak.smartvoice.download.PresetStage
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.EnginePreference
@@ -588,12 +587,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     sealed interface OnboardingDownload {
         /** Which half of the preset is being fetched. */
         enum class Stage(val label: String) {
-            ASR("speech model"),
-            CLEANUP("cleanup model"),
+            ASR(PresetStage.SPEECH),
+            CLEANUP(PresetStage.CLEANUP),
+            ;
+
+            companion object {
+                /** Maps the worker's stage label back to the wizard's step, defaulting to the first. */
+                fun fromLabel(label: String?): Stage = entries.firstOrNull { it.label == label } ?: ASR
+            }
         }
 
         data object Idle : OnboardingDownload
-        data class Running(val presetId: String, val stage: Stage, val overall: Float) : OnboardingDownload
+
+        data class Running(
+            val presetId: String,
+            val stage: Stage,
+            val overall: Float,
+            val waitingForWifi: Boolean = false,
+        ) : OnboardingDownload
+
         data class Ready(val presetId: String) : OnboardingDownload
         data class Failed(val presetId: String, val message: String) : OnboardingDownload
     }
@@ -604,11 +616,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     /** Presets whose speech **and** cleanup models are both fully on disk. */
     private val _installedPresetIds = MutableStateFlow(installedPresetIds())
     val installedPresetIds: StateFlow<Set<String>> = _installedPresetIds.asStateFlow()
-
-    private var onboardingJob: Job? = null
-
-    @Volatile
-    private var cancelOnboarding = false
 
     private fun installedPresetIds(): Set<String> =
         OnboardingModelPresets.ALL
@@ -624,96 +631,24 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Downloads a preset's two models end to end: speech model first, then cleanup model.
-     * Sequenced here rather than in the screen so a rotation mid-download cannot strand the
-     * second half, and both models become the active selection as soon as they land.
+     * Queues a preset's two models as one background work item. The worker downloads the speech
+     * model and then the cleanup model, so a rotation or a process death cannot strand the second
+     * half; both become the active selection as soon as the request is accepted.
      */
     fun startOnboardingDownload(preset: OnboardingModelPreset) {
-        if (_onboardingDownload.value is OnboardingDownload.Running) return
-        cancelOnboarding = false
-
-        val asrBytes = preset.asrModel.totalBytes
-        val cleanupBytes = preset.llmModel.approximateBytes
-        val totalBytes = (asrBytes + cleanupBytes).coerceAtLeast(1L)
-
-        onboardingJob = viewModelScope.launch {
-            // Adopt the preset, so the models the user chose are the ones the app will run.
-            selectAsrModel(preset.asrModel)
-            selectLitertModel(preset.llmModel)
-
-            _onboardingDownload.value =
-                OnboardingDownload.Running(preset.id, OnboardingDownload.Stage.ASR, 0f)
-            val asrResult = withContext(Dispatchers.IO) {
-                ArtifactDownloader(
-                    directory = preset.asrModel.directory(app.filesDir),
-                    files = preset.asrModel.remoteFiles(),
-                    onProgress = { progress ->
-                        _onboardingDownload.value = OnboardingDownload.Running(
-                            presetId = preset.id,
-                            stage = OnboardingDownload.Stage.ASR,
-                            overall = (progress.overall * asrBytes / totalBytes).coerceIn(0f, 1f),
-                        )
-                    },
-                ).download(isCancelled = { cancelOnboarding })
-            }
-            when (asrResult) {
-                DownloadOutcome.Complete -> _modelStatus.value = currentModelStatus()
-                is DownloadOutcome.Cancelled -> {
-                    _onboardingDownload.value = OnboardingDownload.Idle
-                    return@launch
-                }
-                is DownloadOutcome.Failed -> {
-                    _onboardingDownload.value = OnboardingDownload.Failed(preset.id, asrResult.reason)
-                    return@launch
-                }
-            }
-
-            _onboardingDownload.value = OnboardingDownload.Running(
-                presetId = preset.id,
-                stage = OnboardingDownload.Stage.CLEANUP,
-                overall = (asrBytes.toFloat() / totalBytes).coerceIn(0f, 1f),
-            )
-            var cleanupFailure: String? = null
-            var cleanupCancelled = false
-            val cleanupOutcome = withContext(Dispatchers.IO) {
-                ArtifactDownloader(
-                    directory = LiteRtLmModelStore.getDirectory(app),
-                    files = preset.llmModel.remoteFiles(),
-                    onProgress = { progress ->
-                        _onboardingDownload.value = OnboardingDownload.Running(
-                            presetId = preset.id,
-                            stage = OnboardingDownload.Stage.CLEANUP,
-                            overall = ((asrBytes + cleanupBytes * progress.overall) / totalBytes.toFloat())
-                                .coerceIn(0f, 1f),
-                        )
-                    },
-                ).download(isCancelled = { cancelOnboarding })
-            }
-            when (cleanupOutcome) {
-                DownloadOutcome.Complete -> Unit
-                is DownloadOutcome.Cancelled -> cleanupCancelled = true
-                is DownloadOutcome.Failed -> cleanupFailure = cleanupOutcome.reason
-            }
-
-            if (cleanupCancelled) {
-                _onboardingDownload.value = OnboardingDownload.Idle
-                return@launch
-            }
-            val cleanupError = cleanupFailure
-            if (cleanupError != null) {
-                _onboardingDownload.value = OnboardingDownload.Failed(preset.id, cleanupError)
-                return@launch
-            }
-            refreshLitertInstalled()
-            _modelStatus.value = currentModelStatus()
-            refreshInstalledPresets()
-            _onboardingDownload.value = OnboardingDownload.Ready(preset.id)
-        }
+        val request = DownloadRequest.Preset(preset.id)
+        if (_downloadSnapshots.value.any { it.request == request && it.isActive }) return
+        selectAsrModel(preset.asrModel)
+        selectLitertModel(preset.llmModel)
+        ModelDownloads.enqueue(app, request)
     }
 
+    /**
+     * Stops the running download and everything queued behind it, the wizard's preset included.
+     * The `.part` files are kept, so a later attempt resumes rather than restarts.
+     */
     fun cancelOnboardingDownload() {
-        cancelOnboarding = true
-        _onboardingDownload.value = OnboardingDownload.Idle
+        ModelDownloads.cancelAll(app)
     }
 
     fun setFloatingPillEnabled(enabled: Boolean) {
@@ -831,6 +766,20 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 val now = litertDownloadStates(snapshots)
                 _litertDownloads.value = now
                 if (previous.any { it !in now.keys }) refreshLitertInstalled()
+
+                // The wizard's step is a view of the same queue, not a second state holder: a job
+                // that survives process death is rejoined here, and "installed" is re-read when the
+                // preset stops running so the Ready badge appears without a relaunch.
+                val previousPreset = (_onboardingDownload.value as? OnboardingDownload.Running)?.presetId
+                val nextOnboarding = onboardingDownloadFor(snapshots)
+                _onboardingDownload.value = nextOnboarding
+                val presetStopped = previousPreset != null &&
+                    (nextOnboarding !is OnboardingDownload.Running ||
+                        nextOnboarding.presetId != previousPreset)
+                if (presetStopped) {
+                    refreshInstalledPresets()
+                    refreshLitertInstalled()
+                }
             }
         }
     }
@@ -1217,7 +1166,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         ticker?.cancel()
-        onboardingJob?.cancel()
         // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
         cleanupEngine?.unload()
         cleanupEngine = null

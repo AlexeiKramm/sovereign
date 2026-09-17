@@ -86,3 +86,40 @@ private fun downloadStatesByModel(
 
 private fun DownloadSnapshot.isAsrRequestFor(modelId: String): Boolean =
     request is DownloadRequest.Asr && request.modelId == modelId
+
+/**
+ * The wizard's models step as the shared queue sees it. A preset is one work item with two stages,
+ * so unlike the per-model helpers there is only ever one interesting request: the active one, or
+ * the last one that finished.
+ *
+ * `waitingForWifi` means "held back by the Wi-Fi constraint", not "queued behind another
+ * download" — the wizard can offer a mobile-data override for the former but not the latter.
+ */
+internal fun onboardingDownloadFor(
+    snapshots: List<DownloadSnapshot>,
+): DictationViewModel.OnboardingDownload {
+    val presets = snapshots.filter { it.request is DownloadRequest.Preset }
+    val active = presets.firstOrNull { it.isActive }
+    if (active != null) {
+        val running = snapshots.any { it.state == DownloadRunState.RUNNING }
+        return DictationViewModel.OnboardingDownload.Running(
+            presetId = active.request.modelId,
+            stage = DictationViewModel.OnboardingDownload.Stage.fromLabel(active.progress?.stage),
+            overall = active.progress?.overall ?: 0f,
+            waitingForWifi = active.state == DownloadRunState.QUEUED &&
+                !running && active.waitingForNetwork,
+        )
+    }
+
+    val last = presets.lastOrNull() ?: return DictationViewModel.OnboardingDownload.Idle
+    return when (last.state) {
+        DownloadRunState.SUCCEEDED -> DictationViewModel.OnboardingDownload.Ready(last.request.modelId)
+        DownloadRunState.FAILED -> DictationViewModel.OnboardingDownload.Failed(
+            presetId = last.request.modelId,
+            message = last.failureReason ?: "download failed",
+        )
+        // Cancelled, or a queued item that was never started: the wizard is idle and can offer
+        // the download again. "Installed" is decided from disk by the screen, not from here.
+        else -> DictationViewModel.OnboardingDownload.Idle
+    }
+}

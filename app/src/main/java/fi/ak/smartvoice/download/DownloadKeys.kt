@@ -15,6 +15,7 @@ internal object DownloadKeys {
     const val TOTAL_FILES = "totalFiles"
     const val DOWNLOADED_BYTES = "downloadedBytes"
     const val TOTAL_BYTES = "totalBytes"
+    const val STAGE = "stage"
 
     const val REASON = "reason"
 }

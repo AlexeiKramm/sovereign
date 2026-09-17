@@ -121,7 +121,9 @@ fun OnboardingScreen(
     val selectedPreset = OnboardingModelPresets.byId(selectedPresetId)
 
     fun finish() {
-        viewModel.cancelOnboardingDownload()
+        // Leaving does not cancel: the preset download is background work now, so the progress
+        // notification and the Models screen carry it. The explicit Cancel on the models step is
+        // the only thing that stops it.
         onFinished()
     }
 
@@ -228,6 +230,7 @@ fun OnboardingScreen(
                         onSelect = { selectedPresetId = it.id },
                         onDownload = { viewModel.startOnboardingDownload(selectedPreset) },
                         onCancel = { viewModel.cancelOnboardingDownload() },
+                        onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
                         onContinue = { advance() },
                         onLater = { advance() },
                     )
@@ -304,6 +307,7 @@ private fun ModelsStep(
     onSelect: (OnboardingModelPreset) -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
+    onAllowMobileData: () -> Unit,
     onContinue: () -> Unit,
     onLater: () -> Unit,
 ) {
@@ -362,7 +366,11 @@ private fun ModelsStep(
             when {
                 running != null -> {
                     Text(
-                        text = "Downloading ${running.stage.label}… ${(running.overall * 100).toInt()}%",
+                        text = if (running.waitingForWifi) {
+                            "Waiting for Wi-Fi"
+                        } else {
+                            "Downloading ${running.stage.label}… ${(running.overall * 100).toInt()}%"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -372,12 +380,27 @@ private fun ModelsStep(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(modifier = Modifier.height(Spacing.md))
-                    OutlinedButton(
-                        onClick = onCancel,
-                        shape = RoundedCornerShape(Radius.pill),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Cancel")
+                    if (running.waitingForWifi) {
+                        // The preset defaults to Wi-Fi-only like every other download; without this
+                        // a cellular-only first run could never get a model.
+                        Button(
+                            onClick = onAllowMobileData,
+                            shape = RoundedCornerShape(Radius.pill),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Download over mobile data", fontWeight = FontWeight.SemiBold)
+                        }
+                        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                            Text("Cancel")
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onCancel,
+                            shape = RoundedCornerShape(Radius.pill),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Cancel")
+                        }
                     }
                 }
 
