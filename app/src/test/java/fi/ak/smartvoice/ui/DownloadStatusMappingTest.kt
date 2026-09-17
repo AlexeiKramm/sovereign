@@ -43,6 +43,20 @@ class DownloadStatusMappingTest {
         failureReason = reason,
     )
 
+    private fun litert(
+        id: String = "gemma-4-e2b",
+        state: DownloadRunState,
+        progress: DownloadProgress? = null,
+        waitingForNetwork: Boolean = false,
+        reason: String? = null,
+    ) = DownloadSnapshot(
+        request = DownloadRequest.LiteRt(id),
+        state = state,
+        progress = progress,
+        waitingForNetwork = waitingForNetwork,
+        failureReason = reason,
+    )
+
     @Test
     fun `nothing on disk and nothing queued is missing`() {
         assertEquals(ModelStatus.Missing, modelStatusFor(false, model, emptyList()))
@@ -174,6 +188,60 @@ class DownloadStatusMappingTest {
         assertEquals("only live ASR requests are listed", setOf(otherModel, model), states.keys)
         assertEquals(progress, states.getValue(otherModel).progress)
         assertFalse(states.getValue(otherModel).queued)
+        assertTrue(states.getValue(model).queued)
+        assertFalse(states.getValue(model).waitingForWifi)
+    }
+
+    @Test
+    fun `litertDownloadStates lists only cleanup requests, keyed by model`() {
+        val states = litertDownloadStates(
+            listOf(
+                asr(id = otherModel, state = DownloadRunState.RUNNING, progress = progress),
+                litert(id = "gemma-4-e2b", state = DownloadRunState.RUNNING, progress = progress),
+                litert(id = "qwen-3.5-0.8b", state = DownloadRunState.SUCCEEDED),
+            ),
+        )
+
+        assertEquals("only live cleanup requests are listed", setOf("gemma-4-e2b"), states.keys)
+        assertEquals(progress, states.getValue("gemma-4-e2b").progress)
+        assertFalse(states.getValue("gemma-4-e2b").queued)
+    }
+
+    @Test
+    fun `a cleanup request queued behind a speech download is queued, not waiting for wifi`() {
+        val states = litertDownloadStates(
+            listOf(
+                asr(state = DownloadRunState.RUNNING, progress = progress),
+                litert(id = "gemma-4-e2b", state = DownloadRunState.QUEUED, waitingForNetwork = true),
+            ),
+        )
+
+        val downloading = states.getValue("gemma-4-e2b")
+        assertTrue("the shared queue is what holds it back", downloading.queued)
+        assertFalse("the network is not the reason", downloading.waitingForWifi)
+        assertEquals(null, downloading.progress)
+    }
+
+    @Test
+    fun `a lone cleanup request with a Wi-Fi constraint is waiting for wifi`() {
+        val states = litertDownloadStates(
+            listOf(litert(id = "gemma-4-e2b", state = DownloadRunState.QUEUED, waitingForNetwork = true)),
+        )
+
+        val downloading = states.getValue("gemma-4-e2b")
+        assertTrue(downloading.waitingForWifi)
+        assertFalse(downloading.queued)
+    }
+
+    @Test
+    fun `a speech request queued behind a cleanup download is queued`() {
+        val states = asrDownloadStates(
+            listOf(
+                litert(id = "gemma-4-e2b", state = DownloadRunState.RUNNING, progress = progress),
+                asr(state = DownloadRunState.QUEUED, waitingForNetwork = true),
+            ),
+        )
+
         assertTrue(states.getValue(model).queued)
         assertFalse(states.getValue(model).waitingForWifi)
     }

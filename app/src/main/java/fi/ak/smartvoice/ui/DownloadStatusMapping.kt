@@ -50,13 +50,33 @@ internal fun modelStatusFor(
 /** The live download for each ASR model, keyed by model id, for the Models list. */
 internal fun asrDownloadStates(
     snapshots: List<DownloadSnapshot>,
+): Map<String, ModelStatus.Downloading> =
+    downloadStatesByModel(snapshots) { it is DownloadRequest.Asr }
+
+/**
+ * The live download for each LiteRT cleanup model, keyed by model id. The cleanup list shows the
+ * same "queued" and "waiting for Wi-Fi" states the speech list does, because both kinds share one
+ * serial queue.
+ */
+internal fun litertDownloadStates(
+    snapshots: List<DownloadSnapshot>,
+): Map<String, ModelStatus.Downloading> =
+    downloadStatesByModel(snapshots) { it is DownloadRequest.LiteRt }
+
+/**
+ * Flattens the active requests of one kind into the state a single model's card needs. `queued` and
+ * `waitingForWifi` are both ENQUEUED; which one it is depends on whether *anything* in the shared
+ * queue is running, so that is decided once, globally, not per model.
+ */
+private fun downloadStatesByModel(
+    snapshots: List<DownloadSnapshot>,
+    matches: (DownloadRequest) -> Boolean,
 ): Map<String, ModelStatus.Downloading> {
     val running = snapshots.any { it.state == DownloadRunState.RUNNING }
     return snapshots
-        .filter { it.request is DownloadRequest.Asr && it.isActive }
+        .filter { matches(it.request) && it.isActive }
         .associate { snapshot ->
-            val modelId = (snapshot.request as DownloadRequest.Asr).modelId
-            modelId to ModelStatus.Downloading(
+            snapshot.request.modelId to ModelStatus.Downloading(
                 progress = snapshot.progress,
                 queued = snapshot.state == DownloadRunState.QUEUED && running,
                 waitingForWifi = snapshot.state == DownloadRunState.QUEUED && !running && snapshot.waitingForNetwork,

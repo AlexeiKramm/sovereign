@@ -67,7 +67,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
-import fi.ak.smartvoice.download.DownloadProgress
 import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeViolet
@@ -94,8 +93,8 @@ fun ModelsScreen(
     val litertCatalog = viewModel.litertCatalog
     val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
     val litertInstalled by viewModel.litertInstalled.collectAsStateWithLifecycle()
-    val litertPulling by viewModel.litertPulling.collectAsStateWithLifecycle()
-    val litertProgress by viewModel.litertProgress.collectAsStateWithLifecycle()
+    // Live cleanup downloads per model, mirroring the speech list; null means "not downloading".
+    val litertDownloads by viewModel.litertDownloads.collectAsStateWithLifecycle()
 
     // Confirmation dialog states
     var pendingAsrDownload by remember { mutableStateOf<AsrModelSpec?>(null) }
@@ -110,27 +109,39 @@ fun ModelsScreen(
     // download tap rather than in the wizard. Denial is not fatal — it only hides progress.
     var notificationsAllowed by remember { mutableStateOf(hasNotificationPermission(context)) }
     var notifyDenied by remember { mutableStateOf(false) }
-    var pendingAsrAfterPermission by remember { mutableStateOf<AsrModelSpec?>(null) }
-    var allowMobileDataForPending by remember { mutableStateOf(false) }
+    // The tap to replay once the permission dialog is answered. Both model families go through it,
+    // because either can be the first download on a fresh install.
+    var pendingDownloadAfterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         notificationsAllowed = granted
         notifyDenied = !granted
-        pendingAsrAfterPermission?.let { target ->
-            viewModel.downloadModel(target, allowMetered = allowMobileDataForPending)
+        pendingDownloadAfterPermission?.invoke()
+        pendingDownloadAfterPermission = null
+    }
+
+    // Denial does not block the download; it only means progress is invisible while away.
+    val withNotificationPermission: (() -> Unit) -> Unit = { enqueue ->
+        if (notificationsAllowed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            enqueue()
+        } else {
+            pendingDownloadAfterPermission = enqueue
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        pendingAsrAfterPermission = null
     }
 
     val startAsrDownload: (AsrModelSpec, Boolean) -> Unit = { target, allowMetered ->
         viewModel.selectAsrModel(target)
-        if (notificationsAllowed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        withNotificationPermission {
             viewModel.downloadModel(target, allowMetered = allowMetered)
-        } else {
-            pendingAsrAfterPermission = target
-            allowMobileDataForPending = allowMetered
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    val startLitertDownload: (LiteRtLmModelSpec, Boolean) -> Unit = { target, allowMetered ->
+        viewModel.selectLitertModel(target)
+        withNotificationPermission {
+            viewModel.downloadLitertModel(target, allowMetered = allowMetered)
         }
     }
 
@@ -205,22 +216,43 @@ fun ModelsScreen(
     }
 
     pendingLitertDownload?.let { model ->
+        var allowMobileData by remember(model) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingLitertDownload = null },
             icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = BadgeViolet) },
             title = { Text("Download AI Cleanup Model?") },
             text = {
-                Text(
-                    "“${model.label}” is not currently downloaded on this device (~${model.approximateBytes / 1_000_000} MB).\n\nWould you like to download and activate it now?",
-                )
+                Column {
+                    Text(
+                        "“${model.label}” is not currently downloaded on this device (~${model.approximateBytes / 1_000_000} MB).\n\nWould you like to download and activate it now?",
+                    )
+                    if (notifyDenied) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            "Notifications are off, so progress will not be visible if you leave the app.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = allowMobileData, onCheckedChange = { allowMobileData = it })
+                        Text("Also allow mobile data", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        "Downloads prefer Wi-Fi; ticking this starts immediately on cellular.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         val target = model
+                        val metered = allowMobileData
                         pendingLitertDownload = null
-                        viewModel.selectLitertModel(target)
-                        viewModel.downloadLitertModel(target)
+                        startLitertDownload(target, metered)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
                 ) {
@@ -554,7 +586,7 @@ fun ModelsScreen(
                                     color = MaterialTheme.colorScheme.error,
                                 )
                                 Button(
-                                    onClick = { viewModel.downloadLitertModel(selectedLitertModel) },
+                                    onClick = { pendingLitertDownload = selectedLitertModel },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
                                 ) {
@@ -662,20 +694,17 @@ fun ModelsScreen(
         items(litertCatalog, key = { "litert_${it.id}" }) { model ->
             val isSelected = selectedLitertModel.id == model.id
             val isInstalled = litertInstalled[model.id] == true
-            val isPulling = litertPulling == model.id
 
             LitertModelLibraryItem(
                 model = model,
                 isSelected = isSelected,
                 isInstalled = isInstalled,
-                isDownloading = isPulling,
-                progress = if (isPulling) litertProgress else null,
+                downloadStatus = litertDownloads[model.id],
+                notificationsAllowed = notificationsAllowed,
                 onSelect = { viewModel.selectLitertModel(model) },
-                onDownload = {
-                    viewModel.selectLitertModel(model)
-                    viewModel.downloadLitertModel(model)
-                },
-                onCancelDownload = { viewModel.cancelLitertDownload() },
+                onDownload = { pendingLitertDownload = model },
+                onCancelDownload = { viewModel.cancelModelDownload() },
+                onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
                 onDelete = { pendingLitertDelete = model },
             )
         }
@@ -1152,11 +1181,12 @@ private fun LitertModelLibraryItem(
     model: LiteRtLmModelSpec,
     isSelected: Boolean,
     isInstalled: Boolean,
-    isDownloading: Boolean,
-    progress: DownloadProgress?,
+    downloadStatus: ModelStatus.Downloading?,
+    notificationsAllowed: Boolean,
     onSelect: () -> Unit,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
+    onAllowMobileData: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -1230,20 +1260,34 @@ private fun LitertModelLibraryItem(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (isDownloading && progress != null) {
+            if (downloadStatus != null) {
+                val progress = downloadStatus.progress
                 Text(
-                    text = "Downloading: ${model.fileName}",
+                    text = when {
+                        downloadStatus.waitingForWifi -> "Waiting for Wi-Fi"
+                        downloadStatus.queued -> "Queued — another download is running"
+                        progress != null -> "Downloading: ${progress.fileName}"
+                        else -> "Starting…"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 LinearProgressIndicator(
-                    progress = { progress.overall },
+                    progress = { progress?.overall ?: 0f },
                     color = BadgeViolet,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(4.dp)),
                 )
+                if (!notificationsAllowed) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Notifications are off — progress will not be visible while you are away.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1251,15 +1295,32 @@ private fun LitertModelLibraryItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.overall * 100).toInt()}%)",
+                        text = if (progress != null) {
+                            "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.overall * 100).toInt()}%)"
+                        } else {
+                            ""
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedButton(
-                        onClick = onCancelDownload,
-                        shape = RoundedCornerShape(8.dp),
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                        if (downloadStatus.waitingForWifi) {
+                            OutlinedButton(
+                                onClick = onAllowMobileData,
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Text("Use mobile data", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onCancelDownload,
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             } else if (isInstalled) {

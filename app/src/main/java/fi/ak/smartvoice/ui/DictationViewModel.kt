@@ -306,13 +306,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _litertInstalled = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val litertInstalled: StateFlow<Map<String, Boolean>> = _litertInstalled.asStateFlow()
 
-    private val _litertPulling = MutableStateFlow<String?>(null)
-    val litertPulling: StateFlow<String?> = _litertPulling.asStateFlow()
-
-    private val _litertProgress = MutableStateFlow<DownloadProgress?>(null)
-    val litertProgress: StateFlow<DownloadProgress?> = _litertProgress.asStateFlow()
-
-    private var litertJob: Job? = null
+    /**
+     * The live download for each cleanup model, keyed by model id, mirroring [asrDownloads]. This is
+     * a map rather than a single id because a second request can be queued behind the running one.
+     */
+    private val _litertDownloads = MutableStateFlow<Map<String, ModelStatus.Downloading>>(emptyMap())
+    val litertDownloads: StateFlow<Map<String, ModelStatus.Downloading>> = _litertDownloads.asStateFlow()
 
     fun refreshLitertInstalled() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -322,30 +321,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Still a foreground download: routing the cleanup model through the worker is CHUNK-2. Only
-     * the transfer itself moved, onto the shared [ArtifactDownloader].
+     * Queues [spec] for download in the same serial queue as the speech models. Like
+     * [downloadModel], a request already in flight for this model is not duplicated.
      */
-    fun downloadLitertModel(spec: LiteRtLmModelSpec) {
-        if (_litertPulling.value != null) return
-        litertJob = viewModelScope.launch {
-            _litertPulling.value = spec.id
-            _litertProgress.value = DownloadProgress.initial(spec.remoteFiles())
-            val outcome = withContext(Dispatchers.IO) {
-                ArtifactDownloader(
-                    directory = LiteRtLmModelStore.getDirectory(app),
-                    files = spec.remoteFiles(),
-                    onProgress = { _litertProgress.value = it },
-                ).download(isCancelled = { litertJob?.isCancelled == true })
-            }
-            _litertPulling.value = null
-            when (outcome) {
-                DownloadOutcome.Complete -> refreshLitertInstalled()
-                is DownloadOutcome.Failed -> {
-                    _cleanupLoad.value = "LiteRT download failed: ${outcome.reason}"
-                }
-                is DownloadOutcome.Cancelled -> Unit
-            }
-        }
+    fun downloadLitertModel(spec: LiteRtLmModelSpec, allowMetered: Boolean = false) {
+        val request = DownloadRequest.LiteRt(spec.id)
+        if (_downloadSnapshots.value.any { it.request == request && it.isActive }) return
+        ModelDownloads.enqueue(app, request, allowMetered = allowMetered)
     }
 
     fun deleteLitertModel(spec: LiteRtLmModelSpec) {
@@ -357,12 +339,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             }
             refreshLitertInstalled()
         }
-    }
-
-    fun cancelLitertDownload() {
-        litertJob?.cancel()
-        _litertPulling.value = null
-        _litertProgress.value = null
     }
 
     // ------------------------------------------------------------------ theming
@@ -848,6 +824,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 _downloadSnapshots.value = snapshots
                 _modelStatus.value = currentModelStatus()
                 _asrDownloads.value = asrDownloadStates(snapshots)
+                // A cleanup model that finished — or was cancelled — while this screen was open must
+                // flip from "Not downloaded" to "Active", and "installed" is a disk fact Compose
+                // cannot observe, so re-read it when an active request leaves the queue.
+                val previous = _litertDownloads.value.keys
+                val now = litertDownloadStates(snapshots)
+                _litertDownloads.value = now
+                if (previous.any { it !in now.keys }) refreshLitertInstalled()
             }
         }
     }
@@ -1201,7 +1184,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun onAppBackgrounded() {
         ticker?.cancel()
-        litertJob?.cancel()
         if (recorder.isRecording) {
             recorder.cancel()
             localSession.abort()
@@ -1235,7 +1217,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         ticker?.cancel()
-        litertJob?.cancel()
         onboardingJob?.cancel()
         // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
         cleanupEngine?.unload()
