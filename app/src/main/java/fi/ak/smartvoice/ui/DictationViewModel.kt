@@ -876,8 +876,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             modelSpec = settings.litertModel,
             processor = settings.litertProcessor,
             speculativeDecoding = settings.litertSpeculativeDecoding,
-            dictionary = dictionaryStore.getWords(),
-            dictionaryEntries = dictionaryStore.getEntries(),
+            vocabulary = dictionaryStore::getEntries,
         ).also { cleanupEngine = it }
     }
 

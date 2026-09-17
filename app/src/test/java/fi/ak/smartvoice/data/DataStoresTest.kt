@@ -40,6 +40,19 @@ class DataStoresTest {
     }
 
     @Test
+    fun `a dictionary store method reference stays a live vocabulary source`() {
+        val store = DictionaryStore(temp.root)
+        // The cleanup engine takes `() -> List<DictionaryEntry>` and reads it at every prompt build,
+        // so a store method reference must reflect writes made after the engine was constructed.
+        val vocabulary: () -> List<DictionaryEntry> = store::getEntries
+        assertTrue(vocabulary().isEmpty())
+
+        store.addCorrection("Parakeet", listOf("parakit"))
+        assertEquals(listOf("Parakeet"), vocabulary().map { it.correct })
+        assertEquals(listOf("parakit"), vocabulary().single().incorrect)
+    }
+
+    @Test
     fun `legacy word and aliases files migrate to correct and incorrect`() {
         val legacy = """
             {

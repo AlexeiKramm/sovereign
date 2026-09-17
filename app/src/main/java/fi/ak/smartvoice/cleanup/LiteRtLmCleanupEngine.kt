@@ -30,8 +30,13 @@ class LiteRtLmCleanupEngine(
     val modelSpec: LiteRtLmModelSpec,
     val processor: fi.ak.smartvoice.data.LiteRtProcessor = fi.ak.smartvoice.data.LiteRtProcessor.GPU,
     val speculativeDecoding: Boolean = true,
-    private val dictionary: List<String> = emptyList(),
-    private val dictionaryEntries: List<DictionaryEntry> = emptyList(),
+    /**
+     * Read every time a prompt is built — at session start, and on a standalone [clean] — never
+     * captured into the instance. The engine is long-lived (residency is sticky), so a snapshot
+     * here would silently pin the vocabulary until the next model reload. Mirrors
+     * `CleanupPipeline`'s live `rules` lambda: a dependency that can change is a function.
+     */
+    private val vocabulary: () -> List<DictionaryEntry> = { emptyList() },
 ) : CleanupEngine {
 
     private val lock = Mutex()
@@ -121,22 +126,11 @@ class LiteRtLmCleanupEngine(
             val promptData = CleanupPrompt.build(
                 unit = "",
                 context = null,
-                dictionary = dictionary,
-                dictionaryEntries = dictionaryEntries,
+                dictionaryEntries = vocabulary(),
                 variant = variant,
                 customRules = customRules,
             )
-            val convConfig = ConversationConfig(
-                systemInstruction = Contents.Companion.of(promptData.system),
-                samplerConfig = SamplerConfig(
-                    topK = 40,
-                    topP = 0.95,
-                    temperature = 0.1,
-                    seed = 0,
-                ),
-                maxOutputToken = CleanupPrompt.MAX_TOKENS,
-            )
-            sessionConversation = eng.createConversation(convConfig)
+            sessionConversation = eng.createConversation(conversationConfig(promptData.system))
         } catch (_: Throwable) {
             sessionConversation = null
         }
@@ -148,6 +142,21 @@ class LiteRtLmCleanupEngine(
         sessionTurns = 0
         conv?.let { runCatching { it.close() } }
     }
+
+    /**
+     * One definition of the conversation's sampler and token budget, so an in-session conversation
+     * and a standalone one cannot drift apart.
+     */
+    private fun conversationConfig(system: String) = ConversationConfig(
+        systemInstruction = Contents.Companion.of(system),
+        samplerConfig = SamplerConfig(
+            topK = 40,
+            topP = 0.95,
+            temperature = 0.1,
+            seed = 0,
+        ),
+        maxOutputToken = CleanupPrompt.MAX_TOKENS,
+    )
 
     override suspend fun clean(
         unit: String,
@@ -163,41 +172,33 @@ class LiteRtLmCleanupEngine(
         }
 
         val loadMs = lastLoadMs
-        val promptData = CleanupPrompt.build(
-            unit = unit,
-            context = context,
-            dictionary = dictionary,
-            dictionaryEntries = dictionaryEntries,
-            variant = variant,
-            customRules = customRules,
-        )
 
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null
-            val conversation = activeConv ?: run {
-                val convConfig = ConversationConfig(
-                    systemInstruction = Contents.Companion.of(promptData.system),
-                    samplerConfig = SamplerConfig(
-                        topK = 40,
-                        topP = 0.95,
-                        temperature = 0.1,
-                        seed = 0,
-                    ),
-                    maxOutputToken = CleanupPrompt.MAX_TOKENS,
-                )
-                eng.createConversation(convConfig)
-            }
-
-            // In an active session, system instructions & dictionary are already in the KV cache
-            val messageToSend = if (isSession) {
-                if (sessionTurns == 0 && !context.isNullOrBlank()) {
+            val conversation: Conversation
+            val messageToSend: String
+            if (activeConv != null) {
+                // In an active session the system instruction — safety core, vocabulary and rules —
+                // is already in the KV cache; only the new segment is sent.
+                conversation = activeConv
+                messageToSend = if (sessionTurns == 0 && !context.isNullOrBlank()) {
                     "Already cleaned (context — do not repeat it or clean it again):\n$context\n\nClean this segment:\n$unit"
                 } else {
                     "Clean this segment:\n$unit"
                 }
             } else {
-                promptData.user
+                // No session: build a fresh conversation, reading the vocabulary now so the pass
+                // sees the dictionary as it is at this moment.
+                val promptData = CleanupPrompt.build(
+                    unit = unit,
+                    context = context,
+                    dictionaryEntries = vocabulary(),
+                    variant = variant,
+                    customRules = customRules,
+                )
+                conversation = eng.createConversation(conversationConfig(promptData.system))
+                messageToSend = promptData.user
             }
 
             try {

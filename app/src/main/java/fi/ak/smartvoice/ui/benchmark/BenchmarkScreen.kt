@@ -470,8 +470,6 @@ fun BenchmarkScreen(
                 val activeProfile = profileStore.activeProfile()
                 val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
                 val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
-                val dictionary = dictionaryStore.getWords()
-                val dictionaryEntries = dictionaryStore.getEntries()
 
                 val llmStart = SystemClock.elapsedRealtime()
                 var cleanupEngineInstance: LiteRtLmCleanupEngine? = null
@@ -481,8 +479,7 @@ fun BenchmarkScreen(
                         modelSpec = llmModel.model,
                         processor = appSettings.litertProcessor,
                         speculativeDecoding = appSettings.litertSpeculativeDecoding,
-                        dictionary = dictionary,
-                        dictionaryEntries = dictionaryEntries,
+                        vocabulary = dictionaryStore::getEntries,
                     )
                     cleanupEngineInstance = engine
                     engine.clean(
@@ -561,8 +558,6 @@ fun BenchmarkScreen(
             val activeProfile = profileStore.activeProfile()
             val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
             val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
-            val dictionary = dictionaryStore.getWords()
-            val dictionaryEntries = dictionaryStore.getEntries()
 
             try {
                 val processor = if (selectedComputeUnit == "cpu" || !model.model.supportsGpu) {
@@ -586,8 +581,7 @@ fun BenchmarkScreen(
                         modelSpec = model.model,
                         processor = processor,
                         speculativeDecoding = speculativeDecoding,
-                        dictionary = dictionary,
-                        dictionaryEntries = dictionaryEntries,
+                        vocabulary = dictionaryStore::getEntries,
                     )
                     try {
                         eng.load().getOrThrow()
