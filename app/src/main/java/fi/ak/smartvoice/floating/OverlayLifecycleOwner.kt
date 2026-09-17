@@ -1,6 +1,6 @@
 package fi.ak.smartvoice.floating
 
-import androidx.compose.ui.platform.ComposeView
+import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -47,7 +47,12 @@ class OverlayLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModel
         store.clear()
     }
 
-    fun attach(view: ComposeView) {
+    /**
+     * Installs this owner on [view], which must be the window's **root** view: Compose's window
+     * recomposer resolves the owner by walking up from the root, so setting it on an inner
+     * `ComposeView` is not enough.
+     */
+    fun attach(view: View) {
         view.setViewTreeLifecycleOwner(this)
         view.setViewTreeSavedStateRegistryOwner(this)
         view.setViewTreeViewModelStoreOwner(this)

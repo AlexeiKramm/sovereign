@@ -19,8 +19,10 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -79,7 +81,7 @@ class FloatingOverlayService : Service() {
     }.asCoroutineDispatcher()
 
     private lateinit var windowManager: WindowManager
-    private var composeView: ComposeView? = null
+    private var composeView: View? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var overlayLifecycleOwner: OverlayLifecycleOwner? = null
 
@@ -138,6 +140,17 @@ class FloatingOverlayService : Service() {
     private var isDragging = false
     private var dragFlushScheduled = false
     private val dragVelocity = DragVelocityTracker()
+
+    /**
+     * The pointer's latest **screen** position. Recorded in the overlay view's
+     * `dispatchTouchEvent`, because screen coordinates do not collapse when the window moves under
+     * the finger. See [WindowDrag].
+     */
+    private var pointerScreenX = 0f
+    private var pointerScreenY = 0f
+
+    /** The drag session that maps the pointer's screen position to the window offset. */
+    private val windowDrag = WindowDrag()
 
     // Fling: one decaying velocity vector for both axes (see PillFling), stepped per frame.
     private var fling = PillFling()
@@ -375,8 +388,7 @@ class FloatingOverlayService : Service() {
         }
         layoutParams = params
 
-        val view = ComposeView(this).apply {
-            overlayOwner.attach(this)
+        val content = ComposeView(this).apply {
             setContent {
                 FloatingDictationOverlay(
                     darkTheme = darkTheme,
@@ -433,6 +445,17 @@ class FloatingOverlayService : Service() {
                     onDragCancel = ::endDragWithoutFling,
                 )
             }
+        }
+
+        // The ComposeView is wrapped so the window root can capture the pointer's screen position
+        // before Compose consumes the touch (see PillRootView).
+        val view = PillRootView(this).apply {
+            overlayOwner.attach(this)
+            onPointerScreen = { x, y ->
+                pointerScreenX = x
+                pointerScreenY = y
+            }
+            addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
         // `FLAG_WATCH_OUTSIDE_TOUCH` delivers a single ACTION_OUTSIDE for a touch that lands outside
@@ -597,15 +620,31 @@ class FloatingOverlayService : Service() {
         layoutParams?.let {
             dragOffsetX = it.x.toFloat()
             dragOffsetY = it.y.toFloat()
+            windowDrag.begin(
+                screen = PillOffset(pointerScreenX, pointerScreenY),
+                offset = PillOffset(dragOffsetX, dragOffsetY),
+            )
         }
         dragVelocity.reset(System.nanoTime(), dragOffsetX, dragOffsetY)
     }
 
     private fun dragBy(dx: Float, dy: Float) {
-        // Gravity is BOTTOM | END: moving the finger right/up decreases x/y (the distance from
-        // the anchored corner). Both axes are treated identically.
-        dragOffsetX -= dx
-        dragOffsetY -= dy
+        // `dx`/`dy` are window-local pointer deltas, which shrink as the window moves under the
+        // finger; the pointer's screen position does not (WindowDrag). `dx`/`dy` stay in the
+        // signature because the card's grip shares this callback, and are the fallback if there is
+        // no window to move.
+        val next = if (layoutParams != null) {
+            windowDrag.offsetFor(pointerScreenX, pointerScreenY)
+        } else {
+            null
+        }
+        if (next != null) {
+            dragOffsetX = next.x
+            dragOffsetY = next.y
+        } else {
+            dragOffsetX -= dx
+            dragOffsetY -= dy
+        }
         dragVelocity.sample(System.nanoTime(), dragOffsetX, dragOffsetY)
         if (!dragFlushScheduled) {
             dragFlushScheduled = true
