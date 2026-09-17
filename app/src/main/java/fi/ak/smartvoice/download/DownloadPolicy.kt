@@ -1,7 +1,7 @@
-package fi.ak.smartvoice.asr
+package fi.ak.smartvoice.download
 
 /**
- * The two decisions a resumable download has to make, isolated so they can be tested without a
+ * The decisions a resumable download has to make, isolated so they can be tested without a
  * network, a phone, or 681 MB of model files sitting on disk.
  */
 object DownloadPolicy {
@@ -27,19 +27,11 @@ object DownloadPolicy {
         if (totalBytes <= 0) 0f else ((completedBytes + currentFileBytes).toDouble() / totalBytes)
             .coerceIn(0.0, 1.0)
             .toFloat()
-}
 
-/** Where a download attempt ended. Cancelled keeps the `.part` files, so resuming is free. */
-sealed interface ModelDownloadResult {
-    data object Complete : ModelDownloadResult
-    data class Cancelled(val downloadedBytes: Long) : ModelDownloadResult
-    data class Failed(val message: String) : ModelDownloadResult
+    /**
+     * Whether an HTTP status is worth another attempt. A 5xx is the server having a bad moment.
+     * A 4xx is this request being wrong — a moved artifact, a bad URL — and retrying only delays
+     * the inevitable; 408 (request timeout) and 429 (too many requests) are the two transient ones.
+     */
+    fun httpIsRetryable(code: Int): Boolean = code >= 500 || code == 408 || code == 429
 }
-
-data class ModelDownloadProgress(
-    val overall: Float,
-    val fileIndex: Int,
-    val fileName: String,
-    val completedFiles: Int,
-    val totalFiles: Int,
-)

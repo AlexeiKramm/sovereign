@@ -11,8 +11,14 @@ import org.junit.rules.TemporaryFolder
  * Pins the artifact manifest. These are the values a wrong edit would silently corrupt: a sha256
  * with a typo makes every download fail verification, and a wrong size makes a truncated download
  * look complete.
+ *
+ * Everything here goes through [AsrModels.NEMOTRON] rather than an `AsrModels` shortcut, because
+ * the per-model behaviour — streaming and offline alike — is the spec's, and a test that reads a
+ * default hides that.
  */
 class AsrModelsTest {
+
+    private val nemotron = AsrModels.NEMOTRON
 
     @get:Rule
     val temp = TemporaryFolder()
@@ -21,13 +27,13 @@ class AsrModelsTest {
     fun `the four artifact files are exactly the ones the runtime loads`() {
         assertEquals(
             listOf("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"),
-            AsrModels.FILES.map { it.name },
+            nemotron.files.map { it.name },
         )
     }
 
     @Test
     fun `every digest is a full lowercase sha256`() {
-        AsrModels.FILES.forEach { file ->
+        nemotron.files.forEach { file ->
             assertEquals("${file.name} digest length", 64, file.sha256.length)
             assertTrue("${file.name} digest is hex", file.sha256.all { it in "0123456789abcdef" })
         }
@@ -35,51 +41,53 @@ class AsrModelsTest {
 
     @Test
     fun `the encoder dominates the download, which is why it is first`() {
-        val encoder = AsrModels.FILES.first().bytes
-        assertTrue(encoder > AsrModels.TOTAL_BYTES * 9 / 10)
-        assertEquals(AsrModels.FILES.sumOf { it.bytes }, AsrModels.TOTAL_BYTES)
+        val encoder = nemotron.files.first().bytes
+        assertTrue(encoder > nemotron.totalBytes * 9 / 10)
+        assertEquals(nemotron.files.sumOf { it.bytes }, nemotron.totalBytes)
     }
 
     @Test
     fun `the download url is pinned to a revision and served over https`() {
-        val url = AsrModels.downloadUrl(AsrModels.FILES.first())
-        assertTrue(url.startsWith("https://huggingface.co/${AsrModels.REPO}/resolve/${AsrModels.REVISION}/"))
+        val url = nemotron.downloadUrl(nemotron.files.first())
+        assertTrue(url.startsWith("https://huggingface.co/${nemotron.repo}/resolve/${nemotron.revision}/"))
         assertFalse("must not track a moving branch", url.contains("/resolve/main/"))
     }
 
     @Test
     fun `the model lives in the app's private files dir`() {
         assertEquals(
-            java.io.File(java.io.File(temp.root, "models"), AsrModels.DIRECTORY).absolutePath,
-            AsrModels.directory(temp.root).absolutePath,
+            java.io.File(java.io.File(temp.root, "models"), nemotron.directoryName).absolutePath,
+            nemotron.directory(temp.root).absolutePath,
         )
     }
 
     @Test
     fun `a missing directory means every file is incomplete`() {
-        assertEquals(AsrModels.FILES.size, AsrModels.incomplete(temp.root.resolve("nothing-here")).size)
-        assertFalse(AsrModels.isInstalled(temp.root.resolve("nothing-here")))
+        assertEquals(nemotron.files.size, nemotron.incomplete(temp.root.resolve("nothing-here")).size)
+        assertFalse(nemotron.isInstalled(temp.root.resolve("nothing-here")))
     }
 
     @Test
     fun `a file of the wrong length does not count as installed`() {
         val directory = temp.newFolder("model")
-        AsrModels.FILES.forEach { file -> directory.resolve(file.name).writeText("too short") }
+        nemotron.files.forEach { file -> directory.resolve(file.name).writeText("too short") }
 
-        val incomplete = AsrModels.incomplete(directory)
-        assertEquals(AsrModels.FILES.size, incomplete.size)
-        assertFalse(AsrModels.isInstalled(directory))
+        val incomplete = nemotron.incomplete(directory)
+        assertEquals(nemotron.files.size, incomplete.size)
+        assertFalse(nemotron.isInstalled(directory))
     }
 
     @Test
-    fun `digest matches the bytes on disk`() {
-        val file = temp.newFile("tokens.txt")
-        file.writeText("abc")
-        // sha256("abc") — the canonical vector, so this test cannot drift with our own hashing.
-        assertEquals(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-            AsrModels.sha256(file),
-        )
+    fun `remoteFiles resolves each file to a pinned url and its digest`() {
+        val remote = nemotron.remoteFiles()
+
+        assertEquals(nemotron.files.size, remote.size)
+        nemotron.files.zip(remote).forEach { (spec, download) ->
+            assertEquals(spec.name, download.name)
+            assertEquals(spec.bytes, download.bytes)
+            assertEquals(spec.sha256, download.sha256)
+            assertEquals(nemotron.downloadUrl(spec), download.url)
+        }
     }
 
     @Test
@@ -111,4 +119,3 @@ class AsrModelsTest {
         assertEquals(AsrModels.DEFAULT_MODEL_ID, AsrModels.byId("non-existent-id").id)
     }
 }
-

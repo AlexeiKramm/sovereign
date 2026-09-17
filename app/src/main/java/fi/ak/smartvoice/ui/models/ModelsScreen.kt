@@ -1,5 +1,10 @@
 package fi.ak.smartvoice.ui.models
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -56,10 +62,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
+import fi.ak.smartvoice.download.DownloadProgress
 import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeViolet
@@ -72,8 +80,11 @@ fun ModelsScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val asrStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
+    // Read in this scope on purpose: "installed" is decided from the filesystem, which Compose
+    // cannot observe. The selected model's status is the observable proxy, and reading it here is
+    // what makes this screen recompose when a background download finishes.
+    val asrStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val selectedAsrModel by viewModel.selectedAsrModel.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -92,6 +103,37 @@ fun ModelsScreen(
     var pendingAsrDelete by remember { mutableStateOf<AsrModelSpec?>(null) }
     var pendingLitertDelete by remember { mutableStateOf<LiteRtLmModelSpec?>(null) }
 
+    // Live downloads per speech model: null means "this model is not downloading".
+    val asrDownloads by viewModel.asrDownloads.collectAsStateWithLifecycle()
+
+    // A background download notifies from outside the app, so the permission is asked at the first
+    // download tap rather than in the wizard. Denial is not fatal — it only hides progress.
+    var notificationsAllowed by remember { mutableStateOf(hasNotificationPermission(context)) }
+    var notifyDenied by remember { mutableStateOf(false) }
+    var pendingAsrAfterPermission by remember { mutableStateOf<AsrModelSpec?>(null) }
+    var allowMobileDataForPending by remember { mutableStateOf(false) }
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notificationsAllowed = granted
+        notifyDenied = !granted
+        pendingAsrAfterPermission?.let { target ->
+            viewModel.downloadModel(target, allowMetered = allowMobileDataForPending)
+        }
+        pendingAsrAfterPermission = null
+    }
+
+    val startAsrDownload: (AsrModelSpec, Boolean) -> Unit = { target, allowMetered ->
+        viewModel.selectAsrModel(target)
+        if (notificationsAllowed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            viewModel.downloadModel(target, allowMetered = allowMetered)
+        } else {
+            pendingAsrAfterPermission = target
+            allowMobileDataForPending = allowMetered
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // Calculate total disk storage used
     val asrInstalledBytes = viewModel.asrCatalog
         .filter { it.isInstalled(it.directory(context.filesDir)) }
@@ -107,27 +149,48 @@ fun ModelsScreen(
         "$totalInstalledMb MB on disk"
     }
 
-    val isSelectedAsrInstalled = selectedAsrModel.isInstalled(selectedAsrModel.directory(context.filesDir))
+    val isSelectedAsrInstalled = asrStatus is ModelStatus.Installed
     val isSelectedLitertInstalled = litertInstalled[selectedLitertModel.id] == true
 
     // Confirmation Dialogs
     pendingAsrDownload?.let { model ->
+        var allowMobileData by remember(model) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingAsrDownload = null },
             icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Download Voice Model?") },
             text = {
-                Text(
-                    "“${model.label}” is not currently downloaded on this device (~${model.totalBytes / 1_000_000} MB).\n\nWould you like to download and activate it now?",
-                )
+                Column {
+                    Text(
+                        "“${model.label}” is not currently downloaded on this device (~${model.totalBytes / 1_000_000} MB).\n\nWould you like to download and activate it now?",
+                    )
+                    if (notifyDenied) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            "Notifications are off, so progress will not be visible if you leave the app.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = allowMobileData, onCheckedChange = { allowMobileData = it })
+                        Text("Also allow mobile data", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        "Downloads prefer Wi-Fi; ticking this starts immediately on cellular.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         val target = model
+                        val metered = allowMobileData
                         pendingAsrDownload = null
-                        viewModel.selectAsrModel(target)
-                        viewModel.downloadModel(target)
+                        startAsrDownload(target, metered)
                     },
                 ) {
                     Text("Download & Activate")
@@ -382,7 +445,7 @@ fun ModelsScreen(
                                     color = MaterialTheme.colorScheme.error,
                                 )
                                 Button(
-                                    onClick = { viewModel.downloadModel(selectedAsrModel) },
+                                    onClick = { pendingAsrDownload = selectedAsrModel },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 ) {
@@ -568,22 +631,18 @@ fun ModelsScreen(
         items(viewModel.asrCatalog, key = { "asr_${it.id}" }) { model ->
             val isSelected = model.id == selectedAsrModel.id
             val isInstalled = model.isInstalled(model.directory(context.filesDir))
-            val isDownloadingThis = (asrStatus as? ModelStatus.Downloading)?.let {
-                model.incomplete(model.directory(context.filesDir)).isNotEmpty() && isSelected
-            } ?: false
+            val downloadState = asrDownloads[model.id]
 
             AsrModelLibraryItem(
                 model = model,
                 isSelected = isSelected,
                 isInstalled = isInstalled,
-                isDownloading = isDownloadingThis,
-                downloadStatus = asrStatus as? ModelStatus.Downloading,
+                downloadStatus = downloadState,
+                notificationsAllowed = notificationsAllowed,
                 onSelect = { viewModel.selectAsrModel(model) },
-                onDownload = {
-                    viewModel.selectAsrModel(model)
-                    viewModel.downloadModel(model)
-                },
+                onDownload = { pendingAsrDownload = model },
                 onCancelDownload = { viewModel.cancelModelDownload() },
+                onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
                 onDelete = { pendingAsrDelete = model },
             )
         }
@@ -892,11 +951,12 @@ private fun AsrModelLibraryItem(
     model: AsrModelSpec,
     isSelected: Boolean,
     isInstalled: Boolean,
-    isDownloading: Boolean,
     downloadStatus: ModelStatus.Downloading?,
+    notificationsAllowed: Boolean,
     onSelect: () -> Unit,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
+    onAllowMobileData: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val chipLabel = when (model.type) {
@@ -963,21 +1023,34 @@ private fun AsrModelLibraryItem(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (isDownloading && downloadStatus != null) {
-                val p = downloadStatus.progress
+            if (downloadStatus != null) {
+                val progress = downloadStatus.progress
                 Text(
-                    text = "Downloading: ${p.fileName} (${p.fileIndex + 1}/${p.totalFiles})",
+                    text = when {
+                        downloadStatus.waitingForWifi -> "Waiting for Wi-Fi"
+                        downloadStatus.queued -> "Queued — another download is running"
+                        progress != null -> "Downloading: ${progress.fileName} (${progress.fileIndex + 1}/${progress.totalFiles})"
+                        else -> "Starting…"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 LinearProgressIndicator(
-                    progress = { p.overall },
+                    progress = { progress?.overall ?: 0f },
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(4.dp)),
                 )
+                if (!notificationsAllowed) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Notifications are off — progress will not be visible while you are away.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -985,15 +1058,28 @@ private fun AsrModelLibraryItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "${(p.overall * 100).toInt()}% completed",
+                        text = if (progress != null) "${(progress.overall * 100).toInt()}% completed" else "",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedButton(
-                        onClick = onCancelDownload,
-                        shape = RoundedCornerShape(8.dp),
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                        if (downloadStatus.waitingForWifi) {
+                            OutlinedButton(
+                                onClick = onAllowMobileData,
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Text("Use mobile data", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onCancelDownload,
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             } else if (isInstalled) {
@@ -1067,7 +1153,7 @@ private fun LitertModelLibraryItem(
     isSelected: Boolean,
     isInstalled: Boolean,
     isDownloading: Boolean,
-    progress: fi.ak.smartvoice.cleanup.LiteRtLmDownloadProgress?,
+    progress: DownloadProgress?,
     onSelect: () -> Unit,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -1152,7 +1238,7 @@ private fun LitertModelLibraryItem(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 LinearProgressIndicator(
-                    progress = { progress.percent },
+                    progress = { progress.overall },
                     color = BadgeViolet,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1165,7 +1251,7 @@ private fun LitertModelLibraryItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.percent * 100).toInt()}%)",
+                        text = "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.overall * 100).toInt()}%)",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1240,3 +1326,12 @@ private fun LitertModelLibraryItem(
         }
     }
 }
+
+/**
+ * Whether the app may post notifications. Below Android 13 there is no such permission, so the
+ * answer is simply yes.
+ */
+private fun hasNotificationPermission(context: android.content.Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED

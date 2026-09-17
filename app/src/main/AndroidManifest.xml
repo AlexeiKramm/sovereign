@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Model downloads run as a foreground dataSync worker so they survive leaving the app. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The download progress notification is only visible when this is granted; denied is not
+         fatal (the download still runs, just invisibly). Requested on the first download tap. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -56,6 +62,14 @@
             android:name=".floating.FloatingOverlayService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- WorkManager's foreground service carries the download notification. WorkManager does
+             not declare a foregroundServiceType of its own, and a targetSdk 34+ app must, or the
+             foreground service throws when it starts. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>

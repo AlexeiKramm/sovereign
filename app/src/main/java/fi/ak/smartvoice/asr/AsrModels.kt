@@ -1,7 +1,7 @@
 package fi.ak.smartvoice.asr
 
+import fi.ak.smartvoice.download.RemoteFile
 import java.io.File
-import java.security.MessageDigest
 
 enum class AsrModelType {
     STREAMING_TRANSDUCER,
@@ -43,6 +43,11 @@ data class AsrModelSpec(
         files.filter { !File(directory, it.name).let { f -> f.isFile && f.length() == it.bytes } }
 
     fun isInstalled(directory: File): Boolean = incomplete(directory).isEmpty()
+
+    /** This model's files as the shared downloader wants them, resolved to pinned URLs. */
+    fun remoteFiles(): List<RemoteFile> = files.map { file ->
+        RemoteFile(name = file.name, bytes = file.bytes, sha256 = file.sha256, url = downloadUrl(file))
+    }
 }
 
 object AsrModels {
@@ -259,32 +264,5 @@ object AsrModels {
 
     fun byId(id: String): AsrModelSpec = CATALOG.firstOrNull { it.id == id } ?: NEMOTRON
 
-    /** Backward-compatibility aliases for Nemotron 3.5 default */
-    val REPO: String get() = NEMOTRON.repo
-    val REVISION: String get() = NEMOTRON.revision
-    val DIRECTORY: String get() = NEMOTRON.directoryName
-    val FILES: List<AsrModelFile> get() = NEMOTRON.files
-    val TOTAL_BYTES: Long get() = NEMOTRON.totalBytes
     const val SAMPLE_RATE = 16_000
-
-    fun directory(filesDir: File): File = NEMOTRON.directory(filesDir)
-
-    fun downloadUrl(file: AsrModelFile): String = NEMOTRON.downloadUrl(file)
-
-    fun incomplete(directory: File): List<AsrModelFile> = NEMOTRON.incomplete(directory)
-
-    fun isInstalled(directory: File): Boolean = NEMOTRON.isInstalled(directory)
-
-    fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(1 shl 20)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
 }

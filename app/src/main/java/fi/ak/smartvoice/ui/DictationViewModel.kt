@@ -8,16 +8,11 @@ import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
-import fi.ak.smartvoice.asr.ModelDownloadProgress
-import fi.ak.smartvoice.asr.ModelDownloadResult
-import fi.ak.smartvoice.asr.ModelDownloader
 import fi.ak.smartvoice.audio.WavRecorder
 import fi.ak.smartvoice.asr.ListenerTimings
 import fi.ak.smartvoice.cleanup.CleanupEngine
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
-import fi.ak.smartvoice.cleanup.LiteRtLmDownloadProgress
-import fi.ak.smartvoice.cleanup.LiteRtLmDownloadResult
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
 import fi.ak.smartvoice.cleanup.LiteRtLmModelStore
 import fi.ak.smartvoice.cleanup.LiteRtLmModels
@@ -32,6 +27,13 @@ import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
+import fi.ak.smartvoice.download.ArtifactDownloader
+import fi.ak.smartvoice.download.DownloadOutcome
+import fi.ak.smartvoice.download.DownloadProgress
+import fi.ak.smartvoice.download.DownloadRequest
+import fi.ak.smartvoice.download.DownloadRunState
+import fi.ak.smartvoice.download.DownloadSnapshot
+import fi.ak.smartvoice.download.ModelDownloads
 import fi.ak.smartvoice.engine.DictationOutcome
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.EnginePreference
@@ -100,7 +102,18 @@ sealed interface ServerStatus {
 /** State of the on-device model. Never silent: "missing" says what to do about it. */
 sealed interface ModelStatus {
     data object Missing : ModelStatus
-    data class Downloading(val progress: ModelDownloadProgress) : ModelStatus
+
+    /**
+     * A download for this model is running, queued behind another one, or waiting for Wi-Fi.
+     * [progress] is null until the worker writes its first update — which is exactly what a queued
+     * item looks like.
+     */
+    data class Downloading(
+        val progress: DownloadProgress?,
+        val queued: Boolean = false,
+        val waitingForWifi: Boolean = false,
+    ) : ModelStatus
+
     data object Installed : ModelStatus
     data class Failed(val message: String) : ModelStatus
 }
@@ -153,9 +166,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         timings = { settings.listenerTimings() },
     )
 
-    @Volatile
-    private var cancelDownload = false
-
     /** Cold-load time reported on the utterance that paid it (D-010 rule 2). */
     @Volatile
     private var coldLoadMs = 0L
@@ -194,8 +204,22 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _timingNote = MutableStateFlow<String?>(null)
     val timingNote: StateFlow<String?> = _timingNote.asStateFlow()
 
+    /**
+     * Every download request WorkManager knows about, including finished ones. Declared before
+     * [currentModelStatus] is first evaluated, because the disk check and the queue are read
+     * together.
+     */
+    private val _downloadSnapshots = MutableStateFlow<List<DownloadSnapshot>>(emptyList())
+
     private val _modelStatus = MutableStateFlow<ModelStatus>(currentModelStatus())
     val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
+
+    /**
+     * The live download for each ASR model, keyed by model id, so the Models list can say "queued"
+     * or "waiting for Wi-Fi" about a model that is not the selected one.
+     */
+    private val _asrDownloads = MutableStateFlow<Map<String, ModelStatus.Downloading>>(emptyMap())
+    val asrDownloads: StateFlow<Map<String, ModelStatus.Downloading>> = _asrDownloads.asStateFlow()
 
     /**
      * Result of the last explicit load check — D-010's cold-load number, obtainable without having
@@ -227,11 +251,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         localEngine.applyModel(spec, app.filesDir)
         _modelStatus.value = currentModelStatus()
         _loadProbe.value = ""
-    }
-
-    init {
-        refreshLitertInstalled()
-        probeHardwareCompatibility()
     }
 
     // ------------------------------------------------------------------ LLM cleanup (LiteRT-LM)
@@ -290,8 +309,8 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _litertPulling = MutableStateFlow<String?>(null)
     val litertPulling: StateFlow<String?> = _litertPulling.asStateFlow()
 
-    private val _litertProgress = MutableStateFlow<LiteRtLmDownloadProgress?>(null)
-    val litertProgress: StateFlow<LiteRtLmDownloadProgress?> = _litertProgress.asStateFlow()
+    private val _litertProgress = MutableStateFlow<DownloadProgress?>(null)
+    val litertProgress: StateFlow<DownloadProgress?> = _litertProgress.asStateFlow()
 
     private var litertJob: Job? = null
 
@@ -302,29 +321,30 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /**
+     * Still a foreground download: routing the cleanup model through the worker is CHUNK-2. Only
+     * the transfer itself moved, onto the shared [ArtifactDownloader].
+     */
     fun downloadLitertModel(spec: LiteRtLmModelSpec) {
         if (_litertPulling.value != null) return
         litertJob = viewModelScope.launch {
             _litertPulling.value = spec.id
-            _litertProgress.value = null
-            LiteRtLmModelStore.downloadFlow(app, spec, isCancelled = { litertJob?.isCancelled == true })
-                .collect { (progress, result) ->
-                    _litertProgress.value = progress
-                    when (result) {
-                        LiteRtLmDownloadResult.Complete -> {
-                            _litertPulling.value = null
-                            refreshLitertInstalled()
-                        }
-                        is LiteRtLmDownloadResult.Failed -> {
-                            _litertPulling.value = null
-                            _cleanupLoad.value = "LiteRT download failed: ${result.reason}"
-                        }
-                        LiteRtLmDownloadResult.Cancelled -> {
-                            _litertPulling.value = null
-                        }
-                        null -> {}
-                    }
+            _litertProgress.value = DownloadProgress.initial(spec.remoteFiles())
+            val outcome = withContext(Dispatchers.IO) {
+                ArtifactDownloader(
+                    directory = LiteRtLmModelStore.getDirectory(app),
+                    files = spec.remoteFiles(),
+                    onProgress = { _litertProgress.value = it },
+                ).download(isCancelled = { litertJob?.isCancelled == true })
+            }
+            _litertPulling.value = null
+            when (outcome) {
+                DownloadOutcome.Complete -> refreshLitertInstalled()
+                is DownloadOutcome.Failed -> {
+                    _cleanupLoad.value = "LiteRT download failed: ${outcome.reason}"
                 }
+                is DownloadOutcome.Cancelled -> Unit
+            }
         }
     }
 
@@ -509,9 +529,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun refreshDashboard() {
         refreshFloatingPillPermissions()
         _isMicPermissionGranted.value = hasMicPermission()
-        if (_modelStatus.value !is ModelStatus.Downloading) {
-            _modelStatus.value = currentModelStatus()
-        }
+        _modelStatus.value = currentModelStatus()
         refreshProfiles()
         refreshUsageStats()
         refreshInstalledPresets()
@@ -649,24 +667,27 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
             _onboardingDownload.value =
                 OnboardingDownload.Running(preset.id, OnboardingDownload.Stage.ASR, 0f)
-            val directory = preset.asrModel.directory(app.filesDir)
             val asrResult = withContext(Dispatchers.IO) {
-                ModelDownloader(directory, preset.asrModel) { progress ->
-                    _onboardingDownload.value = OnboardingDownload.Running(
-                        presetId = preset.id,
-                        stage = OnboardingDownload.Stage.ASR,
-                        overall = (progress.overall * asrBytes / totalBytes).coerceIn(0f, 1f),
-                    )
-                }.download(isCancelled = { cancelOnboarding })
+                ArtifactDownloader(
+                    directory = preset.asrModel.directory(app.filesDir),
+                    files = preset.asrModel.remoteFiles(),
+                    onProgress = { progress ->
+                        _onboardingDownload.value = OnboardingDownload.Running(
+                            presetId = preset.id,
+                            stage = OnboardingDownload.Stage.ASR,
+                            overall = (progress.overall * asrBytes / totalBytes).coerceIn(0f, 1f),
+                        )
+                    },
+                ).download(isCancelled = { cancelOnboarding })
             }
             when (asrResult) {
-                ModelDownloadResult.Complete -> _modelStatus.value = currentModelStatus()
-                is ModelDownloadResult.Cancelled -> {
+                DownloadOutcome.Complete -> _modelStatus.value = currentModelStatus()
+                is DownloadOutcome.Cancelled -> {
                     _onboardingDownload.value = OnboardingDownload.Idle
                     return@launch
                 }
-                is ModelDownloadResult.Failed -> {
-                    _onboardingDownload.value = OnboardingDownload.Failed(preset.id, asrResult.message)
+                is DownloadOutcome.Failed -> {
+                    _onboardingDownload.value = OnboardingDownload.Failed(preset.id, asrResult.reason)
                     return@launch
                 }
             }
@@ -678,21 +699,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             )
             var cleanupFailure: String? = null
             var cleanupCancelled = false
-            LiteRtLmModelStore.downloadFlow(app, preset.llmModel, isCancelled = { cancelOnboarding })
-                .collect { (progress, result) ->
-                    when (result) {
-                        null -> _onboardingDownload.value = OnboardingDownload.Running(
+            val cleanupOutcome = withContext(Dispatchers.IO) {
+                ArtifactDownloader(
+                    directory = LiteRtLmModelStore.getDirectory(app),
+                    files = preset.llmModel.remoteFiles(),
+                    onProgress = { progress ->
+                        _onboardingDownload.value = OnboardingDownload.Running(
                             presetId = preset.id,
                             stage = OnboardingDownload.Stage.CLEANUP,
-                            overall = ((asrBytes + cleanupBytes * progress.percent) / totalBytes.toFloat())
+                            overall = ((asrBytes + cleanupBytes * progress.overall) / totalBytes.toFloat())
                                 .coerceIn(0f, 1f),
                         )
-
-                        LiteRtLmDownloadResult.Complete -> Unit
-                        LiteRtLmDownloadResult.Cancelled -> cleanupCancelled = true
-                        is LiteRtLmDownloadResult.Failed -> cleanupFailure = result.reason
-                    }
-                }
+                    },
+                ).download(isCancelled = { cancelOnboarding })
+            }
+            when (cleanupOutcome) {
+                DownloadOutcome.Complete -> Unit
+                is DownloadOutcome.Cancelled -> cleanupCancelled = true
+                is DownloadOutcome.Failed -> cleanupFailure = cleanupOutcome.reason
+            }
 
             if (cleanupCancelled) {
                 _onboardingDownload.value = OnboardingDownload.Idle
@@ -785,42 +810,46 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     // ------------------------------------------------------------------ model download
 
-    private fun currentModelStatus(): ModelStatus =
-        if (_selectedAsrModel.value.isInstalled(modelDirectory)) ModelStatus.Installed else ModelStatus.Missing
+    /**
+     * Combines what is on disk with what is queued: a background download that finished while the
+     * app was closed shows as installed here, because the disk is the source of truth for
+     * "installed", not a job object that died with the process.
+     */
+    private fun currentModelStatus(): ModelStatus = modelStatusFor(
+        installed = _selectedAsrModel.value.isInstalled(modelDirectory),
+        modelId = _selectedAsrModel.value.id,
+        snapshots = _downloadSnapshots.value,
+    )
 
-    fun downloadModel(spec: AsrModelSpec = _selectedAsrModel.value) {
-        if ((_modelStatus.value as? ModelStatus.Downloading) != null) return
-        cancelDownload = false
-
-        viewModelScope.launch {
-            val dir = spec.directory(app.filesDir)
-            _modelStatus.value = ModelStatus.Downloading(
-                ModelDownloadProgress(0f, 0, spec.files.first().name, 0, spec.files.size),
-            )
-            val result = withContext(Dispatchers.IO) {
-                ModelDownloader(dir, spec) { progress -> _modelStatus.value = ModelStatus.Downloading(progress) }
-                    .download(isCancelled = { cancelDownload })
-            }
-            _modelStatus.value = when (result) {
-                ModelDownloadResult.Complete -> {
-                    // A completed download is worth proving: load it once, here, and report the ms.
-                    probeLocalEngine()
-                    ModelStatus.Installed
-                }
-                is ModelDownloadResult.Cancelled ->
-                    if (spec.isInstalled(dir)) {
-                        ModelStatus.Installed
-                    } else {
-                        // The .part files are kept, so resuming does not re-download what is done.
-                        ModelStatus.Failed("cancelled after ${result.downloadedBytes / 1_000_000} MB — tap download to resume")
-                    }
-                is ModelDownloadResult.Failed -> ModelStatus.Failed(result.message)
-            }
-        }
+    /**
+     * Queues [spec] for download. All requests join one serial queue, so tapping Download on a
+     * second model does not start a parallel transfer — it runs when the first finishes, and the
+     * Models list shows it as queued.
+     */
+    fun downloadModel(spec: AsrModelSpec = _selectedAsrModel.value, allowMetered: Boolean = false) {
+        val request = DownloadRequest.Asr(spec.id)
+        if (_downloadSnapshots.value.any { it.request == request && it.isActive }) return
+        ModelDownloads.enqueue(app, request, allowMetered = allowMetered)
     }
 
+    /** Stops the running download and everything queued behind it. The `.part` files are kept. */
     fun cancelModelDownload() {
-        cancelDownload = true
+        ModelDownloads.cancelAll(app)
+    }
+
+    /** Lifts the Wi-Fi-only constraint so a download waiting for a network can use mobile data. */
+    fun allowDownloadOverMobileData() {
+        viewModelScope.launch { ModelDownloads.allowMetered(app) }
+    }
+
+    private fun observeModelDownloads() {
+        viewModelScope.launch {
+            ModelDownloads.observe(app).collect { snapshots ->
+                _downloadSnapshots.value = snapshots
+                _modelStatus.value = currentModelStatus()
+                _asrDownloads.value = asrDownloadStates(snapshots)
+            }
+        }
     }
 
     /**
@@ -1186,6 +1215,22 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             cleanupEngine = null
             System.gc()
         }
+    }
+
+    /**
+     * Deliberately the last declaration in the class.
+     *
+     * These three launch coroutines that write to `StateFlow` fields declared further down the
+     * class body, and `launch(Dispatchers.IO)` can run on a worker thread *while the constructor is
+     * still initialising fields on the main thread*. That is a null-pointer crash rather than a
+     * theoretical race: it is what took the app out on launch when WorkManager's initialisation
+     * shifted the startup timing. Running the initialiser after every property is declared removes
+     * the window entirely.
+     */
+    init {
+        refreshLitertInstalled()
+        probeHardwareCompatibility()
+        observeModelDownloads()
     }
 
     override fun onCleared() {

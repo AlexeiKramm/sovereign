@@ -1,5 +1,7 @@
 package fi.ak.smartvoice.cleanup
 
+import fi.ak.smartvoice.download.RemoteFile
+
 /**
  * The sampler a model runs under. A property of the model, like [LiteRtLmModelSpec.supportsGpu]:
  * all four parameters live here so there is exactly one place to tune them and the engine holds
@@ -42,6 +44,16 @@ data class LiteRtLmModelSpec(
 
     fun isInstalled(context: android.content.Context): Boolean =
         LiteRtLmModelStore.isInstalled(context, this)
+
+    /** This model as the shared downloader wants it: one pinned, digest-verified file. */
+    fun remoteFiles(): List<RemoteFile> = listOf(
+        RemoteFile(
+            name = fileName,
+            bytes = approximateBytes,
+            sha256 = sha256,
+            url = downloadUrl(),
+        ),
+    )
 }
 
 object LiteRtLmModels {

@@ -1,4 +1,4 @@
-package fi.ak.smartvoice.asr
+package fi.ak.smartvoice.download
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,5 +47,16 @@ class DownloadPolicyTest {
     fun `progress never leaves zero to one even if the numbers lie`() {
         assertEquals(1f, DownloadPolicy.overallProgress(2_000L, 0L, 1_000L), 1e-6f)
         assertEquals(0f, DownloadPolicy.overallProgress(0L, 0L, 0L), 1e-6f)
+    }
+
+    @Test
+    fun `a server error is worth retrying but a bad request is not`() {
+        assertTrue("500", DownloadPolicy.httpIsRetryable(500))
+        assertTrue("503", DownloadPolicy.httpIsRetryable(503))
+        assertTrue("408", DownloadPolicy.httpIsRetryable(408))
+        assertTrue("429", DownloadPolicy.httpIsRetryable(429))
+        assertFalse("404 means the artifact moved", DownloadPolicy.httpIsRetryable(404))
+        assertFalse("403", DownloadPolicy.httpIsRetryable(403))
+        assertFalse("400", DownloadPolicy.httpIsRetryable(400))
     }
 }

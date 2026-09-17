@@ -13,8 +13,8 @@ android {
         targetSdk = 36
         // versionName says which slice this is, because APKs are installed by hand on the phone and
         // "which build is on there?" has to be answerable from Android's own app info screen.
-        versionCode = 14
-        versionName = "1.11-ui1"
+        versionCode = 15
+        versionName = "1.12-dl1"
 
         // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
         // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the
@@ -84,6 +84,10 @@ dependencies {
   // Arch Components
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+  // Durable background model downloads (foreground worker + notification + retry). See
+  // docs/work/background-downloads/PLAN.md.
+  implementation(libs.androidx.work.runtime.ktx)
 
   // Compose
   implementation(libs.androidx.compose.ui)
