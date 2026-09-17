@@ -145,15 +145,16 @@ class LiteRtLmCleanupEngine(
 
     /**
      * One definition of the conversation's sampler and token budget, so an in-session conversation
-     * and a standalone one cannot drift apart.
+     * and a standalone one cannot drift apart. The sampler numbers come from the model spec — the
+     * engine holds none of its own, so each model is tuned in exactly one place.
      */
     private fun conversationConfig(system: String) = ConversationConfig(
         systemInstruction = Contents.Companion.of(system),
         samplerConfig = SamplerConfig(
-            topK = 40,
-            topP = 0.95,
-            temperature = 0.1,
-            seed = 0,
+            topK = modelSpec.sampling.topK,
+            topP = modelSpec.sampling.topP,
+            temperature = modelSpec.sampling.temperature,
+            seed = modelSpec.sampling.seed,
         ),
         maxOutputToken = CleanupPrompt.MAX_TOKENS,
     )

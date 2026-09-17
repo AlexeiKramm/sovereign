@@ -57,4 +57,39 @@ class LiteRtLmModelsTest {
         assertTrue(LiteRtLmModels.GEMMA_4_E4B.supportsGpu)
         org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_5_0_8B.supportsGpu)
     }
+
+    @Test
+    fun `each model pins its own sampling parameters`() {
+        // The engine holds no sampler numbers; these are the only definition, so pin them.
+        assertEquals(
+            SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
+            LiteRtLmModels.GEMMA_4_E2B.sampling,
+        )
+        assertEquals(
+            SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
+            LiteRtLmModels.GEMMA_4_E4B.sampling,
+        )
+        assertEquals(
+            SamplingParams(temperature = 0.2, topK = 20, topP = 1.0, seed = 0),
+            LiteRtLmModels.QWEN_3_5_0_8B.sampling,
+        )
+    }
+
+    @Test
+    fun `every model states all four sampling parameters and they satisfy the runtime constraints`() {
+        LiteRtLmModels.ALL.forEach { model ->
+            val s = model.sampling
+            assertTrue("${model.id} topK must be positive", s.topK > 0)
+            assertTrue("${model.id} topP must be in 0..1", s.topP in 0.0..1.0)
+            assertTrue("${model.id} temperature must be non-negative", s.temperature >= 0.0)
+        }
+    }
+
+    @Test
+    fun `the default sampler is today's numbers so an untuned model keeps current behaviour`() {
+        assertEquals(0.1, SamplingParams.DEFAULT.temperature, 0.0)
+        assertEquals(40, SamplingParams.DEFAULT.topK)
+        assertEquals(0.95, SamplingParams.DEFAULT.topP, 0.0)
+        assertEquals(0, SamplingParams.DEFAULT.seed)
+    }
 }

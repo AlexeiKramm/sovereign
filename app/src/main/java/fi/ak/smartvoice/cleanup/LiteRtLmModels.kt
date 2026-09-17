@@ -1,6 +1,26 @@
 package fi.ak.smartvoice.cleanup
 
 /**
+ * The sampler a model runs under. A property of the model, like [LiteRtLmModelSpec.supportsGpu]:
+ * all four parameters live here so there is exactly one place to tune them and the engine holds
+ * no numbers of its own.
+ *
+ * Constraints enforced by the runtime's own `SamplerConfig`: `topK` must be positive, `topP` in
+ * 0..1, `temperature` non-negative. [seed] is fixed so a benchmark can compare like with like.
+ */
+data class SamplingParams(
+    val temperature: Double,
+    val topK: Int,
+    val topP: Double,
+    val seed: Int,
+) {
+    companion object {
+        /** Today's numbers, used by any spec that does not tune its own sampler. */
+        val DEFAULT = SamplingParams(temperature = 0.1, topK = 40, topP = 0.95, seed = 0)
+    }
+}
+
+/**
  * Model specifications for Google LiteRT-LM runtime (.litertlm models).
  *
  * Direct LFS URLs are pinned and sha256-verified for reproducible offline on-device inference.
@@ -16,6 +36,7 @@ data class LiteRtLmModelSpec(
     val targetHardware: String = "GPU / CPU (Universal)",
     val supportsSpeculativeDecoding: Boolean = true,
     val supportsGpu: Boolean = true,
+    val sampling: SamplingParams = SamplingParams.DEFAULT,
 ) {
     fun downloadUrl(): String = "https://huggingface.co/$repository/resolve/main/$fileName"
 
@@ -34,6 +55,7 @@ object LiteRtLmModels {
         approximateBytes = 2_588_147_712L,
         note = "Fast on-device cleanup. Optimized for low latency and battery efficiency.",
         targetHardware = "GPU / CPU",
+        sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
     )
 
     val GEMMA_4_E4B = LiteRtLmModelSpec(
@@ -45,6 +67,7 @@ object LiteRtLmModels {
         approximateBytes = 3_659_530_240L,
         note = "Higher quality rewriting. Best formatting and error correction.",
         targetHardware = "GPU / CPU",
+        sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
     )
 
     val QWEN_3_5_0_8B = LiteRtLmModelSpec(
@@ -58,6 +81,7 @@ object LiteRtLmModels {
         targetHardware = "CPU (Low memory)",
         supportsSpeculativeDecoding = false,
         supportsGpu = false,
+        sampling = SamplingParams(temperature = 0.2, topK = 20, topP = 1.0, seed = 0),
     )
 
     val ALL: List<LiteRtLmModelSpec> = listOf(
