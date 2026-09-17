@@ -217,6 +217,15 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, value) }
 
     /**
+     * Whether pressing and holding the resting pill starts a quick capture that is injected at the
+     * cursor on release, with no review card. Default on: the gesture is additive (tap and drag
+     * still work exactly as before), so it needs a switch to turn it off, not to turn it on.
+     */
+    var quickDictateOnHold: Boolean
+        get() = prefs.getBoolean(KEY_QUICK_DICTATE_ON_HOLD, DEFAULT_QUICK_DICTATE_ON_HOLD)
+        set(value) = prefs.edit { putBoolean(KEY_QUICK_DICTATE_ON_HOLD, value) }
+
+    /**
      * How quickly the pill's post-flick glide bleeds off, per second. Higher friction = the pill
      * stops sooner. Exposed as a setting because "how slippery the pill feels" is a taste question
      * best settled by flicking it; the pill's travel distance is `releaseSpeed / this`.
@@ -279,6 +288,7 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
+        private const val KEY_QUICK_DICTATE_ON_HOLD = "quick_dictate_on_hold"
         private const val KEY_PILL_FLICK_FRICTION = "pill_flick_friction"
         private const val KEY_FLOATING_PILL_X = "floating_pill_x"
         private const val KEY_FLOATING_PILL_Y = "floating_pill_y"
@@ -287,6 +297,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_FLOATING_PILL_ENABLED = true
         const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
+        const val DEFAULT_QUICK_DICTATE_ON_HOLD = true
 
         /** Stored pill position meaning "never dragged — use the default corner dock". */
         const val PILL_POSITION_UNSET = -1

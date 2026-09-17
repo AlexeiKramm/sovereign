@@ -16,6 +16,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -72,6 +74,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -80,8 +83,13 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -99,11 +107,32 @@ import fi.ak.smartvoice.theme.Radius
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.theme.SmartVoiceTheme
 import kotlin.math.exp
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class FloatingUiState {
     RESTING_PILL,
+
+    /**
+     * Hold-to-talk quick capture: the pill stays minimized (no card) while the user holds, through
+     * the post-release flush/cleanup, and while the brief result is shown. Distinct from
+     * [RESTING_PILL] so the overlay treats it as "session in progress" for visibility, without
+     * pretending it is the expanded recording card.
+     */
+    QUICK_CAPTURE,
     RECORDING,
     REVIEW,
+}
+
+/**
+ * How the minimized pill looks. The resting pill and the quick-capture pill are one composable
+ * driven by this phase, on purpose: switching composables mid-hold would dispose the pointer node
+ * and cancel the gesture that is still waiting for the finger to lift.
+ */
+enum class MinimizedPillPhase {
+    RESTING,
+    LISTENING,
+    PROCESSING,
+    RESULT,
 }
 
 /**
@@ -189,6 +218,19 @@ fun FloatingDictationOverlay(
     onWordAction: (WordAction) -> Unit,
     onWordFormSubmit: (String) -> Unit,
     onWordDismiss: () -> Unit,
+    /**
+     * Whether hold-to-talk is enabled. A **provider**, not a value: the setting is changed from
+     * the app's Settings screen, and the overlay is a long-lived window that does not recompose
+     * when a preference changes. Reading it at gesture time makes the switch take effect on the
+     * next press without restarting the pill.
+     */
+    quickCaptureEnabled: () -> Boolean,
+    /** The brief result shown on the minimized pill after a quick capture, or null. */
+    quickStatus: String?,
+    /** True when [quickStatus] is a failure, which tints it with the error palette. */
+    quickStatusIsError: Boolean,
+    onQuickCaptureStart: () -> Unit,
+    onQuickCaptureEnd: () -> Unit,
     onDragStart: () -> Unit,
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -211,10 +253,28 @@ fun FloatingDictationOverlay(
             contentAlignment = Alignment.BottomEnd,
         ) {
             when (uiState) {
-                FloatingUiState.RESTING_PILL -> RestingPillView(
+                // Resting and quick-capture deliberately share one call site: the hold gesture is
+                // still waiting for the finger when the state flips to QUICK_CAPTURE, and a
+                // different composable would dispose the pointer node and lose the release.
+                FloatingUiState.RESTING_PILL, FloatingUiState.QUICK_CAPTURE -> MinimizedPillView(
+                    phase = when {
+                        uiState == FloatingUiState.RESTING_PILL -> MinimizedPillPhase.RESTING
+                        isProcessing -> MinimizedPillPhase.PROCESSING
+                        quickStatus != null -> MinimizedPillPhase.RESULT
+                        else -> MinimizedPillPhase.LISTENING
+                    },
                     modelReady = modelReady,
-                    dragModifier = dragModifier,
-                    onClick = onPillClicked,
+                    audioLevel = audioLevel,
+                    statusText = quickStatus,
+                    statusIsError = quickStatusIsError,
+                    quickCaptureEnabled = quickCaptureEnabled,
+                    onTap = onPillClicked,
+                    onQuickCaptureStart = onQuickCaptureStart,
+                    onQuickCaptureEnd = onQuickCaptureEnd,
+                    onDragStart = onDragStart,
+                    onDragBy = onDragBy,
+                    onDragEnd = onDragEnd,
+                    onDragCancel = onDragCancel,
                 )
 
                 FloatingUiState.RECORDING, FloatingUiState.REVIEW -> ExpandedCardView(
@@ -274,51 +334,217 @@ private fun Modifier.pillDragModifier(
 }
 
 /**
- * Resting pill: a small waveform that *breathes* while the cleanup model is loaded, and sits
- * still and dimmer while it is not.
+ * The minimized pill: at rest it is a small waveform that *breathes* while the cleanup model is
+ * loaded and sits still while it is not; during quick capture the same box becomes a live
+ * listening surface, then a processing spinner, then a one-line result.
+ *
+ * All four phases are one composable on purpose — see [MinimizedPillPhase]. Nothing here changes
+ * the window's height, so the pill never resizes during a hold.
  *
  * CHUNK-3B removed the `···` from here: on the collapsed pill it was lost screen space, and quick
- * settings are now reached by opening the card first. What is left is just the waveform (still
- * tappable to start), drawn with its own deliberate calm amplitude rather than the near-silent
- * recording surface.
+ * settings are now reached by opening the card first.
  */
 @Composable
-fun RestingPillView(
+fun MinimizedPillView(
+    phase: MinimizedPillPhase,
     modelReady: Boolean,
-    dragModifier: Modifier,
-    onClick: () -> Unit,
+    audioLevel: () -> Float,
+    statusText: String?,
+    statusIsError: Boolean,
+    quickCaptureEnabled: () -> Boolean,
+    onTap: () -> Unit,
+    onQuickCaptureStart: () -> Unit,
+    onQuickCaptureEnd: () -> Unit,
+    onDragStart: () -> Unit,
+    onDragBy: (Float, Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
 ) {
-    // `breath` is a State, not a value: reading it inside the layer/draw lambdas below means the
-    // pulse costs a layer update per frame instead of a recomposition per frame.
-    val breath = rememberBreath(modelReady)
-    val waveColor = MaterialTheme.colorScheme.onPrimaryContainer
+    val scheme = MaterialTheme.colorScheme
+    val density = LocalDensity.current.density
+    val showError = phase == MinimizedPillPhase.RESULT && statusIsError
+    val container = when {
+        showError -> scheme.errorContainer
+        phase == MinimizedPillPhase.LISTENING -> scheme.primary
+        else -> scheme.primaryContainer
+    }
+    val content = when {
+        showError -> scheme.onErrorContainer
+        phase == MinimizedPillPhase.LISTENING -> scheme.onPrimary
+        else -> scheme.onPrimaryContainer
+    }
 
     Surface(
         modifier = Modifier
             .clip(RoundedCornerShape(Radius.lg))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(Radius.lg))
-            .clickable(onClick = onClick)
-            .then(dragModifier),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg))
+            .semantics { onClick(label = "Dictate") { onTap(); true } }
+            .minimizedPillGestures(
+                quickCaptureEnabled = quickCaptureEnabled,
+                slopPx = PillGestureRules.slopPx(density),
+                onTap = onTap,
+                onQuickCaptureStart = onQuickCaptureStart,
+                onQuickCaptureEnd = onQuickCaptureEnd,
+                onDragStart = onDragStart,
+                onDragBy = onDragBy,
+                onDragEnd = onDragEnd,
+                onDragCancel = onDragCancel,
+            ),
+        color = container,
+        contentColor = content,
     ) {
-        Canvas(
+        Box(
             modifier = Modifier
                 .padding(horizontal = Spacing.lg, vertical = Spacing.sm)
-                .width(RESTING_WAVE_WIDTH)
                 .height(RESTING_WAVE_HEIGHT)
-                .graphicsLayer {
-                    val pulse = 1f + breath.value * 0.03f
-                    scaleX = pulse
-                    scaleY = pulse
-                },
+                .widthIn(min = RESTING_WAVE_WIDTH),
+            contentAlignment = Alignment.Center,
         ) {
-            drawWaterSurface(
-                values = WaterSurface.restingSamples(),
-                color = waveColor.copy(alpha = 0.7f + breath.value * 0.3f),
-                strokeWidth = 1.8.dp,
-            )
+            when (phase) {
+                MinimizedPillPhase.RESTING -> {
+                    // `breath` is a State, not a value: reading it inside the layer/draw lambdas
+                    // below means the pulse costs a layer update per frame instead of a
+                    // recomposition per frame. It is only requested at rest, so listening does not
+                    // pay for an animation it does not read.
+                    val breath = rememberBreath(modelReady)
+                    Canvas(
+                        modifier = Modifier
+                            .width(RESTING_WAVE_WIDTH)
+                            .height(RESTING_WAVE_HEIGHT)
+                            .graphicsLayer {
+                                val pulse = 1f + breath.value * 0.03f
+                                scaleX = pulse
+                                scaleY = pulse
+                            },
+                    ) {
+                        drawWaterSurface(
+                            values = WaterSurface.restingSamples(),
+                            color = content.copy(alpha = 0.7f + breath.value * 0.3f),
+                            strokeWidth = 1.8.dp,
+                        )
+                    }
+                }
+
+                MinimizedPillPhase.LISTENING -> WaterSurfaceWave(
+                    audioLevel = audioLevel,
+                    color = content,
+                    modifier = Modifier
+                        .width(RESTING_WAVE_WIDTH)
+                        .height(RESTING_WAVE_HEIGHT),
+                )
+
+                MinimizedPillPhase.PROCESSING -> CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = content,
+                )
+
+                MinimizedPillPhase.RESULT -> Text(
+                    text = statusText.orEmpty(),
+                    color = content,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
         }
+    }
+}
+
+/**
+ * The resting pill's single input handler. The three gestures all start with the same finger-down,
+ * so they cannot be separate modifiers; this arbitrates them by time and movement and hands the
+ * result to [PillGestureRules] for the actual decision.
+ *
+ * While the finger is down inside the slop circle we race the hold threshold against movement:
+ *  - release first → [PillGesture.TAP],
+ *  - movement first → [PillGesture.DRAG] (then deltas are streamed to the service),
+ *  - timeout → [PillGesture.QUICK_CAPTURE] (then we wait for the release that ends it).
+ *
+ * Once quick capture is armed the finger's drift is ignored — a finger held on a small target
+ * always drifts, and cancelling a sentence because of it would be maddening.
+ */
+private fun Modifier.minimizedPillGestures(
+    quickCaptureEnabled: () -> Boolean,
+    slopPx: Float,
+    onTap: () -> Unit,
+    onQuickCaptureStart: () -> Unit,
+    onQuickCaptureEnd: () -> Unit,
+    onDragStart: () -> Unit,
+    onDragBy: (Float, Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+): Modifier = pointerInput(slopPx) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        var movedBeyondSlop = false
+        var lastPosition = down.position
+
+        // The block returns as soon as the press is released or leaves the slop circle; if neither
+        // happened, the timeout fires and `withTimeoutOrNull` yields null — that null *is* the hold.
+        var resolved = false
+        val heldPastThreshold = withTimeoutOrNull(PillGestureRules.HOLD_THRESHOLD_MS) {
+            while (!resolved) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id }
+                if (change == null || !change.pressed) {
+                    resolved = true
+                } else {
+                    val position = change.position
+                    if ((position - down.position).getDistance() > slopPx) {
+                        movedBeyondSlop = true
+                        resolved = true
+                    }
+                    lastPosition = position
+                }
+            }
+        } == null
+
+        when (PillGestureRules.classify(movedBeyondSlop, heldPastThreshold && quickCaptureEnabled())) {
+            PillGesture.DRAG -> {
+                onDragStart()
+                if (dragLoop(down.id, lastPosition, onDragBy)) onDragEnd() else onDragCancel()
+            }
+
+            PillGesture.QUICK_CAPTURE -> {
+                onQuickCaptureStart()
+                awaitRelease(down.id)
+                onQuickCaptureEnd()
+            }
+
+            PillGesture.TAP -> onTap()
+        }
+    }
+}
+
+/** Streams drag deltas (in window coordinates) until release; false when the gesture was cancelled. */
+private suspend fun AwaitPointerEventScope.dragLoop(
+    pointerId: PointerId,
+    startPosition: Offset,
+    onDragBy: (Float, Float) -> Unit,
+): Boolean {
+    var last = startPosition
+    while (true) {
+        val event = awaitPointerEvent()
+        val change = event.changes.firstOrNull { it.id == pointerId } ?: return false
+        if (!change.pressed) {
+            change.consume()
+            return true
+        }
+        val delta = change.position - last
+        last = change.position
+        change.consume()
+        onDragBy(delta.x, delta.y)
+    }
+}
+
+/** Waits for [pointerId] to lift, consuming its events; used to end an armed quick capture. */
+private suspend fun AwaitPointerEventScope.awaitRelease(pointerId: PointerId) {
+    while (true) {
+        val event = awaitPointerEvent()
+        val change = event.changes.firstOrNull { it.id == pointerId } ?: return
+        change.consume()
+        if (!change.pressed) return
     }
 }
 

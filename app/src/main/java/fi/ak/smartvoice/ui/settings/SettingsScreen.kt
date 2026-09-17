@@ -178,6 +178,7 @@ fun SettingsScreen(
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
     val floatingPillOnlyWhenKeyboardOpen by viewModel.floatingPillOnlyWhenKeyboardOpen.collectAsStateWithLifecycle()
     val floatingPillAutoCommit by viewModel.floatingPillAutoCommit.collectAsStateWithLifecycle()
+    val quickDictateOnHold by viewModel.quickDictateOnHold.collectAsStateWithLifecycle()
 
     // The user's choice: Advanced is always collapsed on arrival, never remembered. Declared after
     // the sub-screen branches so returning from one also starts it collapsed.
@@ -266,6 +267,15 @@ fun SettingsScreen(
                     subtitle = "Automatically inserts text when the mic stops",
                     checked = floatingPillAutoCommit,
                     onCheckedChange = viewModel::setFloatingPillAutoCommit,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsToggleRow(
+                    title = "Hold the pill to dictate",
+                    subtitle = "Press and hold the pill to dictate and insert automatically",
+                    checked = quickDictateOnHold,
+                    onCheckedChange = viewModel::setQuickDictateOnHold,
                 )
             }
         }

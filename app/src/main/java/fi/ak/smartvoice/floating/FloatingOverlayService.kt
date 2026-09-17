@@ -16,6 +16,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -108,6 +109,13 @@ class FloatingOverlayService : Service() {
     private var darkTheme by mutableStateOf(false)
     private var profiles by mutableStateOf(emptyList<CleaningProfile>())
     private var activeProfileId by mutableStateOf("")
+
+    /** True between a quick capture's arm and its release; the release is the only normal stop. */
+    private var quickCaptureActive = false
+    /** The brief result shown on the minimized pill after a quick capture, or null. */
+    private var quickStatus by mutableStateOf<String?>(null)
+    /** True when [quickStatus] is a failure. */
+    private var quickStatusIsError by mutableStateOf(false)
 
     /** The word the user long-pressed in the review transcript, or null when none is selected. */
     private var wordSelection by mutableStateOf<WordSelection?>(null)
@@ -383,7 +391,11 @@ class FloatingOverlayService : Service() {
                     settingsOpen = settingsOpen,
                     wordSelection = wordSelection,
                     wordForm = wordForm,
-                    onPillClicked = { startOrResumeRecording(fresh = true) },
+                    // Quick capture swallows new presses while it flushes and injects; the tap path
+                    // must not start a card session under it.
+                    onPillClicked = {
+                        if (uiState == FloatingUiState.RESTING_PILL) startOrResumeRecording(fresh = true)
+                    },
                     onCancel = ::cancelSession,
                     onToggleRecording = ::toggleRecording,
                     onCommit = ::commitSession,
@@ -401,6 +413,11 @@ class FloatingOverlayService : Service() {
                     onWordAction = ::openWordAction,
                     onWordFormSubmit = ::submitWordForm,
                     onWordDismiss = ::dismissWordSelection,
+                    quickCaptureEnabled = { settings.quickDictateOnHold },
+                    quickStatus = quickStatus,
+                    quickStatusIsError = quickStatusIsError,
+                    onQuickCaptureStart = ::startQuickCapture,
+                    onQuickCaptureEnd = ::releaseQuickCapture,
                     onDragStart = ::beginDrag,
                     onDragBy = ::dragBy,
                     onDragEnd = ::endDrag,
@@ -781,7 +798,28 @@ class FloatingOverlayService : Service() {
         }
     }
 
+    /** The card path: tap the pill (or "Speak again") and review before inserting. */
     private fun startOrResumeRecording(fresh: Boolean) {
+        beginCapture(targetState = FloatingUiState.RECORDING, fresh = fresh, quick = false)
+    }
+
+    /**
+     * The hold-to-talk path: the finger was held still past the threshold, so capture starts now
+     * and the release ends it. Deliberately the **same** [beginCapture] as the card — only the
+     * target state and the quick flag differ.
+     */
+    private fun startQuickCapture() {
+        if (uiState != FloatingUiState.RESTING_PILL) return
+        if (!settings.quickDictateOnHold) return
+        beginCapture(targetState = FloatingUiState.QUICK_CAPTURE, fresh = true, quick = true)
+    }
+
+    /**
+     * Everything the card and quick paths share about *starting* an utterance: permission, the
+     * recorder, the frame sink, the ASR session and the model load. Keeping this in one place is
+     * what makes "quick capture uses the same code as the regular pill" true rather than aspirational.
+     */
+    private fun beginCapture(targetState: FloatingUiState, fresh: Boolean, quick: Boolean) {
         val hasMic = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.RECORD_AUDIO
@@ -794,8 +832,9 @@ class FloatingOverlayService : Service() {
 
         if (recorder.isRecording) return
 
+        quickCaptureActive = quick
         recordStartedAtMs = SystemClock.elapsedRealtime()
-        uiState = FloatingUiState.RECORDING
+        uiState = targetState
         audioLevel = 0f
         statusNote = null
         errorMessage = null
@@ -807,6 +846,10 @@ class FloatingOverlayService : Service() {
             rawText = ""
             rawTextAccumulator.clear()
             committedText.clear()
+        }
+        if (quick) {
+            quickStatus = null
+            quickStatusIsError = false
         }
         cleanupEngaged = false
 
@@ -833,6 +876,7 @@ class FloatingOverlayService : Service() {
             return
         }
 
+        if (quick) performHaptic()
         startAudioMetering()
         startSilenceMonitoring()
 
@@ -847,12 +891,7 @@ class FloatingOverlayService : Service() {
 
     private fun stopRecording() {
         if (!recorder.isRecording) return
-        recordStartedAtMs.let { started ->
-            if (started > 0L) {
-                recordedMillis += SystemClock.elapsedRealtime() - started
-                recordStartedAtMs = 0L
-            }
-        }
+        finishRecordingAccounting()
         stopAudioMetering()
         stopSilenceMonitoring()
 
@@ -861,16 +900,7 @@ class FloatingOverlayService : Service() {
         statusNote = "Polishing with AI..."
 
         inFlightJob = scope.launch {
-            withContext(Dispatchers.IO) {
-                recorder.stop()
-            }
-            localSession.finish()
-
-            if (settings.cleanupEnabled && cleanupEngaged) {
-                cleanupPipeline.drain()
-            }
-
-            finalizePunctuation()
+            finalizeUtterance()
             isProcessing = false
             statusNote = null
 
@@ -878,6 +908,98 @@ class FloatingOverlayService : Service() {
                 commitSession()
             }
         }
+    }
+
+    /**
+     * The release that ends a quick capture. Mirrors [stopRecording]'s finalize, but skips REVIEW:
+     * the text is injected and the pill shows a brief status before returning to rest.
+     */
+    private fun releaseQuickCapture() {
+        if (!quickCaptureActive) return
+        quickCaptureActive = false
+        if (!recorder.isRecording) return
+
+        finishRecordingAccounting()
+        stopAudioMetering()
+        stopSilenceMonitoring()
+
+        isProcessing = true
+        inFlightJob = scope.launch {
+            finalizeUtterance()
+            isProcessing = false
+            deliverQuickCapture()
+        }
+    }
+
+    /**
+     * Stops the recorder and runs the utterance to settled text. Shared by the card and quick
+     * paths so a change to the pipeline cannot apply to only one of them.
+     */
+    private suspend fun finalizeUtterance() {
+        withContext(Dispatchers.IO) {
+            recorder.stop()
+        }
+        localSession.finish()
+
+        if (settings.cleanupEnabled && cleanupEngaged) {
+            cleanupPipeline.drain()
+        }
+
+        finalizePunctuation()
+    }
+
+    /** Folds the running capture into [recordedMillis]; the counterpart to `recordStartedAtMs`. */
+    private fun finishRecordingAccounting() {
+        recordStartedAtMs.let { started ->
+            if (started > 0L) {
+                recordedMillis += SystemClock.elapsedRealtime() - started
+                recordStartedAtMs = 0L
+            }
+        }
+    }
+
+    /** Injects the finalized utterance and shows the outcome on the minimized pill. */
+    private suspend fun deliverQuickCapture() {
+        val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
+        if (textToInject.isBlank()) {
+            showQuickResult("Nothing heard")
+        } else {
+            val toType = UtteranceFinalizer.forInsertion(textToInject)
+            val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
+            recordUsageStats(deliveredText = textToInject)
+            if (injected) {
+                // A cleanup failure still injects the raw words; say so rather than claim a polish.
+                showQuickResult(if (errorMessage != null) "Inserted as spoken" else "Inserted")
+            } else {
+                // Never fail silently: the words are on the clipboard, so tell the user how to use them.
+                Log.w(TAG, "Text injected via clipboard fallback (quick capture)")
+                Toast.makeText(this, "Copied — long-press the text field to paste", Toast.LENGTH_LONG).show()
+                showQuickResult("Copied")
+            }
+        }
+        performHaptic()
+
+        // Let the result read, then rest. A new session resets the state first, and the guard means
+        // a late timer cannot clobber it.
+        delay(QUICK_STATUS_MS)
+        if (uiState == FloatingUiState.QUICK_CAPTURE && !isProcessing) {
+            resetToResting()
+        }
+    }
+
+    private fun showQuickResult(text: String, isError: Boolean = false) {
+        quickStatus = text
+        quickStatusIsError = isError
+    }
+
+    /** A short haptic so the arm and the release land without the user watching the pill. */
+    private fun performHaptic() {
+        composeView?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+    }
+
+    /** The auto-stops fire the right ending for whichever capture is running. */
+    private fun stopCapture() {
+        if (quickCaptureActive) releaseQuickCapture() else stopRecording()
     }
 
     private fun cancelSession() {
@@ -1035,6 +1157,9 @@ class FloatingOverlayService : Service() {
 
     private fun resetToResting() {
         uiState = FloatingUiState.RESTING_PILL
+        quickCaptureActive = false
+        quickStatus = null
+        quickStatusIsError = false
         previewText = ""
         rawText = ""
         audioLevel = 0f
@@ -1145,22 +1270,24 @@ class FloatingOverlayService : Service() {
                 delay(100L)
                 val state = localSession.boundaryState
                 val stopAfter = settings.stopAfterSilenceSeconds
-                // 1. Normal speech pause auto-stop (when speech has been heard and silence duration exceeds stopAfterSilenceSeconds)
-                if (stopAfter > 0f && state.heardAudio && state.quietFor >= stopAfter) {
+                // 1. Normal speech pause auto-stop. Skipped during quick capture: the finger is
+                //    still down, and lifting it is what ends the utterance (D-quick-dictate).
+                if (!quickCaptureActive && stopAfter > 0f && state.heardAudio && state.quietFor >= stopAfter) {
                     Log.i(TAG, "Silence threshold reached (%.1fs >= %.1fs); auto-stopping".format(state.quietFor, stopAfter))
-                    stopRecording()
+                    stopCapture()
                     break
                 }
-                // 2. Initial silence timeout (10s without speech after starting)
-                if (recorder.capturedSeconds >= 10.0 && !state.heardAudio) {
+                // 2. Initial silence timeout (10s without speech after starting). Card path only —
+                //    a held finger with no speech is the user's choice, ended by the release.
+                if (!quickCaptureActive && recorder.capturedSeconds >= 10.0 && !state.heardAudio) {
                     Log.i(TAG, "Initial silence timeout (10s) reached without speech")
-                    stopRecording()
+                    stopCapture()
                     break
                 }
-                // 3. Max recording duration ceiling (300s / 5min)
+                // 3. Max recording duration ceiling (300s / 5min): a runaway guard on both paths.
                 if (recorder.capturedSeconds >= 300.0) {
                     Log.i(TAG, "Max recording duration ceiling reached")
-                    stopRecording()
+                    stopCapture()
                     break
                 }
             }
@@ -1244,6 +1371,9 @@ class FloatingOverlayService : Service() {
 
         /** Below this release speed a fling is not worth starting; the pill just settles. */
         private const val FLING_MIN_VELOCITY_PX_PER_SECOND = 120f
+
+        /** How long the minimized pill shows a quick-capture result before returning to rest. */
+        private const val QUICK_STATUS_MS = 1600L
 
         /** The error state's user-facing line. Deliberately says nothing about exceptions. */
         const val CLEANUP_UNAVAILABLE = "Cleanup is unavailable — showing your words as spoken."

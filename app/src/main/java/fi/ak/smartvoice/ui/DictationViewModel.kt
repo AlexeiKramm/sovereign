@@ -453,6 +453,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _floatingPillAutoCommit = MutableStateFlow(settings.floatingPillAutoCommit)
     val floatingPillAutoCommit: StateFlow<Boolean> = _floatingPillAutoCommit.asStateFlow()
 
+    private val _quickDictateOnHold = MutableStateFlow(settings.quickDictateOnHold)
+    val quickDictateOnHold: StateFlow<Boolean> = _quickDictateOnHold.asStateFlow()
+
     private val _pillFlickFriction = MutableStateFlow(settings.pillFlickFriction)
     val pillFlickFriction: StateFlow<Float> = _pillFlickFriction.asStateFlow()
 
@@ -733,6 +736,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setFloatingPillAutoCommit(enabled: Boolean) {
         settings.floatingPillAutoCommit = enabled
         _floatingPillAutoCommit.value = enabled
+    }
+
+    /**
+     * The pill reads this at gesture time, so turning it off takes effect on the next press without
+     * restarting the overlay.
+     */
+    fun setQuickDictateOnHold(enabled: Boolean) {
+        settings.quickDictateOnHold = enabled
+        _quickDictateOnHold.value = enabled
     }
 
     /**
