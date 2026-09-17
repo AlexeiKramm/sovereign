@@ -4,8 +4,11 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.pm.ServiceInfo
@@ -152,6 +155,16 @@ class FloatingOverlayService : Service() {
     /** The drag session that maps the pointer's screen position to the window offset. */
     private val windowDrag = WindowDrag()
 
+    // Residency: the engines are released by four triggers, all funnelled through [unloadEngines].
+    /** When the last capture finished (recording and processing both done); 0 before the first. */
+    private var lastCaptureEndedAtMs = 0L
+    /** The armed idle-timeout unload, or null when none is pending. */
+    private var idleUnloadJob: Job? = null
+    /** The keyboard-close grace unload, or null once the keyboard is open or the grace has passed. */
+    private var keyboardCloseUnloadJob: Job? = null
+    /** Unregisters the screen-off receiver; set once registration succeeds. */
+    private var screenOffReceiverRegistered = false
+
     // Fling: one decaying velocity vector for both axes (see PillFling), stepped per frame.
     private var fling = PillFling()
     private var flingVelocityX = 0f
@@ -223,6 +236,20 @@ class FloatingOverlayService : Service() {
     private var isKeyboardOpen = false
     private var hasEditableFocus = false
 
+    /**
+     * Screen-off is the one unload trigger with no callback in the service, so it needs a receiver.
+     * Registered only for the system broadcast, and gated on the setting at receive time so a toggle
+     * takes effect without re-registering.
+     */
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_SCREEN_OFF) return
+            if (!settings.unloadOnScreenOff) return
+            Log.i(TAG, "Screen off — releasing engines")
+            unloadEngines("screen off")
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -242,6 +269,7 @@ class FloatingOverlayService : Service() {
         cleanupEnabled = settings.cleanupEnabled
         refreshProfiles()
         setupEngines()
+        registerScreenOffReceiver()
         setupOverlayView()
         updateOverlayVisibility()
         Log.i(TAG, "FloatingOverlayService initialized")
@@ -267,6 +295,12 @@ class FloatingOverlayService : Service() {
             instance = null
         }
         settings.removeThemeModeObserver()
+        if (screenOffReceiverRegistered) {
+            runCatching { unregisterReceiver(screenOffReceiver) }
+            screenOffReceiverRegistered = false
+        }
+        stopIdleUnload()
+        stopKeyboardCloseUnload()
         abandonCapture()
         removeOverlayView()
         scope.cancel()
@@ -803,6 +837,15 @@ class FloatingOverlayService : Service() {
             }
         }
 
+        // The keyboard-close unload is a grace, not an immediate release: typing is bursty, and the
+        // keyboard often closes and reopens between two fields. Reopening (or any input focus)
+        // cancels the pending unload.
+        if (keyboardOpen) {
+            stopKeyboardCloseUnload()
+        } else if (wasOpen) {
+            scheduleKeyboardCloseUnload()
+        }
+
         updateOverlayVisibility()
     }
 
@@ -843,6 +886,116 @@ class FloatingOverlayService : Service() {
                 Log.i(TAG, "Cleanup model warm in ${engine.lastLoadMs}ms")
             }
         }
+    }
+
+    // --- Residency: the unload side (D-045, CHUNK-2) ---------------------------
+    //
+    // Four triggers — screen off, idle timeout, keyboard close, critical memory pressure — all end
+    // here. The decision that matters ("may we release right now?") lives in `ModelResidency` so it
+    // is unit-tested rather than argued about on a phone.
+
+    /**
+     * Releases both engines, unless a capture is in flight. Every trigger calls this and nothing
+     * else unloads, so "never yank a model out from under a running utterance" has one home.
+     *
+     * Unload is idempotent: releasing an already-cold engine is a no-op, but the early return keeps
+     * the log honest about what actually happened.
+     */
+    private fun unloadEngines(reason: String) {
+        stopIdleUnload()
+        stopKeyboardCloseUnload()
+
+        if (!ModelResidency.canUnload(recording = recorder.isRecording, processing = isProcessing)) {
+            Log.i(TAG, "Unload skipped ($reason): capture in flight")
+            return
+        }
+        if (!asrModelLoaded && !cleanupModelLoaded) {
+            Log.i(TAG, "Unload skipped ($reason): nothing is loaded")
+            return
+        }
+
+        Log.i(TAG, "Unloading engines ($reason)")
+        scope.launch {
+            // Each engine is released on its own single-thread dispatcher, matching how it loads.
+            withContext(asrDispatcher) { localEngine.unload() }
+            asrModelLoaded = false
+            withContext(cleanupDispatcher) { cleanupEngine?.unload() }
+            cleanupModelLoaded = false
+            Log.i(TAG, "Engines unloaded ($reason)")
+        }
+    }
+
+    /** A capture's recording and processing are both done, so the engines start their idle window. */
+    private fun onCaptureFinished() {
+        lastCaptureEndedAtMs = SystemClock.elapsedRealtime()
+        restartIdleUnload()
+    }
+
+    /** (Re)arms the idle-timeout unload from "now". `modelIdleTimeoutMinutes == 0` means never. */
+    private fun restartIdleUnload() {
+        stopIdleUnload()
+        val minutes = settings.modelIdleTimeoutMinutes
+        if (minutes <= 0) return
+        idleUnloadJob = scope.launch {
+            delay(minutes.toLong() * ModelResidency.MILLIS_PER_MINUTE)
+            if (ModelResidency.idleTimeoutReached(
+                    idleMillis = SystemClock.elapsedRealtime() - lastCaptureEndedAtMs,
+                    timeoutMinutes = minutes,
+                )
+            ) {
+                unloadEngines("idle ${minutes}m")
+            }
+        }
+    }
+
+    private fun stopIdleUnload() {
+        idleUnloadJob?.cancel()
+        idleUnloadJob = null
+    }
+
+    private fun scheduleKeyboardCloseUnload() {
+        stopKeyboardCloseUnload()
+        if (!settings.unloadOnKeyboardClose) return
+        keyboardCloseUnloadJob = scope.launch {
+            delay(KEYBOARD_CLOSE_GRACE_MS)
+            if (settings.unloadOnKeyboardClose) unloadEngines("keyboard closed")
+        }
+    }
+
+    private fun stopKeyboardCloseUnload() {
+        keyboardCloseUnloadJob?.cancel()
+        keyboardCloseUnloadJob = null
+    }
+
+    private fun registerScreenOffReceiver() {
+        ContextCompat.registerReceiver(
+            this,
+            screenOffReceiver,
+            IntentFilter(Intent.ACTION_SCREEN_OFF),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        screenOffReceiverRegistered = true
+    }
+
+    // The critical-running level (and `onLowMemory`) still arrive on minSdk 30–33, but the platform
+    // stopped delivering them to apps in API 34. They are kept because the repo supports API 30+
+    // and because a trim sent from a shell (`am send-trim-memory`) exercises the same path.
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Only the critical level: reacting to the early "running low" signals would make dictation
+        // latency depend on whatever else is running (D-045).
+        if (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            Log.i(TAG, "Critical memory pressure — releasing engines if idle")
+            unloadEngines("critical memory pressure")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onLowMemory() {
+        super.onLowMemory()
+        Log.i(TAG, "Low memory — releasing engines if idle")
+        unloadEngines("low memory")
     }
 
     private fun updateOverlayVisibility() {
@@ -899,6 +1052,11 @@ class FloatingOverlayService : Service() {
         }
 
         if (recorder.isRecording) return
+
+        // A capture is about to need the engines: a pending idle/keyboard-close unload must not fire
+        // under it (the guard in `unloadEngines` is the backstop, this just keeps them from racing).
+        stopIdleUnload()
+        stopKeyboardCloseUnload()
 
         quickCaptureActive = quick
         recordStartedAtMs = SystemClock.elapsedRealtime()
@@ -972,6 +1130,7 @@ class FloatingOverlayService : Service() {
             finalizeUtterance()
             isProcessing = false
             statusNote = null
+            onCaptureFinished()
 
             if (settings.floatingPillAutoCommit) {
                 commitSession()
@@ -996,6 +1155,7 @@ class FloatingOverlayService : Service() {
         inFlightJob = scope.launch {
             finalizeUtterance()
             isProcessing = false
+            onCaptureFinished()
             deliverQuickCapture()
         }
     }
@@ -1241,6 +1401,9 @@ class FloatingOverlayService : Service() {
         committedText.clear()
         recordStartedAtMs = 0L
         recordedMillis = 0L
+        // A session that was cancelled (rather than finalised) still ends the capture; the engines
+        // are idle from here. Harmless when a finalised capture already armed the same timer.
+        onCaptureFinished()
         updateOverlayVisibility()
     }
 
@@ -1443,6 +1606,12 @@ class FloatingOverlayService : Service() {
 
         /** How long the minimized pill shows a quick-capture result before returning to rest. */
         private const val QUICK_STATUS_MS = 1600L
+
+        /**
+         * Grace after the keyboard closes before the engines are released. A tuned constant, not a
+         * setting: long enough to survive moving between two fields, short enough to matter.
+         */
+        private const val KEYBOARD_CLOSE_GRACE_MS = 8_000L
 
         /** The error state's user-facing line. Deliberately says nothing about exceptions. */
         const val CLEANUP_UNAVAILABLE = "Cleanup is unavailable — showing your words as spoken."

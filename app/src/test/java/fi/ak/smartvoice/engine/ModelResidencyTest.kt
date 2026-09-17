@@ -34,4 +34,32 @@ class ModelResidencyTest {
             ModelResidency.isFullyWarm(asrLoaded = false, cleanupEnabled = true, cleanupLoaded = true),
         )
     }
+
+    @Test
+    fun `unload is blocked while recording`() {
+        assertFalse(ModelResidency.canUnload(recording = true, processing = false))
+    }
+
+    @Test
+    fun `unload is blocked while processing`() {
+        assertFalse(ModelResidency.canUnload(recording = false, processing = true))
+    }
+
+    @Test
+    fun `unload is allowed only when fully idle`() {
+        assertTrue(ModelResidency.canUnload(recording = false, processing = false))
+        assertFalse("recording and processing cannot both be false here", ModelResidency.canUnload(true, true))
+    }
+
+    @Test
+    fun `idle timeout of zero never unloads`() {
+        assertFalse(ModelResidency.idleTimeoutReached(idleMillis = Long.MAX_VALUE, timeoutMinutes = 0))
+    }
+
+    @Test
+    fun `idle timeout fires at the threshold`() {
+        val twoMinutes = 2 * ModelResidency.MILLIS_PER_MINUTE
+        assertFalse(ModelResidency.idleTimeoutReached(twoMinutes - 1, timeoutMinutes = 2))
+        assertTrue(ModelResidency.idleTimeoutReached(twoMinutes, timeoutMinutes = 2))
+    }
 }
