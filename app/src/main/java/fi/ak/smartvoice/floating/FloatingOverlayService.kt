@@ -625,10 +625,40 @@ class FloatingOverlayService : Service() {
             // Observe touches that land outside the pill (without stealing them from the app
             // underneath) so an outside tap can dismiss the ··· panel and minimise the card.
             WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-        return if (focusable) {
-            base or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        val focus = if (focusable) {
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
         } else {
-            base or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        // Composed here, not OR-ed onto `params.flags` at the capture sites: `setOverlayFocusable`
+        // rebuilds the whole int from this function whenever the word-fix form opens or closes, so
+        // a bit added anywhere else would be silently dropped by the next focus toggle.
+        val keepScreen = if (ScreenAwake.shouldHold(recorder.isRecording, settings.keepScreenOnWhileRecording)) {
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        } else {
+            0
+        }
+        return base or focus or keepScreen
+    }
+
+    /**
+     * Applies or releases the pill window's `FLAG_KEEP_SCREEN_ON` hold for the current capture
+     * state (D-050). The desired state comes from the **live recorder and setting**, not from
+     * [uiState]: `stopRecording` enters `REVIEW` while the mic is still finishing, so a UI-state
+     * trigger would drop the hold before the microphone actually stopped. A no-op when the bit is
+     * already correct, so the cheap calls at the capture boundaries cost nothing.
+     */
+    private fun refreshKeepScreenOn() {
+        val params = layoutParams ?: return
+        val view = composeView ?: return
+        val desired = ScreenAwake.shouldHold(recorder.isRecording, settings.keepScreenOnWhileRecording)
+        val current = (params.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0
+        if (desired == current) return
+        params.flags = overlayFlags(windowFocusable)
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating keep-screen-on flag", e)
         }
     }
 
@@ -1384,6 +1414,7 @@ class FloatingOverlayService : Service() {
             return
         }
 
+        refreshKeepScreenOn()
         if (quick) performHaptic()
         startAudioMetering()
         startSilenceMonitoring()
@@ -1450,6 +1481,7 @@ class FloatingOverlayService : Service() {
         withContext(Dispatchers.IO) {
             recorder.stop()
         }
+        refreshKeepScreenOn()
         localSession.finish()
 
         if (settings.cleanupEnabled && cleanupEngaged) {
@@ -1688,6 +1720,9 @@ class FloatingOverlayService : Service() {
         // A session that was cancelled (rather than finalised) still ends the capture; the engines
         // are idle from here. Harmless when a finalised capture already armed the same timer.
         onCaptureFinished()
+        // Resting is always released: this funnel is the backstop, so no path can leave the window
+        // holding the screen on for a later, idle appearance (D-050).
+        refreshKeepScreenOn()
         updateOverlayVisibility(animated)
     }
 
@@ -1699,6 +1734,7 @@ class FloatingOverlayService : Service() {
         if (recorder.isRecording) {
             runCatching { recorder.stop() }
         }
+        refreshKeepScreenOn()
         localSession.abort()
         if (cleanupEngaged) {
             cleanupPipeline.abort()

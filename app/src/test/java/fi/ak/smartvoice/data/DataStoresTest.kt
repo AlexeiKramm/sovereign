@@ -174,6 +174,13 @@ class DataStoresTest {
     }
 
     @Test
+    fun `keep screen on while recording defaults to on`() {
+        // Dictation is hands-free, so the screen's own timeout would otherwise lock the device
+        // mid-sentence; the toggle exists to turn it off, not to turn it on (D-050).
+        assertTrue(AppSettings.DEFAULT_KEEP_SCREEN_ON_WHILE_RECORDING)
+    }
+
+    @Test
     fun `ui overhaul default fixes are pinned`() {
         // Plan step 1 set these; the dashboard and settings screens read them as fact.
         assertEquals(3, AppSettings.DEFAULT_HEALING_SENTENCES_COUNT)

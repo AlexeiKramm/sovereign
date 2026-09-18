@@ -180,6 +180,15 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_UNLOAD_SCREEN_OFF, DEFAULT_UNLOAD_SCREEN_OFF)
         set(value) = prefs.edit { putBoolean(KEY_UNLOAD_SCREEN_OFF, value) }
 
+    /**
+     * Whether a capture holds the display awake for as long as the microphone is running. Default
+     * on: dictation is hands-free, so without it the screen's own timeout can dim and lock the
+     * device mid-sentence.
+     */
+    var keepScreenOnWhileRecording: Boolean
+        get() = prefs.getBoolean(KEY_KEEP_SCREEN_ON_WHILE_RECORDING, DEFAULT_KEEP_SCREEN_ON_WHILE_RECORDING)
+        set(value) = prefs.edit { putBoolean(KEY_KEEP_SCREEN_ON_WHILE_RECORDING, value) }
+
     /** Whether neural models are unloaded immediately when the IME keyboard is closed. */
     var unloadOnKeyboardClose: Boolean
         get() = prefs.getBoolean(KEY_UNLOAD_KEYBOARD_CLOSE, DEFAULT_UNLOAD_KEYBOARD_CLOSE)
@@ -282,6 +291,7 @@ class AppSettings(context: Context) {
         private const val KEY_STABLE_SILENCE_S = "stable_silence_s"
         private const val KEY_STOP_AFTER_SILENCE_S = "stop_after_silence_s"
         private const val KEY_UNLOAD_SCREEN_OFF = "unload_screen_off"
+        private const val KEY_KEEP_SCREEN_ON_WHILE_RECORDING = "keep_screen_on_while_recording"
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
         private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
@@ -315,6 +325,7 @@ class AppSettings(context: Context) {
 
         const val DEFAULT_LITERT_SPECULATIVE_DECODING = true
         const val DEFAULT_UNLOAD_SCREEN_OFF = true
+        const val DEFAULT_KEEP_SCREEN_ON_WHILE_RECORDING = true
         const val DEFAULT_UNLOAD_KEYBOARD_CLOSE = true
         const val DEFAULT_IDLE_TIMEOUT_MIN = 2
         val IDLE_TIMEOUT_OPTIONS = listOf(0, 1, 2, 5, 10, 15)

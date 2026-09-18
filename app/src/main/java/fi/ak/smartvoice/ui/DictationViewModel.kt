@@ -181,6 +181,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _unloadOnScreenOff = MutableStateFlow(settings.unloadOnScreenOff)
     val unloadOnScreenOff: StateFlow<Boolean> = _unloadOnScreenOff.asStateFlow()
 
+    private val _keepScreenOnWhileRecording = MutableStateFlow(settings.keepScreenOnWhileRecording)
+    val keepScreenOnWhileRecording: StateFlow<Boolean> = _keepScreenOnWhileRecording.asStateFlow()
+
     private val _unloadOnKeyboardClose = MutableStateFlow(settings.unloadOnKeyboardClose)
     val unloadOnKeyboardClose: StateFlow<Boolean> = _unloadOnKeyboardClose.asStateFlow()
 
@@ -360,6 +363,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun onUnloadOnScreenOffChange(enabled: Boolean) {
         settings.unloadOnScreenOff = enabled
         _unloadOnScreenOff.value = enabled
+    }
+
+    fun onKeepScreenOnWhileRecordingChange(enabled: Boolean) {
+        settings.keepScreenOnWhileRecording = enabled
+        _keepScreenOnWhileRecording.value = enabled
     }
 
     fun onUnloadOnKeyboardCloseChange(enabled: Boolean) {

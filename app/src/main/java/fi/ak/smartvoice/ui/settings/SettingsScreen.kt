@@ -500,6 +500,7 @@ private fun AdvancedSettingsSection(
     val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
     val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
     val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
+    val keepScreenOnWhileRecording by viewModel.keepScreenOnWhileRecording.collectAsStateWithLifecycle()
     val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
     val timingNote by viewModel.timingNote.collectAsStateWithLifecycle()
 
@@ -719,6 +720,15 @@ private fun AdvancedSettingsSection(
                     subtitle = "Frees ~1.5 GB RAM while the device is locked",
                     checked = unloadOnScreenOff,
                     onCheckedChange = viewModel::onUnloadOnScreenOffChange,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsToggleRow(
+                    title = "Keep screen on while recording",
+                    subtitle = "Stops the screen dimming and locking during a dictation",
+                    checked = keepScreenOnWhileRecording,
+                    onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
                 )
 
                 SettingsDivider(startIndent = 0.dp)
