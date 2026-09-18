@@ -1,6 +1,7 @@
 package fi.ak.smartvoice.floating
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import fi.ak.smartvoice.R
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
@@ -174,6 +176,22 @@ class FloatingOverlayService : Service() {
     private var flingStartX = 0f
     private var flingStartY = 0f
 
+    // Arrival: the pill's entry fraction plus its velocity, stepped per frame by [entryTick] — the
+    // same shape as the fling above. `entryValue` is the transition fraction where `1f` is the pill
+    // at its rest dock and `0f` is fully off screen (`PillEnter`), so the spring's units are
+    // fractions and the same curve serves any travel. While [entryRunning] the tick's writes are the
+    // *only* position writes: every other writer clamps to the screen and would drag the pill back
+    // on screen mid-slide. `entryStart`/`entryRest` stay non-null after the motion ends on purpose —
+    // CHUNK-3 reuses that pair for a reversal, so a flip cannot recompute (and so cannot jump).
+    private var entryValue = 1f
+    private var entryVelocity = 0f
+    private var entryTarget = 1f
+    private var entryStart: PillOffset? = null
+    private var entryRest: PillOffset? = null
+    private var entryLastNanos = 0L
+    private var entryStartedAtNanos = 0L
+    private var entryRunning = false
+
     private val dragFlush = Runnable {
         dragFlushScheduled = false
         applyWindowPosition()
@@ -215,6 +233,50 @@ class FloatingOverlayService : Service() {
                 Log.i(TAG, "Fling settled: travelled %.0f px in %d ms".format(travelled, elapsedMs))
                 stopFling()
                 persistPillPosition()
+                return
+            }
+            composeView?.postOnAnimation(this)
+        }
+    }
+
+    /**
+     * One frame of the arrival (CHUNK-3 adds the departure on top of the same state).
+     *
+     * It writes the window **only** through [writeWindowPosition] — never through
+     * [applyWindowPosition], which clamps to the screen and would drag the pill back on screen
+     * mid-slide. The clamps are suspended while [entryRunning] (the layout listener's guard) and
+     * applied once, here, when the motion ends.
+     */
+    private val entryTick = object : Runnable {
+        override fun run() {
+            if (!entryRunning) return
+            val now = System.nanoTime()
+            // The fling's own cap and reason: a dropped frame should not teleport the pill.
+            val dtSeconds = ((now - entryLastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            entryLastNanos = now
+
+            val step = PillSpring.step(entryValue, entryVelocity, entryTarget, dtSeconds)
+            entryValue = step.value
+            entryVelocity = step.velocity
+
+            val start = entryStart
+            val rest = entryRest
+            if (start == null || rest == null) {
+                // The pair was dropped (a drag took over, a cancel, a removal): stop rather than
+                // write from a state nobody owns any more.
+                cancelEntry(restore = false)
+                return
+            }
+            val at = PillEnter.positionAt(start, rest, entryValue)
+            writeWindowPosition(PillPoint(at.x.toInt(), at.y.toInt()))
+
+            if (PillSpring.isAtRest(entryValue, entryVelocity, entryTarget)) {
+                entryRunning = false
+                // The motion ended: land exactly on the dock, then let the suspended clamps run once.
+                writeWindowPosition(PillPoint(rest.x.toInt(), rest.y.toInt()))
+                applyWindowPosition()
+                val elapsedMs = (System.nanoTime() - entryStartedAtNanos) / 1_000_000
+                Log.i(TAG, "Entry complete in ${elapsedMs}ms")
                 return
             }
             composeView?.postOnAnimation(this)
@@ -285,7 +347,9 @@ class FloatingOverlayService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         darkTheme = resolveDarkTheme()
-        // The display may have rotated or resized: re-clamp so the pill cannot be stranded off-screen.
+        // A display change cannot be animated into: abandon any arrival, put the window back at its
+        // rest position, then re-clamp so the pill cannot be stranded off-screen.
+        cancelEntry(restore = true)
         composeView?.post { applyWindowPosition() }
     }
 
@@ -513,7 +577,9 @@ class FloatingOverlayService : Service() {
         // on those frames — or shortly after them — is what made the pill jump; the vertical clamp
         // is left to the explicit drag / fling / display-change paths instead.
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (!isDragging && flingLastNanos == 0L) {
+            // Never while a drag, a fling or an arrival owns the position: those writes are
+            // unclamped on purpose, and this clamp would drag the pill back on screen mid-slide.
+            if (!isDragging && flingLastNanos == 0L && !entryRunning) {
                 applyWindowPosition(clampVertical = false)
             }
         }
@@ -528,6 +594,8 @@ class FloatingOverlayService : Service() {
 
     private fun removeOverlayView() {
         stopFling()
+        // Nothing may write to a window that is going away.
+        cancelEntry(restore = false)
         composeView?.let { view ->
             try {
                 windowManager.removeView(view)
@@ -650,6 +718,10 @@ class FloatingOverlayService : Service() {
 
     private fun beginDrag() {
         stopFling()
+        // The drag takes over: stop any arrival and drop the entry state **without** writing a
+        // position — the drag's own base is the current `params.x/y`, which already includes the
+        // entry offset, and its release clamps and persists as it does today.
+        cancelEntry(restore = false)
         isDragging = true
         layoutParams?.let {
             dragOffsetX = it.x.toFloat()
@@ -846,7 +918,9 @@ class FloatingOverlayService : Service() {
             scheduleKeyboardCloseUnload()
         }
 
-        updateOverlayVisibility()
+        // The keyboard boundary is the one transition a user watches, so it is the only caller that
+        // asks for the arrival animation; everything else shows or hides instantly.
+        updateOverlayVisibility(animated = true)
     }
 
     /**
@@ -998,7 +1072,17 @@ class FloatingOverlayService : Service() {
         unloadEngines("low memory")
     }
 
-    private fun updateOverlayVisibility() {
+    /**
+     * **The one place the overlay view's visibility is decided and written.** Every path that shows
+     * or hides the pill comes through here, so no visibility write can happen without the decision
+     * being made in one place — the transition (and whether it may be animated) is
+     * [PillEnter.transitionFor]'s, including the four gates on `animated`.
+     *
+     * [animated] is the caller's *request* only: the keyboard signal is the one transition a user
+     * watches, so [onKeyboardOrFocusChanged] is the only caller that passes `true`. A service start,
+     * a settings change, a display change and a session cancel keep today's instant behaviour.
+     */
+    private fun updateOverlayVisibility(animated: Boolean = false) {
         val view = composeView ?: return
         val shouldShow = when {
             !settings.floatingPillEnabled -> false
@@ -1006,7 +1090,124 @@ class FloatingOverlayService : Service() {
             settings.floatingPillOnlyWhenKeyboardOpen -> isKeyboardOpen
             else -> true
         }
-        view.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        val params = layoutParams
+        val rest = PillOffset(params?.x?.toFloat() ?: 0f, params?.y?.toFloat() ?: 0f)
+        // The arrival's start comes from the pill's own horizontal centre against the display's
+        // midpoint; `view.width == 0` means the view has not been measured yet, and an animation with
+        // no start point is not an animation (PillEnter.transitionFor forces the instant path).
+        val displayWidthPx = windowManager.currentWindowMetrics.bounds.width()
+        val start = if (params != null && view.width > 0 && view.height > 0) {
+            PillEnter.startOffset(
+                edge = PillEnter.edgeFor(
+                    pillCentreX = PillEnter.pillCentreX(
+                        displayWidthPx = displayWidthPx,
+                        offsetXPx = params.x,
+                        viewWidthPx = view.width,
+                        isRtl = false,
+                    ),
+                    displayWidthPx = displayWidthPx,
+                    isRtl = false,
+                ),
+                viewWidthPx = view.width,
+                displayWidthPx = displayWidthPx,
+                rest = rest,
+            )
+        } else {
+            null
+        }
+        val transition = PillEnter.transitionFor(
+            // `isVisible`, not `visibility == View.VISIBLE`: the KTX property is the same test and
+            // lint's own suggestion (`UseKtx`), so the file stays at its warning count.
+            visibleNow = view.isVisible,
+            shouldShow = shouldShow,
+            start = start,
+            rest = rest,
+            requestedAnimated = animated,
+            keyboardDrivenVisibility = settings.floatingPillOnlyWhenKeyboardOpen,
+            animatorsEnabled = ValueAnimator.areAnimatorsEnabled(),
+        )
+        when (transition) {
+            // Nothing changed — but a running arrival still has to be abandoned rather than left
+            // writing from a decision nobody made.
+            PillTransition.None -> cancelEntry(restore = true)
+            is PillTransition.Enter -> if (transition.animated) {
+                startEntry(transition.start, transition.rest, view)
+            } else {
+                cancelEntry(restore = true)
+                view.visibility = View.VISIBLE
+            }
+            is PillTransition.Leave -> {
+                // CHUNK-3 replaces exactly this branch with the mirror of the arrival. Until then
+                // the departure is instant, which is a coherent intermediate state.
+                cancelEntry(restore = true)
+                view.visibility = View.GONE
+            }
+        }
+    }
+
+    /**
+     * Abandons a running arrival: the tick stops and the entry state is dropped.
+     *
+     * With [restore] the window is first put back at the rest position the arrival started from —
+     * which is what every *instant* path needs, because the slide leaves `params` parked mid-flight
+     * and the invariant everywhere else in the service is "hidden or resting ⇒ `params` is at the
+     * dock". The drag passes `false`: it wants no write at all, since its own base is the current
+     * `params.x/y` (entry offset included).
+     *
+     * `entryStart`/`entryRest` are cleared here and not when a motion merely *ends*, so a reversal
+     * mid-flight keeps the pair it was launched with.
+     */
+    private fun cancelEntry(restore: Boolean) {
+        val rest = entryRest
+        if (entryRunning) {
+            // An arrival cut short is otherwise indistinguishable from one that never started — and
+            // "a redundant keyboard signal killed it" is the failure this trace exists to name.
+            val elapsedMs = (System.nanoTime() - entryStartedAtNanos) / 1_000_000
+            Log.i(TAG, "Entry abandoned after ${elapsedMs}ms (restore=$restore)")
+        }
+        entryRunning = false
+        if (restore && rest != null) {
+            writeWindowPosition(PillPoint(rest.x.toInt(), rest.y.toInt()))
+        }
+        entryStart = null
+        entryRest = null
+        entryValue = 1f
+        entryVelocity = 0f
+        entryTarget = 1f
+    }
+
+    /**
+     * Starts the arrival, in the one order that does not flash: the start position is written to the
+     * window **while the view is still `GONE`**, and only then is the view shown. Showing first would
+     * draw the pill at its dock for one frame before the slide moved it.
+     */
+    private fun startEntry(start: PillOffset, rest: PillOffset, view: View) {
+        entryValue = 0f
+        entryVelocity = 0f
+        entryTarget = 1f
+        entryStart = start
+        entryRest = rest
+        val startPoint = PillPoint(start.x.toInt(), start.y.toInt())
+        writeWindowPosition(startPoint)
+
+        // That start is *outside* the display (PillEnter.startOffset), so read it back: if this build
+        // rewrote it — a window manager is not obliged to keep an off-screen position — the arrival
+        // uses the platform's value for this transition. Degraded, not broken: the pill then starts
+        // at the edge instead of outside it. Only a device can say which branch runs.
+        val params = layoutParams
+        if (params != null && params.x != startPoint.x) {
+            Log.i(
+                TAG,
+                "Entry start clamped: platform rewrote x from ${startPoint.x} to ${params.x} px",
+            )
+            entryStart = start.copy(x = params.x.toFloat())
+        }
+
+        view.visibility = View.VISIBLE
+        entryLastNanos = System.nanoTime()
+        entryStartedAtNanos = entryLastNanos
+        entryRunning = true
+        view.postOnAnimation(entryTick)
     }
 
     // --- Dictation Capture & ASR ---
