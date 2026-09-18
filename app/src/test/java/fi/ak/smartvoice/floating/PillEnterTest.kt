@@ -35,9 +35,11 @@ private fun transition(
     requestedAnimated: Boolean = true,
     keyboardDrivenVisibility: Boolean = true,
     animatorsEnabled: Boolean = true,
+    motionTarget: Float? = null,
 ): PillTransition = PillEnter.transitionFor(
     visibleNow = visibleNow,
     shouldShow = shouldShow,
+    motionTarget = motionTarget,
     start = start,
     rest = rest,
     requestedAnimated = requestedAnimated,
@@ -293,6 +295,40 @@ class PillEnterTest {
         // A null start cannot resurrect the animation either: all gates are on above.
         assertTrue(
             transition(visibleNow = false, shouldShow = true, start = null) is PillTransition.Enter,
+        )
+    }
+
+    // --- The decision seam while a motion is in flight --------------------------
+
+    @Test
+    fun `a running arrival with an unchanged decision is still None, so the motion survives`() {
+        // The view is VISIBLE from the arrival's first frame, so a redundant accessibility event
+        // during it looks exactly like "nothing changed". Only the motion itself distinguishes the
+        // two: it is already heading for `desired`, so the decision is None and nothing aborts it.
+        assertEquals(
+            PillTransition.None,
+            transition(visibleNow = true, shouldShow = true, motionTarget = 1f),
+        )
+    }
+
+    @Test
+    fun `a running departure with the keyboard reopened asks for the arrival instead`() {
+        // The reopened keyboard leaves the view VISIBLE too (it goes GONE only when the exit ends),
+        // so this is the same seam: the motion is heading the other way, which is the reversal and
+        // not a no-op.
+        assertEquals(
+            PillTransition.Enter(start = PillOffset(-600f, 270f), rest = REST, animated = true),
+            transition(visibleNow = true, shouldShow = true, motionTarget = 0f),
+        )
+    }
+
+    @Test
+    fun `a hidden pill whose departure is in flight is still None`() {
+        // The mirror of the first case, on the hidden side: `visibleNow == shouldShow == false` with
+        // a motion already heading off screen changes nothing, so the departure is left to finish.
+        assertEquals(
+            PillTransition.None,
+            transition(visibleNow = false, shouldShow = false, motionTarget = 0f),
         )
     }
 

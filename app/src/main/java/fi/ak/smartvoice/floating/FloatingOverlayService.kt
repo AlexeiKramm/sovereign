@@ -176,13 +176,14 @@ class FloatingOverlayService : Service() {
     private var flingStartX = 0f
     private var flingStartY = 0f
 
-    // Arrival: the pill's entry fraction plus its velocity, stepped per frame by [entryTick] — the
-    // same shape as the fling above. `entryValue` is the transition fraction where `1f` is the pill
-    // at its rest dock and `0f` is fully off screen (`PillEnter`), so the spring's units are
-    // fractions and the same curve serves any travel. While [entryRunning] the tick's writes are the
-    // *only* position writes: every other writer clamps to the screen and would drag the pill back
-    // on screen mid-slide. `entryStart`/`entryRest` stay non-null after the motion ends on purpose —
-    // CHUNK-3 reuses that pair for a reversal, so a flip cannot recompute (and so cannot jump).
+    // Entering and leaving: the pill's fraction plus its velocity, stepped per frame by [entryTick]
+    // — the same shape as the fling above. `entryValue` is the transition fraction where `1f` is the
+    // pill at its rest dock and `0f` is fully off screen (`PillEnter`), so the spring's units are
+    // fractions and the same curve serves any travel: the arrival drives it `0f -> 1f` and the
+    // departure drives the *same* pair back. While [entryRunning] the tick's writes are the *only*
+    // position writes: every other writer clamps to the screen and would drag the pill back on
+    // screen mid-slide. `entryStart`/`entryRest` stay non-null after the motion ends on purpose —
+    // a reversal reuses that pair, so a flip cannot recompute (and so cannot jump).
     private var entryValue = 1f
     private var entryVelocity = 0f
     private var entryTarget = 1f
@@ -240,12 +241,12 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * One frame of the arrival (CHUNK-3 adds the departure on top of the same state).
+     * One frame of the entry motion — the arrival or the departure, whichever [entryTarget] names.
      *
      * It writes the window **only** through [writeWindowPosition] — never through
      * [applyWindowPosition], which clamps to the screen and would drag the pill back on screen
      * mid-slide. The clamps are suspended while [entryRunning] (the layout listener's guard) and
-     * applied once, here, when the motion ends.
+     * applied once, here, when the arrival ends.
      */
     private val entryTick = object : Runnable {
         override fun run() {
@@ -271,12 +272,9 @@ class FloatingOverlayService : Service() {
             writeWindowPosition(PillPoint(at.x.toInt(), at.y.toInt()))
 
             if (PillSpring.isAtRest(entryValue, entryVelocity, entryTarget)) {
-                entryRunning = false
-                // The motion ended: land exactly on the dock, then let the suspended clamps run once.
-                writeWindowPosition(PillPoint(rest.x.toInt(), rest.y.toInt()))
-                applyWindowPosition()
-                val elapsedMs = (System.nanoTime() - entryStartedAtNanos) / 1_000_000
-                Log.i(TAG, "Entry complete in ${elapsedMs}ms")
+                // The two directions end differently — the arrival lands on the dock, the departure
+                // hides — so each has its own end-state routine with its own pinned order.
+                if (entryTarget == 0f) finishExit(rest) else finishEntry(rest)
                 return
             }
             composeView?.postOnAnimation(this)
@@ -901,11 +899,14 @@ class FloatingOverlayService : Service() {
         hasEditableFocus = editableFocus
 
         // If the keyboard just closed and the pill is set to only show when a keyboard is open,
-        // auto-cancel any active session and return to resting so the pill hides.
+        // auto-cancel any active session and return to resting so the pill hides. This cancel is
+        // itself keyboard-driven, so it asks for the departure animation: without the flag the pill
+        // would be hidden here, *before* the `updateOverlayVisibility` below, and the commonest
+        // transition in the app (keyboard closed with a card open) would never animate.
         if (wasOpen && !keyboardOpen && settings.floatingPillOnlyWhenKeyboardOpen) {
             if (uiState != FloatingUiState.RESTING_PILL) {
                 Log.i(TAG, "Keyboard closed — dismissing active pill session")
-                cancelSession()
+                cancelSession(animated = true)
             }
         }
 
@@ -1079,8 +1080,11 @@ class FloatingOverlayService : Service() {
      * [PillEnter.transitionFor]'s, including the four gates on `animated`.
      *
      * [animated] is the caller's *request* only: the keyboard signal is the one transition a user
-     * watches, so [onKeyboardOrFocusChanged] is the only caller that passes `true`. A service start,
-     * a settings change, a display change and a session cancel keep today's instant behaviour.
+     * watches, so [onKeyboardOrFocusChanged] is the only caller that passes `true` directly — and a
+     * keyboard-driven session cancel threads the same `true` in through [cancelSession] so a card
+     * that is open when the keyboard closes still animates out. A service start, a settings change,
+     * a display change and a session cancel that is *not* keyboard-driven keep today's instant
+     * behaviour.
      */
     private fun updateOverlayVisibility(animated: Boolean = false) {
         val view = composeView ?: return
@@ -1120,6 +1124,10 @@ class FloatingOverlayService : Service() {
             // lint's own suggestion (`UseKtx`), so the file stays at its warning count.
             visibleNow = view.isVisible,
             shouldShow = shouldShow,
+            // A motion in flight is part of the decision, not a detail after it: the view is VISIBLE
+            // from the arrival's first frame, so without this a redundant event mid-motion is
+            // indistinguishable from an idle call and the None branch below would abort the motion.
+            motionTarget = if (entryRunning) entryTarget else null,
             start = start,
             rest = rest,
             requestedAnimated = animated,
@@ -1127,28 +1135,39 @@ class FloatingOverlayService : Service() {
             animatorsEnabled = ValueAnimator.areAnimatorsEnabled(),
         )
         when (transition) {
-            // Nothing changed — but a running arrival still has to be abandoned rather than left
-            // writing from a decision nobody made.
-            PillTransition.None -> cancelEntry(restore = true)
+            // Nothing to do — and with the motion in flight part of the decision, that is the whole
+            // of it: either none is running, or the one that is is already heading for the state this
+            // decision asks for (an arrival told to stay visible). Aborting that motion here is what
+            // used to cut an arrival short on a redundant accessibility event and snap a reversing
+            // departure back to its dock, so the abort stays where it belongs — on the two instant
+            // paths below, each of which has decided to end the motion. With nothing in flight this is
+            // the no-op it has always been: the pair is null, so there is no write.
+            PillTransition.None -> if (!entryRunning) cancelEntry(restore = true)
             is PillTransition.Enter -> if (transition.animated) {
-                startEntry(transition.start, transition.rest, view)
+                startMotion(target = 1f, start = transition.start, rest = transition.rest, view = view)
             } else {
                 cancelEntry(restore = true)
                 view.visibility = View.VISIBLE
             }
-            is PillTransition.Leave -> {
-                // CHUNK-3 replaces exactly this branch with the mirror of the arrival. Until then
-                // the departure is instant, which is a coherent intermediate state.
-                cancelEntry(restore = true)
+            is PillTransition.Leave -> if (transition.animated) {
+                // The mirror of the arrival: the same pair, the same tick, the other target. No
+                // second geometry and no velocity reset, so a keyboard that closes and reopens
+                // between two fields reverses mid-flight instead of restarting.
+                startMotion(target = 0f, start = transition.start, rest = transition.rest, view = view)
+            } else {
+                // The instant departure, in the same pinned order as the animated one's end state:
+                // hide first, *then* put the window back at rest. A params write while the pill is
+                // still visible would draw it back at its dock for a frame.
                 view.visibility = View.GONE
+                cancelEntry(restore = true)
             }
         }
     }
 
     /**
-     * Abandons a running arrival: the tick stops and the entry state is dropped.
+     * Abandons a running motion: the tick stops and the entry state is dropped.
      *
-     * With [restore] the window is first put back at the rest position the arrival started from —
+     * With [restore] the window is first put back at the rest position the motion started from —
      * which is what every *instant* path needs, because the slide leaves `params` parked mid-flight
      * and the invariant everywhere else in the service is "hidden or resting ⇒ `params` is at the
      * dock". The drag passes `false`: it wants no write at all, since its own base is the current
@@ -1160,15 +1179,48 @@ class FloatingOverlayService : Service() {
     private fun cancelEntry(restore: Boolean) {
         val rest = entryRest
         if (entryRunning) {
-            // An arrival cut short is otherwise indistinguishable from one that never started — and
+            // A motion cut short is otherwise indistinguishable from one that never started — and
             // "a redundant keyboard signal killed it" is the failure this trace exists to name.
-            val elapsedMs = (System.nanoTime() - entryStartedAtNanos) / 1_000_000
-            Log.i(TAG, "Entry abandoned after ${elapsedMs}ms (restore=$restore)")
+            val direction = if (entryTarget == 0f) "Exit" else "Entry"
+            Log.i(TAG, "$direction abandoned after ${entryElapsedMillis()}ms (restore=$restore)")
         }
+        // The guard is released before the restore write, so the relayout that write causes goes
+        // through the normal clamp path instead of being suppressed as mid-flight.
         entryRunning = false
         if (restore && rest != null) {
             writeWindowPosition(PillPoint(rest.x.toInt(), rest.y.toInt()))
         }
+        dropEntryState()
+    }
+
+    /**
+     * The arrival's end state: land exactly on the dock, then let the suspended clamps run once. The
+     * `entryStart`/`entryRest` pair is *kept* here — unlike the departure's — because a reversal
+     * drives it back.
+     */
+    private fun finishEntry(rest: PillOffset) {
+        entryRunning = false
+        writeWindowPosition(PillPoint(rest.x.toInt(), rest.y.toInt()))
+        applyWindowPosition()
+        Log.i(TAG, "Entry complete in ${entryElapsedMillis()}ms")
+    }
+
+    /**
+     * The departure's end state, in one pinned order: **hide**, then put the window back at its rest
+     * position, then drop the entry state. A params write before `GONE` draws the pill back at its
+     * dock for a frame, and the state drop *after* the write is what leaves "hidden ⇒ `params` at
+     * rest" — the invariant the next arrival's `rest` target is read from.
+     */
+    private fun finishExit(rest: PillOffset) {
+        composeView?.visibility = View.GONE
+        writeWindowPosition(PillPoint(rest.x.toInt(), rest.y.toInt()))
+        dropEntryState()
+        Log.i(TAG, "Exit complete in ${entryElapsedMillis()}ms")
+    }
+
+    /** Stops the tick and drops the entry state, leaving the fraction at rest. */
+    private fun dropEntryState() {
+        entryRunning = false
         entryStart = null
         entryRest = null
         entryValue = 1f
@@ -1176,34 +1228,63 @@ class FloatingOverlayService : Service() {
         entryTarget = 1f
     }
 
+    /** Milliseconds since the current motion started, for the completion and abandon traces. */
+    private fun entryElapsedMillis(): Long = (System.nanoTime() - entryStartedAtNanos) / 1_000_000
+
     /**
-     * Starts the arrival, in the one order that does not flash: the start position is written to the
-     * window **while the view is still `GONE`**, and only then is the view shown. Showing first would
-     * draw the pill at its dock for one frame before the slide moved it.
+     * Starts a motion, or reverses a running one — in the one order that neither flashes nor stutters.
+     *
+     * **Fresh** (nothing running): the pair is adopted and the fraction starts at the end the pill is
+     * at — `0f` for an arrival (written while the view is still `GONE`, so showing it at the dock for
+     * a frame is impossible) and `1f` for a departure (where the pill already sits, so no position is
+     * written at all). An arrival additionally reads its off-screen start back, because a window
+     * manager is not obliged to keep a position beyond the display; if it was rewritten the arrival
+     * uses the platform's value for this transition.
+     *
+     * **Reversal** (a motion is running and [target] flips — the keyboard closing and reopening
+     * between two fields): the fraction and the velocity carry over and only [entryTarget] changes,
+     * so the pill continues from where it is and how fast it is going instead of restarting from the
+     * other end. The `entryStart`/`entryRest` pair captured at the first arrival is reused, never
+     * recomputed: a reversal that recomputed the geometry would jump.
+     *
+     * A motion already heading for [target] is left alone. The keyboard signal fires more than once
+     * per transition (a keyboard-close session cancel reaches visibility through [cancelSession] and
+     * then the `onKeyboardOrFocusChanged` tail calls it again), and restarting on the second event
+     * would reset the velocity and double the duration.
      */
-    private fun startEntry(start: PillOffset, rest: PillOffset, view: View) {
-        entryValue = 0f
-        entryVelocity = 0f
-        entryTarget = 1f
-        entryStart = start
-        entryRest = rest
-        val startPoint = PillPoint(start.x.toInt(), start.y.toInt())
-        writeWindowPosition(startPoint)
+    private fun startMotion(target: Float, start: PillOffset, rest: PillOffset, view: View) {
+        if (entryRunning && entryTarget == target) return
+        if (!entryRunning) {
+            entryStart = start
+            entryRest = rest
+            if (target == 1f) {
+                entryValue = 0f
+                entryVelocity = 0f
+                val startPoint = PillPoint(start.x.toInt(), start.y.toInt())
+                writeWindowPosition(startPoint)
 
-        // That start is *outside* the display (PillEnter.startOffset), so read it back: if this build
-        // rewrote it — a window manager is not obliged to keep an off-screen position — the arrival
-        // uses the platform's value for this transition. Degraded, not broken: the pill then starts
-        // at the edge instead of outside it. Only a device can say which branch runs.
-        val params = layoutParams
-        if (params != null && params.x != startPoint.x) {
-            Log.i(
-                TAG,
-                "Entry start clamped: platform rewrote x from ${startPoint.x} to ${params.x} px",
-            )
-            entryStart = start.copy(x = params.x.toFloat())
+                // That start is *outside* the display (PillEnter.startOffset), so read it back: if
+                // this build rewrote it — a window manager is not obliged to keep an off-screen
+                // position — the arrival uses the platform's value for this transition. Degraded,
+                // not broken: the pill then starts at the edge instead of outside it. Only a device
+                // can say which branch runs.
+                val params = layoutParams
+                if (params != null && params.x != startPoint.x) {
+                    Log.i(
+                        TAG,
+                        "Entry start clamped: platform rewrote x from ${startPoint.x} to ${params.x} px",
+                    )
+                    entryStart = start.copy(x = params.x.toFloat())
+                }
+
+                view.visibility = View.VISIBLE
+            } else {
+                // A departure begins where the pill is: at its rest offset, which is the pair's `1f`.
+                entryValue = 1f
+                entryVelocity = 0f
+            }
         }
-
-        view.visibility = View.VISIBLE
+        entryTarget = target
         entryLastNanos = System.nanoTime()
         entryStartedAtNanos = entryLastNanos
         entryRunning = true
@@ -1432,10 +1513,12 @@ class FloatingOverlayService : Service() {
         if (quickCaptureActive) releaseQuickCapture() else stopRecording()
     }
 
-    private fun cancelSession() {
-        // ✕ — the explicit discard. Always throws the session away.
+    private fun cancelSession(animated: Boolean = false) {
+        // ✕ — the explicit discard. Always throws the session away. The keyboard-close path passes
+        // `true` so a card that is open when the keyboard closes slides out with the pill; the ✕ and
+        // the outside tap keep the default and stay instant.
         abandonCapture()
-        resetToResting()
+        resetToResting(animated)
     }
 
     /**
@@ -1585,7 +1668,7 @@ class FloatingOverlayService : Service() {
         }
     }
 
-    private fun resetToResting() {
+    private fun resetToResting(animated: Boolean = false) {
         uiState = FloatingUiState.RESTING_PILL
         quickCaptureActive = false
         quickStatus = null
@@ -1605,7 +1688,7 @@ class FloatingOverlayService : Service() {
         // A session that was cancelled (rather than finalised) still ends the capture; the engines
         // are idle from here. Harmless when a finalised capture already armed the same timer.
         onCaptureFinished()
-        updateOverlayVisibility()
+        updateOverlayVisibility(animated)
     }
 
     private fun abandonCapture() {

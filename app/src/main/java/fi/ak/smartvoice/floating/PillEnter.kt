@@ -128,19 +128,43 @@ object PillEnter {
      * When [start] is `null` (the view has not been measured yet) the pair carried by the transition
      * is `rest` twice: an instant transition's start *is* its end, and no consumer reads the pair
      * when `animated` is false.
+     *
+     * [motionTarget] is the target of the motion the service already has in flight — its
+     * `entryTarget`, `1f` for an arrival and `0f` for a departure — or `null` when there is none. It
+     * exists because `visibleNow == shouldShow` covers **two** situations: nothing happening, and the
+     * pill mid-flight toward exactly the state the decision asks for. The second is not an edge case:
+     * the view is `VISIBLE` from the first frame of an arrival, so a second accessibility event
+     * during it sees no change either, and a departure is `VISIBLE` until its last frame. Only the
+     * first is "nothing to do"; a motion heading the **other** way is the reversal — `Enter` while
+     * leaving, `Leave` while arriving — which carries the fraction and the velocity the motion
+     * already has, because the reversal path reads neither [start] nor [rest].
      */
     fun transitionFor(
         visibleNow: Boolean,
         shouldShow: Boolean,
+        motionTarget: Float?,
         start: PillOffset?,
         rest: PillOffset,
         requestedAnimated: Boolean,
         keyboardDrivenVisibility: Boolean,
         animatorsEnabled: Boolean,
     ): PillTransition {
-        if (visibleNow == shouldShow) return PillTransition.None
         val animated = requestedAnimated && keyboardDrivenVisibility && animatorsEnabled && start != null
         val from = start ?: rest
+        if (visibleNow == shouldShow) {
+            // What the motion would have to be heading for to agree with this decision.
+            val desired = if (shouldShow) 1f else 0f
+            return when {
+                // Nothing in flight, or a motion already heading for this state: nothing to do. This
+                // is the whole of the argument — without it the two are one answer, and a motion that
+                // was not contradicting anything would be aborted (an arrival cut short by a
+                // redundant event, a reversing departure snapped back to its dock).
+                motionTarget == null || motionTarget == desired -> PillTransition.None
+                // A motion heading the other way is the flip.
+                shouldShow -> PillTransition.Enter(start = from, rest = rest, animated = animated)
+                else -> PillTransition.Leave(start = from, rest = rest, animated = animated)
+            }
+        }
         return if (shouldShow) {
             PillTransition.Enter(start = from, rest = rest, animated = animated)
         } else {
