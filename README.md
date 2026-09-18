@@ -1,44 +1,34 @@
-# Local Voice IME
+# Smart Voice
 
-An Android keyboard (IME) that turns speech into text in any app, backed by the
-user's own machines — the [Local Voice Stack](../local-voice-stack) server when it
-is reachable, an on-device pipeline when it is not. No cloud speech service is
-involved at any point.
+An Android app (`fi.ak.smartvoice`) that turns speech into text in any app. The dictation
+surface is a **floating pill** — an overlay plus an accessibility service that inserts the text
+at the cursor. The main app is a launcher/configurator/dashboard: **Home · Profiles · Settings**,
+plus a first-run onboarding wizard. No cloud speech service is involved at any point.
 
-**State: v1 shipped 2026-09-11, verified on the device.** One APK with two entry
-points: a settings/diagnostics screen and a dictation panel (IME) that posts audio to
-`local-voice-stack` and commits the cleaned text at the cursor. `docs/v1-report.md` has the
-evidence; `STATUS.md` is what is true now, `PLAN.md` is intent, `DECISIONS.md` is why.
+Two engines, chosen in Settings (`engine/TierPolicy.kt`):
 
-## How this repo is organised
+- **On-device (default):** streaming ASR via sherpa-onnx (Nemotron 3.5, 320/560 ms) plus an LLM
+  cleanup pass via **LiteRT-LM** (Gemma 4 E2B/E4B, Qwen 3.5 0.8B).
+- **Server (explicit choice):** `local-voice-stack`'s `POST /v1/transcribe` on the user's home
+  PC. The authoritative contract lives in the server repo, not here.
 
-| File | Answers | Goes stale? |
-|---|---|---|
-| `HANDOFF.md` | Where does a new session start, and what is the first job? | Rewritten at the end of each working session. |
-| `PLAN.md` | What are we building, how does it work, in what order? | Yes — intent drifts. Re-read before each chunk. |
-| `STATUS.md` | What is true right now? | Must be current. Single screen. |
-| `DECISIONS.md` | Why is it this way, and what did we reject? | Append-only. Never edited, only superseded. |
-| `docs/contract.md` | How do the app and the server talk, and where are the gaps? | Updated whenever either side changes an interface. |
-| `docs/build.md` | How is this built and deployed without Android Studio, and what version pitfalls exist? | Update when the toolchain or a dependency forces a change. |
-| `docs/spikes.md` | How does a time-boxed experiment get run, so its number can be re-taken? | Append per spike; update the status line when one is run. |
-| `docs/v1-report.md` | What did v1 ship, what was verified, what broke, what could v2 be? | Closed out at the end of v1; new evidence goes to the appendix. |
-| `docs/prior-art.md` | What other projects and the research line actually do, with numbers. | Append as new evidence arrives; never rewritten. |
-| `docs/ui.md` | What states the dictation panel has, what each shows, and what is deliberately kept out of the user's way. | Keep true when the panel changes — the panel is the whole user interface of this product. |
-| `README.md` | This file. Orientation only. | Rarely. |
+Kotlin + Jetpack Compose (Material 3). `minSdk 30`, `targetSdk`/`compileSdk 36`, **arm64-v8a only**.
 
-Three rules that keep these documents honest:
+## Start here
 
-1. **The code is the source of truth for reality; the plan is the source of truth
-   for intent.** When they disagree, the code wins and the plan gets fixed.
-2. **Any claim about code cites `file:line`.** If it cannot be cited, it does not
-   belong in `STATUS.md`.
-3. **Nothing is "implemented" until it is verified by real output.** Written is
-   not working.
+**`AGENTS.md` is the operating manual** — what this is, how it builds on each host, how work is
+organised, and the rules. Read it before touching anything.
 
-## Relationship to the server repo
+## Where things are
 
-`../local-voice-stack` is a separate project with its own docs and its own
-**frozen** transport contract (`../local-voice-stack/docs/CONTRACT.md`, version
-`1.0`, hash-guarded). This app is a *consumer* of that contract. It does not
-redefine it, and it does not keep a copy — see `docs/contract.md` for how the two
-stay in sync.
+| Path | What |
+|---|---|
+| `AGENTS.md` | Operating manual (read first) |
+| `docs/work/` | Active and archived feature work orders (`PLAN.md` + `CHUNKS.md` per feature) |
+| `docs/DECISIONS.md` | Append-only decision log, newest at the bottom |
+| `docs/archive/` | History only: the pre-2026-09-16 decision log and the shipped UI plan |
+| `docs/contract.md` | How the app uses the server contract (the contract itself is in the server repo) |
+| `app/src/main/java/fi/ak/smartvoice/` | The code; `AGENTS.md` has the package map |
+
+The GenieX/NPU runtime, the old IME keyboard and the Hermes build host were removed. Do not
+resurrect them; treat any mention of them as stale.
