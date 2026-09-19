@@ -79,6 +79,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -165,8 +166,11 @@ private val GLOW_PASSES = listOf(2.4f to 0.22f, 4.6f to 0.09f)
 
 private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
 
-/** Width of the expanded card (and of the settings view that replaces it). */
-private val CARD_WIDTH = 340.dp
+/**
+ * Width of the expanded card (and of the settings view that replaces it). Internal rather than
+ * private because the service needs it to compute the card's expansion geometry (`PillExpand`).
+ */
+internal val CARD_WIDTH = 340.dp
 
 /**
  * Fixed height of the expanded card. The dictation view and the settings view are both exactly this
@@ -174,7 +178,14 @@ private val CARD_WIDTH = 340.dp
  * shake, because a `WRAP_CONTENT` overlay's new bounds and its Compose content are not applied on the
  * same frame. The transcript and the settings list scroll inside this fixed box.
  */
-private val CARD_HEIGHT = 210.dp
+internal val CARD_HEIGHT = 210.dp
+
+/**
+ * The transparent padding the overlay's `Box` adds around whichever content is showing. The window
+ * is `WRAP_CONTENT`, so this is part of its size; the service subtracts it to get the card's own
+ * rect for the expansion transform.
+ */
+internal val OVERLAY_INSET = 8.dp
 
 /** The resting pill's waveform, and therefore the resting pill's whole content. */
 private val RESTING_WAVE_WIDTH = 34.dp
@@ -192,6 +203,14 @@ fun FloatingDictationOverlay(
      * of the whole card.
      */
     audioLevel: () -> Float,
+    /** The card's growth geometry for the current expansion, computed by the service (`PillExpand`). */
+    cardGrowth: PillGrowth,
+    /**
+     * The card's expansion fraction: `0f` pill-sized, `1f` the full card. A **provider**, read
+     * inside the card's `graphicsLayer` — the per-frame change invalidates the layer, never the
+     * composition.
+     */
+    cardExpandProgress: () -> Float,
     isProcessing: Boolean,
     statusNote: String?,
     /** Non-null when cleanup failed; the card switches to the raw-text fallback treatment. */
@@ -251,7 +270,7 @@ fun FloatingDictationOverlay(
         Box(
             modifier = Modifier
                 .wrapContentSize()
-                .padding(8.dp),
+                .padding(OVERLAY_INSET),
             contentAlignment = Alignment.BottomEnd,
         ) {
             when (uiState) {
@@ -284,6 +303,8 @@ fun FloatingDictationOverlay(
                     previewText = previewText,
                     rawText = rawText,
                     audioLevel = audioLevel,
+                    cardGrowth = cardGrowth,
+                    cardExpandProgress = cardExpandProgress,
                     isProcessing = isProcessing,
                     statusNote = statusNote,
                     errorMessage = errorMessage,
@@ -583,6 +604,8 @@ fun ExpandedCardView(
     previewText: String,
     rawText: String,
     audioLevel: () -> Float,
+    cardGrowth: PillGrowth,
+    cardExpandProgress: () -> Float,
     isProcessing: Boolean,
     statusNote: String?,
     errorMessage: String?,
@@ -611,6 +634,16 @@ fun ExpandedCardView(
         modifier = Modifier
             .width(CARD_WIDTH)
             .height(CARD_HEIGHT)
+            // The container transform: the card is drawn at its final size but scaled from the
+            // pill's rect to 1 about the pinned corner. Read inside the layer so a per-frame change
+            // costs a layer update, never a recomposition (see `PillExpand`).
+            .graphicsLayer {
+                val progress = cardExpandProgress()
+                val (sx, sy) = cardGrowth.scaleAt(progress)
+                scaleX = sx
+                scaleY = sy
+                transformOrigin = TransformOrigin(cardGrowth.originX, cardGrowth.originY)
+            }
             .shadow(elevation = 16.dp, shape = RoundedCornerShape(Radius.lg))
             .clip(RoundedCornerShape(Radius.lg))
             .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),

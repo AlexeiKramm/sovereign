@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
@@ -67,6 +68,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -193,6 +195,18 @@ class FloatingOverlayService : Service() {
     private var entryStartedAtNanos = 0L
     private var entryRunning = false
 
+    // Card expansion: the pill-to-card container transform. `expandProgress` is `0f` at the pill's
+    // size and `1f` at the card's; `cardGrowth` carries the start scale and transform origin that
+    // `PillExpand` computed at the seam. The window is placed at its final card geometry in the same
+    // turn, so the only motion is the card's own graphicsLayer scale, never a window round-trip.
+    private var expandProgress by mutableFloatStateOf(1f)
+    private var expandVelocity = 0f
+    private var expandTarget = 1f
+    private var expandLastNanos = 0L
+    private var expandStartedAtNanos = 0L
+    private var expandRunning = false
+    private var cardGrowth by mutableStateOf(PillGrowth.NONE)
+
     private val dragFlush = Runnable {
         dragFlushScheduled = false
         applyWindowPosition()
@@ -275,6 +289,30 @@ class FloatingOverlayService : Service() {
                 // The two directions end differently — the arrival lands on the dock, the departure
                 // hides — so each has its own end-state routine with its own pinned order.
                 if (entryTarget == 0f) finishExit(rest) else finishEntry(rest)
+                return
+            }
+            composeView?.postOnAnimation(this)
+        }
+    }
+
+    /**
+     * One frame of the card's expansion: the card's `graphicsLayer` scale is a pure function of
+     * [expandProgress], so this tick only advances the fraction. The same `PillSpring` and the same
+     * dt cap as the arrival and the fling; the window is not touched.
+     */
+    private val expandTick = object : Runnable {
+        override fun run() {
+            if (!expandRunning) return
+            val now = System.nanoTime()
+            val dtSeconds = ((now - expandLastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            expandLastNanos = now
+            val step = PillSpring.step(expandProgress, expandVelocity, expandTarget, dtSeconds)
+            expandProgress = step.value
+            expandVelocity = step.velocity
+            if (PillSpring.isAtRest(expandProgress, expandVelocity, expandTarget)) {
+                expandProgress = expandTarget
+                expandRunning = false
+                Log.i(TAG, "Card expanded in ${(now - expandStartedAtNanos) / 1_000_000}ms")
                 return
             }
             composeView?.postOnAnimation(this)
@@ -492,6 +530,8 @@ class FloatingOverlayService : Service() {
                     previewText = previewText,
                     rawText = rawText,
                     audioLevel = { audioLevel },
+                    cardGrowth = cardGrowth,
+                    cardExpandProgress = { expandProgress },
                     isProcessing = isProcessing,
                     statusNote = statusNote,
                     errorMessage = errorMessage,
@@ -592,6 +632,7 @@ class FloatingOverlayService : Service() {
 
     private fun removeOverlayView() {
         stopFling()
+        stopCardExpand()
         // Nothing may write to a window that is going away.
         cancelEntry(restore = false)
         composeView?.let { view ->
@@ -1372,7 +1413,14 @@ class FloatingOverlayService : Service() {
 
         quickCaptureActive = quick
         recordStartedAtMs = SystemClock.elapsedRealtime()
+        // The card path is the one transition that expands the window; capture the minimized state
+        // first so the growth is started only on the pill -> card edge, never on a resume from REVIEW.
+        val wasMinimized = uiState == FloatingUiState.RESTING_PILL ||
+            uiState == FloatingUiState.QUICK_CAPTURE
         uiState = targetState
+        if (targetState == FloatingUiState.RECORDING && wasMinimized) {
+            startCardExpand()
+        }
         audioLevel = 0f
         statusNote = null
         errorMessage = null
@@ -1427,6 +1475,78 @@ class FloatingOverlayService : Service() {
                 statusNote = "ASR unavailable: $reason"
             }
         }
+    }
+
+    /**
+     * Starts the pill-to-card container transform (see `docs/work/card-expand-animation/`).
+     *
+     * The window is placed at its final card geometry in the same turn as the content swap, so the
+     * card is never drawn off-screen and the layout clamp never slides it; the growth itself is the
+     * card's own `graphicsLayer` scale, driven by [expandTick]. The pill's screen rect is read from
+     * the current window, so the origin keeps the pill's nearer edge and bottom fixed.
+     */
+    private fun startCardExpand() {
+        val view = composeView ?: return
+        val params = layoutParams ?: return
+        val density = resources.displayMetrics.density
+        val screen = windowManager.currentWindowMetrics.bounds
+        val margin = (PillDock.DRAG_MARGIN_DP * density).toInt()
+        val inset = OVERLAY_INSET.value * density
+
+        val cardWindowWidth = (CARD_WIDTH.value * density + 2f * inset).roundToInt()
+        val cardWindowHeight = (CARD_HEIGHT.value * density + 2f * inset).roundToInt()
+        val cardPoint = PillDock.clamp(
+            point = desiredPoint(),
+            screenWidthPx = screen.width(),
+            screenHeightPx = screen.height(),
+            viewWidthPx = cardWindowWidth,
+            viewHeightPx = cardWindowHeight,
+            marginPx = margin,
+        )
+        val cardSurface = windowRect(cardPoint, cardWindowWidth, cardWindowHeight, screen).inset(inset)
+        val measured = view.width > 0 && view.height > 0
+        val pillSurface = if (measured) {
+            windowRect(PillPoint(params.x, params.y), view.width, view.height, screen).inset(inset)
+        } else {
+            // Unmeasured: a zero-size pill at the card's end-bottom corner -> scale 0, origin (1,1).
+            PillRect(cardSurface.right, cardSurface.bottom, cardSurface.right, cardSurface.bottom)
+        }
+        val edge = PillEnter.edgeFor(
+            pillCentreX = ((pillSurface.left + pillSurface.right) / 2f).roundToInt(),
+            displayWidthPx = screen.width(),
+            isRtl = false,
+        )
+        cardGrowth = PillExpand.growthFor(cardSurface, pillSurface, edge)
+
+        // The window's final geometry, written before the card is drawn. The content swap and this
+        // write coalesce into one traversal, so the first card frame is already at the dock.
+        writeWindowPosition(cardPoint)
+
+        if (!ValueAnimator.areAnimatorsEnabled()) {
+            stopCardExpand()
+            return
+        }
+        expandProgress = 0f
+        expandVelocity = 0f
+        expandTarget = 1f
+        expandLastNanos = System.nanoTime()
+        expandStartedAtNanos = expandLastNanos
+        expandRunning = true
+        view.postOnAnimation(expandTick)
+    }
+
+    /** Ends the card-expand motion and leaves the card at full scale. */
+    private fun stopCardExpand() {
+        expandRunning = false
+        expandProgress = 1f
+        expandVelocity = 0f
+    }
+
+    /** A window's screen rect for an offset and size in the bottom-end gravity's coordinates. */
+    private fun windowRect(offset: PillPoint, width: Int, height: Int, screen: Rect): PillRect {
+        val right = (screen.width() - offset.x).toFloat()
+        val bottom = (screen.height() - offset.y).toFloat()
+        return PillRect(left = right - width, top = bottom - height, right = right, bottom = bottom)
     }
 
     private fun stopRecording() {
@@ -1701,6 +1821,8 @@ class FloatingOverlayService : Service() {
     }
 
     private fun resetToResting(animated: Boolean = false) {
+        // A collapse while the card is still growing must not leave the expand tick writing scale.
+        stopCardExpand()
         uiState = FloatingUiState.RESTING_PILL
         quickCaptureActive = false
         quickStatus = null
