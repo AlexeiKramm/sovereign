@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import fi.ak.smartvoice.R
 import fi.ak.smartvoice.asr.LocalAsrEngine
@@ -205,7 +206,18 @@ class FloatingOverlayService : Service() {
     private var expandLastNanos = 0L
     private var expandStartedAtNanos = 0L
     private var expandRunning = false
+    /** Runs once when a collapse morph lands; the pending state reset behind it. */
+    private var collapseAfter: (() -> Unit)? = null
     private var cardGrowth by mutableStateOf(PillGrowth.NONE)
+    /**
+     * True while the window is explicitly card-sized (the morph runs inside a fixed window). The
+     * layout clamp is suspended while it is set, because the window's geometry is owned by the
+     * expansion until the pill window is restored.
+     */
+    private var cardWindowActive = false
+    /** The window offset the card window was reserved at, and the pill's dock it must return to. */
+    private var cardWindowOffset: PillPoint? = null
+    private var pillDockOffset: PillPoint? = null
 
     private val dragFlush = Runnable {
         dragFlushScheduled = false
@@ -312,7 +324,10 @@ class FloatingOverlayService : Service() {
             if (PillSpring.isAtRest(expandProgress, expandVelocity, expandTarget)) {
                 expandProgress = expandTarget
                 expandRunning = false
-                Log.i(TAG, "Card expanded in ${(now - expandStartedAtNanos) / 1_000_000}ms")
+                Log.i(TAG, "Card ${if (expandTarget == 0f) "collapsed" else "expanded"} in ${(now - expandStartedAtNanos) / 1_000_000}ms")
+                val after = if (expandTarget == 0f) collapseAfter else null
+                collapseAfter = null
+                after?.invoke()
                 return
             }
             composeView?.postOnAnimation(this)
@@ -591,7 +606,14 @@ class FloatingOverlayService : Service() {
                 pointerScreenX = x
                 pointerScreenY = y
             }
-            addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(
+                content,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM or Gravity.END,
+                ),
+            )
         }
 
         // `FLAG_WATCH_OUTSIDE_TOUCH` delivers a single ACTION_OUTSIDE for a touch that lands outside
@@ -615,9 +637,10 @@ class FloatingOverlayService : Service() {
         // on those frames — or shortly after them — is what made the pill jump; the vertical clamp
         // is left to the explicit drag / fling / display-change paths instead.
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            // Never while a drag, a fling or an arrival owns the position: those writes are
-            // unclamped on purpose, and this clamp would drag the pill back on screen mid-slide.
-            if (!isDragging && flingLastNanos == 0L && !entryRunning) {
+            // Never while a drag, a fling, an arrival or the card window owns the position: those
+            // writes are unclamped on purpose, and this clamp would drag the pill back on screen
+            // mid-slide or fight the expansion's own geometry.
+            if (!isDragging && flingLastNanos == 0L && !entryRunning && !cardWindowActive) {
                 applyWindowPosition(clampVertical = false)
             }
         }
@@ -633,6 +656,7 @@ class FloatingOverlayService : Service() {
     private fun removeOverlayView() {
         stopFling()
         stopCardExpand()
+        cardWindowActive = false
         // Nothing may write to a window that is going away.
         cancelEntry(restore = false)
         composeView?.let { view ->
@@ -1419,7 +1443,11 @@ class FloatingOverlayService : Service() {
             uiState == FloatingUiState.QUICK_CAPTURE
         uiState = targetState
         if (targetState == FloatingUiState.RECORDING && wasMinimized) {
-            startCardExpand()
+            // The card path reserves the window first; the RECORDING state (and the content swap)
+            // lands on the next frame, once the surface is already card-sized. See beginCardExpand.
+            beginCardExpand()
+        } else {
+            uiState = targetState
         }
         audioLevel = 0f
         statusNote = null
@@ -1478,16 +1506,25 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * Starts the pill-to-card container transform (see `docs/work/card-expand-animation/`).
+     * Reserves the window for the card, then morphs the content inside it (see
+     * `docs/work/card-expand-animation/`).
      *
-     * The window is placed at its final card geometry in the same turn as the content swap, so the
-     * card is never drawn off-screen and the layout clamp never slides it; the growth itself is the
-     * card's own `graphicsLayer` scale, driven by [expandTick]. The pill's screen rect is read from
-     * the current window, so the origin keeps the pill's nearer edge and bottom fixed.
+     * **Two steps on purpose.** A window surface is a fixed-size buffer, and a `WRAP_CONTENT`
+     * window's size is applied by the WindowManager on a different traversal from the Compose
+     * content. Animating a `graphicsLayer` transform while the surface is still resizing is what
+     * produced "the card appears full-size at the pill and slides": the surface and the transform
+     * chase each other. So the surface is made correct **first** —
+     *
+     * 1. [beginCardExpand] makes the window explicitly the card's size and puts it at the card's
+     *    dock in one `updateViewLayout`. The pill is still the content, so its end/bottom margin is
+     *    inset by however far the window's end edge moved, which keeps it optically still for that
+     *    one frame. Explicit width/height means no content measurement is involved.
+     * 2. [beginCardMorph] runs on the next frame, when the surface is already the card: it swaps in
+     *    the card, resets the inset, and grows the card from the pill's rect with no window write.
      */
-    private fun startCardExpand() {
-        val view = composeView ?: return
-        val params = layoutParams ?: return
+    private fun beginCardExpand() {
+        val view = composeView ?: run { uiState = FloatingUiState.RECORDING; return }
+        val params = layoutParams ?: run { uiState = FloatingUiState.RECORDING; return }
         val density = resources.displayMetrics.density
         val screen = windowManager.currentWindowMetrics.bounds
         val margin = (PillDock.DRAG_MARGIN_DP * density).toInt()
@@ -1505,8 +1542,9 @@ class FloatingOverlayService : Service() {
         )
         val cardSurface = windowRect(cardPoint, cardWindowWidth, cardWindowHeight, screen).inset(inset)
         val measured = view.width > 0 && view.height > 0
+        val pillOffset = PillPoint(params.x, params.y)
         val pillSurface = if (measured) {
-            windowRect(PillPoint(params.x, params.y), view.width, view.height, screen).inset(inset)
+            windowRect(pillOffset, view.width, view.height, screen).inset(inset)
         } else {
             // Unmeasured: a zero-size pill at the card's end-bottom corner -> scale 0, origin (1,1).
             PillRect(cardSurface.right, cardSurface.bottom, cardSurface.right, cardSurface.bottom)
@@ -1517,11 +1555,40 @@ class FloatingOverlayService : Service() {
             isRtl = false,
         )
         cardGrowth = PillExpand.growthFor(cardSurface, pillSurface, edge)
+        cardWindowOffset = cardPoint
+        pillDockOffset = pillOffset
+        Log.i(
+            TAG,
+            "Card window reserved: card=${cardPoint.x},${cardPoint.y} pill=${pillOffset.x},${pillOffset.y} " +
+                "scale=${cardGrowth.startScaleX},${cardGrowth.startScaleY} origin=${cardGrowth.originX},${cardGrowth.originY}",
+        )
 
-        // The window's final geometry, written before the card is drawn. The content swap and this
-        // write coalesce into one traversal, so the first card frame is already at the dock.
-        writeWindowPosition(cardPoint)
+        // Step 1: the window is now explicitly the card's size at the card's dock. The pill's end
+        // edge must stay where it is on screen, so inset it by the distance the window's end edge
+        // moved (`pillOffset - cardPoint`). Vertical: the two docks share `y`, so the inset is zero.
+        if (measured) setContentInset(pillOffset.x - cardPoint.x, pillOffset.y - cardPoint.y)
+        cardWindowActive = true
+        params.width = cardWindowWidth
+        params.height = cardWindowHeight
+        params.x = cardPoint.x
+        params.y = cardPoint.y
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reserving the card window", e)
+        }
 
+        // Step 2: next frame, when the surface is already card-sized.
+        view.post { beginCardMorph(view) }
+    }
+
+    /** Step 2 of the expansion: swap in the card and grow it inside the already-card-sized window. */
+    private fun beginCardMorph(view: View) {
+        // A collapse (or a removal) may have raced the one-frame reservation.
+        if (!cardWindowActive) return
+        setContentInset(0, 0)
+        uiState = FloatingUiState.RECORDING
+        Log.i(TAG, "Card morph start: view=${view.width}x${view.height}")
         if (!ValueAnimator.areAnimatorsEnabled()) {
             stopCardExpand()
             return
@@ -1535,11 +1602,61 @@ class FloatingOverlayService : Service() {
         view.postOnAnimation(expandTick)
     }
 
+    /**
+     * Insets the Compose content from the window's end/bottom edges, in pixels. Positive insets pull
+     * the content in by that much (used for the one frame the pill is still shown in the card-sized
+     * window, so it does not jump when the window's end edge moves).
+     */
+    private fun setContentInset(endPx: Int, bottomPx: Int) {
+        val root = composeView as? ViewGroup ?: return
+        val content = root.getChildAt(0) ?: return
+        val lp = content.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (lp.rightMargin == endPx && lp.bottomMargin == bottomPx) return
+        lp.gravity = Gravity.BOTTOM or Gravity.END
+        lp.rightMargin = endPx
+        lp.bottomMargin = bottomPx
+        content.layoutParams = lp
+    }
+
+    /** Puts the window back to a `WRAP_CONTENT` pill at the intended dock, after a card session. */
+    private fun restorePillWindow() {
+        if (!cardWindowActive) return
+        cardWindowActive = false
+        val view = composeView ?: return
+        val params = layoutParams ?: return
+        setContentInset(0, 0)
+        params.width = WindowManager.LayoutParams.WRAP_CONTENT
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT
+        params.x = dragOffsetX.toInt()
+        params.y = dragOffsetY.toInt()
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring the pill window", e)
+        }
+    }
+
     /** Ends the card-expand motion and leaves the card at full scale. */
     private fun stopCardExpand() {
         expandRunning = false
         expandProgress = 1f
         expandVelocity = 0f
+        collapseAfter = null
+    }
+
+    /**
+     * Starts the card -> pill morph: the same transform run backwards, inside the still-card-sized
+     * window. [collapseAfter] runs when it lands, so the swap to the minimized content happens while
+     * the card already sits on the pill's rect — no "disappear, then fly".
+     */
+    private fun startCardCollapse(animated: Boolean) {
+        collapseAfter = { finishResting(animated) }
+        expandTarget = 0f
+        expandVelocity = 0f
+        expandLastNanos = System.nanoTime()
+        expandStartedAtNanos = expandLastNanos
+        expandRunning = true
+        composeView?.postOnAnimation(expandTick)
     }
 
     /** A window's screen rect for an offset and size in the bottom-end gravity's coordinates. */
@@ -1821,8 +1938,41 @@ class FloatingOverlayService : Service() {
     }
 
     private fun resetToResting(animated: Boolean = false) {
-        // A collapse while the card is still growing must not leave the expand tick writing scale.
-        stopCardExpand()
+        // The card's close is a morph of its own: keep the card, shrink it onto the pill's rect, and
+        // only then swap to the minimized content and release the card window. Resetting the state
+        // first is what made the card vanish and the pill then appear at the card's corner and fly.
+        if (cardWindowActive && ValueAnimator.areAnimatorsEnabled() &&
+            (uiState == FloatingUiState.RECORDING || uiState == FloatingUiState.REVIEW)
+        ) {
+            if (collapseAfter == null) startCardCollapse(animated)
+            return
+        }
+        finishResting(animated)
+    }
+
+    /**
+     * The actual return to rest: swap to the minimized content **while the card still sits at scale
+     * 0 on the pill's rect**, then release the window on the next frame. The card's scale is
+     * deliberately *not* reset here — resetting it first is what made the card pop back to full size
+     * for a frame and the pill then jump/settle.
+     */
+    private fun finishResting(animated: Boolean) {
+        expandRunning = false
+        collapseAfter = null
+        // Place the pill at its own rect inside the still-card-sized window, using the same inset the
+        // reservation used, so the content swap has nothing to move.
+        if (cardWindowActive) {
+            val card = cardWindowOffset
+            val pill = pillDockOffset
+            if (card != null && pill != null) setContentInset(pill.x - card.x, pill.y - card.y)
+            val child = (composeView as? ViewGroup)?.getChildAt(0)
+            val lp = child?.layoutParams as? FrameLayout.LayoutParams
+            Log.i(
+                TAG,
+                "finishResting: card=$card pill=$pill gravity=${lp?.gravity} " +
+                    "margins=${lp?.rightMargin},${lp?.bottomMargin} child=${child?.width}x${child?.height}",
+            )
+        }
         uiState = FloatingUiState.RESTING_PILL
         quickCaptureActive = false
         quickStatus = null
@@ -1845,7 +1995,26 @@ class FloatingOverlayService : Service() {
         // Resting is always released: this funnel is the backstop, so no path can leave the window
         // holding the screen on for a later, idle appearance (D-050).
         refreshKeepScreenOn()
-        updateOverlayVisibility(animated)
+
+        val view = composeView
+        if (cardWindowActive && view != null) {
+            // After the pill content has actually been laid out at the pill's rect: shrinking the
+            // surface to a WRAP_CONTENT pill at its dock then cannot move it. A plain `post` can
+            // race the recomposition and measure the (invisible) card instead.
+            view.doOnNextLayout {
+                val child = (view as? ViewGroup)?.getChildAt(0)
+                Log.i(
+                    TAG,
+                    "releasePillWindow: root=${view.width}x${view.height} child=${child?.left},${child?.top} " +
+                        "${child?.width}x${child?.height} params=${layoutParams?.width}x${layoutParams?.height}",
+                )
+                restorePillWindow()
+                updateOverlayVisibility(animated)
+            }
+        } else {
+            restorePillWindow()
+            updateOverlayVisibility(animated)
+        }
     }
 
     private fun abandonCapture() {

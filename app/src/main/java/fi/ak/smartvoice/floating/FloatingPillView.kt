@@ -18,7 +18,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -260,13 +259,6 @@ fun FloatingDictationOverlay(
     // The overlay lives in a service window, so it does not inherit the Activity's theme: the
     // service resolves the app's theme mode (falling back to the system) and passes it in.
     SmartVoiceTheme(themeMode = if (darkTheme) AppThemeMode.DARK else AppThemeMode.LIGHT) {
-        val dragModifier = Modifier.pillDragModifier(
-            onDragStart = onDragStart,
-            onDragBy = onDragBy,
-            onDragEnd = onDragEnd,
-            onDragCancel = onDragCancel,
-        )
-
         Box(
             modifier = Modifier
                 .wrapContentSize()
@@ -314,7 +306,6 @@ fun FloatingDictationOverlay(
                     settingsOpen = settingsOpen,
                     wordSelection = wordSelection,
                     wordForm = wordForm,
-                    dragModifier = dragModifier,
                     onCancel = onCancel,
                     onToggleRecording = onToggleRecording,
                     onCommit = onCommit,
@@ -329,30 +320,6 @@ fun FloatingDictationOverlay(
                 )
             }
         }
-    }
-}
-
-/**
- * Drag handling shared by the pill and the card: pointer deltas go straight to the service, which
- * owns the window position and therefore the fling velocity (see `DragVelocityTracker` — the
- * pointer's own coordinates are useless here, because the window moves under the finger).
- */
-private fun Modifier.pillDragModifier(
-    onDragStart: () -> Unit,
-    onDragBy: (Float, Float) -> Unit,
-    onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit,
-): Modifier {
-    return this.pointerInput(Unit) {
-        detectDragGestures(
-            onDragStart = { onDragStart() },
-            onDrag = { change, dragAmount ->
-                change.consume()
-                onDragBy(dragAmount.x, dragAmount.y)
-            },
-            onDragEnd = onDragEnd,
-            onDragCancel = onDragCancel,
-        )
     }
 }
 
@@ -615,7 +582,6 @@ fun ExpandedCardView(
     settingsOpen: Boolean,
     wordSelection: WordSelection?,
     wordForm: WordFormState?,
-    dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
@@ -663,7 +629,12 @@ fun ExpandedCardView(
                     slideOutHorizontally { if (incomingFromRight) -it / 5 else it / 5 }
                 incoming togetherWith outgoing
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                // The content fades in as the container grows: the container (the Surface) scales
+                // from the pill, but the text must not be seen stretched at full opacity, or the
+                // eye reads the far corner as the origin. Opacity is a pure draw read.
+                .graphicsLayer { alpha = cardExpandProgress().coerceIn(0f, 1f) },
             label = "pill-card-view",
         ) { showSettings ->
             if (showSettings) {
@@ -686,7 +657,6 @@ fun ExpandedCardView(
                     errorMessage = errorMessage,
                     wordSelection = wordSelection,
                     wordForm = wordForm,
-                    dragModifier = dragModifier,
                     onCancel = onCancel,
                     onToggleRecording = onToggleRecording,
                     onCommit = onCommit,
@@ -714,7 +684,6 @@ private fun DictationCard(
     errorMessage: String?,
     wordSelection: WordSelection?,
     wordForm: WordFormState?,
-    dragModifier: Modifier,
     onCancel: () -> Unit,
     onToggleRecording: () -> Unit,
     onCommit: () -> Unit,
@@ -749,21 +718,9 @@ private fun DictationCard(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(24.dp)
-                    .then(dragModifier),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(scheme.outlineVariant),
-                )
-            }
+            // The card is not draggable (the pill is dragged before it expands), so the header is
+            // just a spacer that pushes the quick-settings button to the end.
+            Spacer(modifier = Modifier.weight(1f))
             Icon(
                 imageVector = Icons.Default.MoreHoriz,
                 contentDescription = "Quick settings",
