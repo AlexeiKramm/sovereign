@@ -255,6 +255,25 @@ fun FloatingDictationOverlay(
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
+    /**
+     * Whether this window renders the expanded card. The card now has its **own window** (the pill
+     * window and the card window are both fixed-size, so neither ever resizes mid-motion); the pill
+     * window disables this, the card window disables [hostsPill]. See
+     * `docs/work/archive/card-expand-animation/`.
+     */
+    hostsCard: Boolean = true,
+    /** Whether this window renders the minimized pill. The mirror of [hostsCard]. */
+    hostsPill: Boolean = true,
+    /** True while the card is collapsing: the container fades out over the last third so the pill
+     * window already visible underneath is revealed, instead of an empty shrinking rectangle. */
+    cardClosing: Boolean = false,
+    /**
+     * True while a card session owns the screen — the pill window is only on screen as the backdrop
+     * of a card that is opening or closing. The pill must then be drawn in its **resting** look:
+     * the session's `RECORDING`/`REVIEW` state would otherwise give it the lighter listening face
+     * and a flat waveform, so the same pill changed appearance at the end of the collapse.
+     */
+    pillBackdrop: Boolean = false,
 ) {
     // The overlay lives in a service window, so it does not inherit the Activity's theme: the
     // service resolves the app's theme mode (falling back to the system) and passes it in.
@@ -265,15 +284,63 @@ fun FloatingDictationOverlay(
                 .padding(OVERLAY_INSET),
             contentAlignment = Alignment.BottomEnd,
         ) {
-            when (uiState) {
-                // Resting and quick-capture deliberately share one call site: the hold gesture is
-                // still waiting for the finger when the state flips to QUICK_CAPTURE, and a
-                // different composable would dispose the pointer node and lose the release.
-                FloatingUiState.RESTING_PILL, FloatingUiState.QUICK_CAPTURE -> MinimizedPillView(
+            if (hostsCard && (uiState == FloatingUiState.RECORDING || uiState == FloatingUiState.REVIEW)) {
+                Box(
+                    modifier = Modifier
+                        // The exit fade. The card window is a fixed card-sized window, so the card is
+                        // hidden by *this* fade plus the scale, never by a window resize.
+                        .graphicsLayer {
+                            alpha = if (cardClosing) {
+                                (cardExpandProgress() / CARD_CLOSE_FADE).coerceIn(0f, 1f)
+                            } else {
+                                1f
+                            }
+                        },
+                    contentAlignment = Alignment.BottomEnd,
+                ) {
+                    ExpandedCardView(
+                        uiState = uiState,
+                        previewText = previewText,
+                        rawText = rawText,
+                        audioLevel = audioLevel,
+                        cardGrowth = cardGrowth,
+                        cardExpandProgress = cardExpandProgress,
+                        isProcessing = isProcessing,
+                        statusNote = statusNote,
+                        errorMessage = errorMessage,
+                        profiles = profiles,
+                        activeProfileId = activeProfileId,
+                        cleanupEnabled = cleanupEnabled,
+                        settingsOpen = settingsOpen,
+                        wordSelection = wordSelection,
+                        wordForm = wordForm,
+                        onCancel = onCancel,
+                        onToggleRecording = onToggleRecording,
+                        onCommit = onCommit,
+                        onReprocess = onReprocessFullText,
+                        onToggleSettings = onToggleSettings,
+                        onSelectProfile = onSelectProfile,
+                        onToggleCleanup = onToggleCleanup,
+                        onWordSelected = onWordSelected,
+                        onWordAction = onWordAction,
+                        onWordFormSubmit = onWordFormSubmit,
+                        onWordDismiss = onWordDismiss,
+                    )
+                }
+            }
+            // The pill window always renders the pill: whether it is *on screen* is the service's
+            // window-visibility decision, not a state of this composable. That is what removes the
+            // blink at the start of a card session — the pill is still drawn while the card's first
+            // frame composes, and vanishes only when the card is on screen.
+            if (hostsPill) {
+                MinimizedPillView(
                     phase = when {
+                        // A backdrop pill is the resting pill, whatever the session is doing.
+                        pillBackdrop -> MinimizedPillPhase.RESTING
                         uiState == FloatingUiState.RESTING_PILL -> MinimizedPillPhase.RESTING
+                        uiState == FloatingUiState.QUICK_CAPTURE && quickStatus != null ->
+                            MinimizedPillPhase.RESULT
                         isProcessing -> MinimizedPillPhase.PROCESSING
-                        quickStatus != null -> MinimizedPillPhase.RESULT
                         else -> MinimizedPillPhase.LISTENING
                     },
                     modelReady = modelReady,
@@ -289,39 +356,13 @@ fun FloatingDictationOverlay(
                     onDragEnd = onDragEnd,
                     onDragCancel = onDragCancel,
                 )
-
-                FloatingUiState.RECORDING, FloatingUiState.REVIEW -> ExpandedCardView(
-                    uiState = uiState,
-                    previewText = previewText,
-                    rawText = rawText,
-                    audioLevel = audioLevel,
-                    cardGrowth = cardGrowth,
-                    cardExpandProgress = cardExpandProgress,
-                    isProcessing = isProcessing,
-                    statusNote = statusNote,
-                    errorMessage = errorMessage,
-                    profiles = profiles,
-                    activeProfileId = activeProfileId,
-                    cleanupEnabled = cleanupEnabled,
-                    settingsOpen = settingsOpen,
-                    wordSelection = wordSelection,
-                    wordForm = wordForm,
-                    onCancel = onCancel,
-                    onToggleRecording = onToggleRecording,
-                    onCommit = onCommit,
-                    onReprocess = onReprocessFullText,
-                    onToggleSettings = onToggleSettings,
-                    onSelectProfile = onSelectProfile,
-                    onToggleCleanup = onToggleCleanup,
-                    onWordSelected = onWordSelected,
-                    onWordAction = onWordAction,
-                    onWordFormSubmit = onWordFormSubmit,
-                    onWordDismiss = onWordDismiss,
-                )
             }
         }
     }
 }
+
+/** Fraction of the collapse over which the card container fades out (the rest is pure shrink). */
+private const val CARD_CLOSE_FADE = 0.35f
 
 /**
  * The minimized pill: at rest it is a small waveform that *breathes* while the engines this

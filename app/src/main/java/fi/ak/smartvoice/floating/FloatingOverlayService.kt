@@ -36,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import fi.ak.smartvoice.R
 import fi.ak.smartvoice.asr.LocalAsrEngine
@@ -196,28 +195,42 @@ class FloatingOverlayService : Service() {
     private var entryStartedAtNanos = 0L
     private var entryRunning = false
 
+    /**
+     * The second overlay window: the expanded card. Both windows are **fixed size** — the pill
+     * window is always pill-sized, this one always card-sized — so the transition never resizes a
+     * window, which is what produced the old swap-frame glitch. The card is shown/hidden and its
+     * content scaled inside the window; see `docs/work/archive/card-expand-animation/`.
+     */
+    private var cardView: View? = null
+    private var cardParams: WindowManager.LayoutParams? = null
+
     // Card expansion: the pill-to-card container transform. `expandProgress` is `0f` at the pill's
     // size and `1f` at the card's; `cardGrowth` carries the start scale and transform origin that
-    // `PillExpand` computed at the seam. The window is placed at its final card geometry in the same
-    // turn, so the only motion is the card's own graphicsLayer scale, never a window round-trip.
+    // `PillExpand` computed at the seam.
     private var expandProgress by mutableFloatStateOf(1f)
     private var expandVelocity = 0f
     private var expandTarget = 1f
     private var expandLastNanos = 0L
     private var expandStartedAtNanos = 0L
     private var expandRunning = false
+    /** True while the card is animating out; drives the container fade in the card window. */
+    private var cardClosing by mutableStateOf(false)
     /** Runs once when a collapse morph lands; the pending state reset behind it. */
     private var collapseAfter: (() -> Unit)? = null
     private var cardGrowth by mutableStateOf(PillGrowth.NONE)
     /**
-     * True while the window is explicitly card-sized (the morph runs inside a fixed window). The
-     * layout clamp is suspended while it is set, because the window's geometry is owned by the
-     * expansion until the pill window is restored.
+     * True while the card window is visible. The pill window stays put; the card is a separate
+     * fixed-size window, so the pill's geometry is never touched by the expansion.
      */
-    private var cardWindowActive = false
-    /** The window offset the card window was reserved at, and the pill's dock it must return to. */
+    private var cardWindowShown = false
+    /**
+     * True while the card occupies the pill's screen real estate (open through the collapse morph),
+     * which is what hides the pill window underneath. Cleared at the start of the collapse so the
+     * real pill is already on screen while the card shrinks and fades onto it.
+     */
+    private var cardHoldsScreen = false
+    /** Where the card window was placed for the current session. */
     private var cardWindowOffset: PillPoint? = null
-    private var pillDockOffset: PillPoint? = null
 
     private val dragFlush = Runnable {
         dragFlushScheduled = false
@@ -330,7 +343,7 @@ class FloatingOverlayService : Service() {
                 after?.invoke()
                 return
             }
-            composeView?.postOnAnimation(this)
+            cardView?.postOnAnimation(this)
         }
     }
 
@@ -402,6 +415,17 @@ class FloatingOverlayService : Service() {
         // rest position, then re-clamp so the pill cannot be stranded off-screen.
         cancelEntry(restore = true)
         composeView?.post { applyWindowPosition() }
+        // The card window's size is derived from the density/display metrics, so a config change
+        // (density, rotation) must re-derive it. It is only written when no card session is running:
+        // mid-session the geometry is owned by the open/close motion.
+        val card = cardView
+        val cardParamsRef = cardParams
+        if (card != null && cardParamsRef != null && !cardWindowShown) {
+            val (width, height) = cardWindowSizePx(resources.displayMetrics.density)
+            cardParamsRef.width = width
+            cardParamsRef.height = height
+            runCatching { windowManager.updateViewLayout(card, cardParamsRef) }
+        }
     }
 
     override fun onDestroy() {
@@ -502,42 +526,14 @@ class FloatingOverlayService : Service() {
         )
     }
 
-    private fun setupOverlayView() {
-        if (!Settings.canDrawOverlays(this)) {
-            Log.w(TAG, "SYSTEM_ALERT_WINDOW permission not granted; cannot display floating pill")
-            return
-        }
-
-        val overlayOwner = OverlayLifecycleOwner()
-        overlayLifecycleOwner = overlayOwner
-        overlayOwner.start()
-
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val density = resources.displayMetrics.density
-        val start = PillDock.restore(settings.floatingPillX, settings.floatingPillY, density)
-        dragOffsetX = start.x.toFloat()
-        dragOffsetY = start.y.toFloat()
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            type,
-            overlayFlags(focusable = false),
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = start.x
-            y = start.y
-        }
-        layoutParams = params
-
-        val content = ComposeView(this).apply {
+    /**
+     * The Compose content for one of the two overlay windows. Both windows host the same overlay
+     * composable and differ only in what they are allowed to render ([hostsCard]/[hostsPill]), so
+     * every state and callback is threaded from this one place; the pill window never builds the
+     * card and the card window never builds the pill. See `docs/work/archive/card-expand-animation/`.
+     */
+    private fun buildOverlayComposeView(hostsCard: Boolean, hostsPill: Boolean): ComposeView =
+        ComposeView(this).apply {
             setContent {
                 FloatingDictationOverlay(
                     darkTheme = darkTheme,
@@ -594,9 +590,50 @@ class FloatingOverlayService : Service() {
                     onDragBy = ::dragBy,
                     onDragEnd = ::endDrag,
                     onDragCancel = ::endDragWithoutFling,
+                    hostsCard = hostsCard,
+                    hostsPill = hostsPill,
+                    cardClosing = cardClosing,
+                    pillBackdrop = cardWindowShown || cardClosing,
                 )
             }
         }
+
+    /** The card window's pixel size (card + the same transparent inset the pill window carries). */
+    private fun cardWindowSizePx(density: Float): Pair<Int, Int> {
+        val inset = OVERLAY_INSET.value * density
+        return (CARD_WIDTH.value * density + 2f * inset).roundToInt() to
+            (CARD_HEIGHT.value * density + 2f * inset).roundToInt()
+    }
+
+    private fun setupOverlayView() {
+        if (!Settings.canDrawOverlays(this)) {
+            Log.w(TAG, "SYSTEM_ALERT_WINDOW permission not granted; cannot display floating pill")
+            return
+        }
+
+        val overlayOwner = OverlayLifecycleOwner()
+        overlayLifecycleOwner = overlayOwner
+        overlayOwner.start()
+
+        val density = resources.displayMetrics.density
+        val start = PillDock.restore(settings.floatingPillX, settings.floatingPillY, density)
+        dragOffsetX = start.x.toFloat()
+        dragOffsetY = start.y.toFloat()
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayWindowType(),
+            overlayFlags(focusable = false),
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = start.x
+            y = start.y
+        }
+        layoutParams = params
+
+        val content = buildOverlayComposeView(hostsCard = false, hostsPill = true)
 
         // The ComposeView is wrapped so the window root can capture the pointer's screen position
         // before Compose consumes the touch (see PillRootView).
@@ -640,7 +677,7 @@ class FloatingOverlayService : Service() {
             // Never while a drag, a fling, an arrival or the card window owns the position: those
             // writes are unclamped on purpose, and this clamp would drag the pill back on screen
             // mid-slide or fight the expansion's own geometry.
-            if (!isDragging && flingLastNanos == 0L && !entryRunning && !cardWindowActive) {
+            if (!isDragging && flingLastNanos == 0L && !entryRunning && !cardWindowShown) {
                 applyWindowPosition(clampVertical = false)
             }
         }
@@ -651,12 +688,80 @@ class FloatingOverlayService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add overlay view", e)
         }
+
+        setupCardWindow()
     }
+
+    /**
+     * Adds the card window once, at its fixed card size and hidden. Pre-adding it (rather than
+     * adding it on the first expand) means showing the card is a visibility flip on an
+     * already-measured window: the surface is the right size before the first frame is drawn, so no
+     * resize ever races the content. Its position is set per session by [openCard].
+     */
+    private fun setupCardWindow() {
+        val density = resources.displayMetrics.density
+        val (width, height) = cardWindowSizePx(density)
+        val start = PillDock.restore(settings.floatingPillX, settings.floatingPillY, density)
+        val params = WindowManager.LayoutParams(
+            width,
+            height,
+            overlayWindowType(),
+            overlayFlags(focusable = false),
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = start.x
+            y = start.y
+        }
+        val view = PillRootView(this).apply {
+            overlayLifecycleOwner?.attach(this)
+            addView(
+                buildOverlayComposeView(hostsCard = true, hostsPill = false),
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM or Gravity.END,
+                ),
+            )
+            // The same outside-tap contract as the pill: an ACTION_OUTSIDE (delivered because the
+            // window sets FLAG_WATCH_OUTSIDE_TOUCH) minimises the card without consuming the app's
+            // touch.
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                    onOutsideTouch()
+                    true
+                } else {
+                    false
+                }
+            }
+            visibility = View.GONE
+        }
+        cardView = view
+        cardParams = params
+        try {
+            windowManager.addView(view, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add card view", e)
+            cardView = null
+            cardParams = null
+        }
+    }
+
+    /** The overlay window type, shared by the pill and card windows. */
+    private fun overlayWindowType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
 
     private fun removeOverlayView() {
         stopFling()
         stopCardExpand()
-        cardWindowActive = false
+        cardWindowShown = false
+        cardHoldsScreen = false
+        cardClosing = false
         // Nothing may write to a window that is going away.
         cancelEntry(restore = false)
         composeView?.let { view ->
@@ -667,6 +772,15 @@ class FloatingOverlayService : Service() {
             }
         }
         composeView = null
+        cardView?.let { view ->
+            try {
+                windowManager.removeView(view)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing card view", e)
+            }
+        }
+        cardView = null
+        cardParams = null
         overlayLifecycleOwner?.destroy()
         overlayLifecycleOwner = null
     }
@@ -707,6 +821,16 @@ class FloatingOverlayService : Service() {
     }
 
     /**
+     * The window that currently owns the user's attention: the card while it is shown, the pill
+     * otherwise. Focus and keep-screen are properties of the *visible* window — the hidden one
+     * cannot hold the screen or receive the IME.
+     */
+    private fun activeInputView(): View? = if (cardWindowShown) cardView ?: composeView else composeView
+
+    private fun activeInputParams(): WindowManager.LayoutParams? =
+        if (cardWindowShown) cardParams ?: layoutParams else layoutParams
+
+    /**
      * Applies or releases the pill window's `FLAG_KEEP_SCREEN_ON` hold for the current capture
      * state (D-050). The desired state comes from the **live recorder and setting**, not from
      * [uiState]: `stopRecording` enters `REVIEW` while the mic is still finishing, so a UI-state
@@ -714,8 +838,8 @@ class FloatingOverlayService : Service() {
      * already correct, so the cheap calls at the capture boundaries cost nothing.
      */
     private fun refreshKeepScreenOn() {
-        val params = layoutParams ?: return
-        val view = composeView ?: return
+        val params = activeInputParams() ?: return
+        val view = activeInputView() ?: return
         val desired = ScreenAwake.shouldHold(recorder.isRecording, settings.keepScreenOnWhileRecording)
         val current = (params.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0
         if (desired == current) return
@@ -735,8 +859,8 @@ class FloatingOverlayService : Service() {
     private fun setOverlayFocusable(focusable: Boolean) {
         if (windowFocusable == focusable) return
         windowFocusable = focusable
-        val params = layoutParams ?: return
-        val view = composeView ?: return
+        val params = activeInputParams() ?: return
+        val view = activeInputView() ?: return
         params.flags = overlayFlags(focusable)
         params.softInputMode = if (focusable) {
             WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
@@ -1185,6 +1309,10 @@ class FloatingOverlayService : Service() {
         val view = composeView ?: return
         val shouldShow = when {
             !settings.floatingPillEnabled -> false
+            // The card is its own window and owns the screen while it is up; the pill window is
+            // hidden underneath it (and revealed at the start of the collapse, before the card
+            // shrinks, so the handoff never shows an empty container).
+            cardHoldsScreen -> false
             uiState != FloatingUiState.RESTING_PILL -> true // keep visible while recording or reviewing
             settings.floatingPillOnlyWhenKeyboardOpen -> isKeyboardOpen
             else -> true
@@ -1443,9 +1571,8 @@ class FloatingOverlayService : Service() {
             uiState == FloatingUiState.QUICK_CAPTURE
         uiState = targetState
         if (targetState == FloatingUiState.RECORDING && wasMinimized) {
-            // The card path reserves the window first; the RECORDING state (and the content swap)
-            // lands on the next frame, once the surface is already card-sized. See beginCardExpand.
-            beginCardExpand()
+            // The card is its own window; it grows inside it while this window's pill is hidden.
+            openCard()
         } else {
             uiState = targetState
         }
@@ -1506,32 +1633,31 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * Reserves the window for the card, then morphs the content inside it (see
-     * `docs/work/card-expand-animation/`).
+     * Shows the card window and grows the card out of the pill (see
+     * `docs/work/archive/card-expand-animation/`).
      *
-     * **Two steps on purpose.** A window surface is a fixed-size buffer, and a `WRAP_CONTENT`
-     * window's size is applied by the WindowManager on a different traversal from the Compose
-     * content. Animating a `graphicsLayer` transform while the surface is still resizing is what
-     * produced "the card appears full-size at the pill and slides": the surface and the transform
-     * chase each other. So the surface is made correct **first** —
-     *
-     * 1. [beginCardExpand] makes the window explicitly the card's size and puts it at the card's
-     *    dock in one `updateViewLayout`. The pill is still the content, so its end/bottom margin is
-     *    inset by however far the window's end edge moved, which keeps it optically still for that
-     *    one frame. Explicit width/height means no content measurement is involved.
-     * 2. [beginCardMorph] runs on the next frame, when the surface is already the card: it swaps in
-     *    the card, resets the inset, and grows the card from the pill's rect with no window write.
+     * The card lives in its **own, always-card-sized window**, so nothing resizes during the
+     * motion: the window is placed at the card's clamped dock and made visible, the pill window is
+     * hidden underneath, and the card's `graphicsLayer` scale is driven from the pill's rect to
+     * `1f`. The pill's own geometry is never touched, which is what makes the close trivially
+     * symmetric.
      */
-    private fun beginCardExpand() {
-        val view = composeView ?: run { uiState = FloatingUiState.RECORDING; return }
-        val params = layoutParams ?: run { uiState = FloatingUiState.RECORDING; return }
+    private fun openCard() {
+        val card = cardView
+        val params = cardParams
+        val pillView = composeView
+        val pillParams = layoutParams
+        if (card == null || params == null || pillView == null || pillParams == null) {
+            // No second window: fall back to showing the card state on the pill window's state.
+            uiState = FloatingUiState.RECORDING
+            return
+        }
         val density = resources.displayMetrics.density
         val screen = windowManager.currentWindowMetrics.bounds
         val margin = (PillDock.DRAG_MARGIN_DP * density).toInt()
         val inset = OVERLAY_INSET.value * density
+        val (cardWindowWidth, cardWindowHeight) = cardWindowSizePx(density)
 
-        val cardWindowWidth = (CARD_WIDTH.value * density + 2f * inset).roundToInt()
-        val cardWindowHeight = (CARD_HEIGHT.value * density + 2f * inset).roundToInt()
         val cardPoint = PillDock.clamp(
             point = desiredPoint(),
             screenWidthPx = screen.width(),
@@ -1541,10 +1667,10 @@ class FloatingOverlayService : Service() {
             marginPx = margin,
         )
         val cardSurface = windowRect(cardPoint, cardWindowWidth, cardWindowHeight, screen).inset(inset)
-        val measured = view.width > 0 && view.height > 0
-        val pillOffset = PillPoint(params.x, params.y)
+        val measured = pillView.width > 0 && pillView.height > 0
+        val pillOffset = PillPoint(pillParams.x, pillParams.y)
         val pillSurface = if (measured) {
-            windowRect(pillOffset, view.width, view.height, screen).inset(inset)
+            windowRect(pillOffset, pillView.width, pillView.height, screen).inset(inset)
         } else {
             // Unmeasured: a zero-size pill at the card's end-bottom corner -> scale 0, origin (1,1).
             PillRect(cardSurface.right, cardSurface.bottom, cardSurface.right, cardSurface.bottom)
@@ -1556,84 +1682,49 @@ class FloatingOverlayService : Service() {
         )
         cardGrowth = PillExpand.growthFor(cardSurface, pillSurface, edge)
         cardWindowOffset = cardPoint
-        pillDockOffset = pillOffset
         Log.i(
             TAG,
-            "Card window reserved: card=${cardPoint.x},${cardPoint.y} pill=${pillOffset.x},${pillOffset.y} " +
+            "Card open: card=${cardPoint.x},${cardPoint.y} pill=${pillOffset.x},${pillOffset.y} " +
                 "scale=${cardGrowth.startScaleX},${cardGrowth.startScaleY} origin=${cardGrowth.originX},${cardGrowth.originY}",
         )
 
-        // Step 1: the window is now explicitly the card's size at the card's dock. The pill's end
-        // edge must stay where it is on screen, so inset it by the distance the window's end edge
-        // moved (`pillOffset - cardPoint`). Vertical: the two docks share `y`, so the inset is zero.
-        if (measured) setContentInset(pillOffset.x - cardPoint.x, pillOffset.y - cardPoint.y)
-        cardWindowActive = true
-        params.width = cardWindowWidth
-        params.height = cardWindowHeight
+        // The card window is already the card's size; only its position and visibility change.
         params.x = cardPoint.x
         params.y = cardPoint.y
         try {
-            windowManager.updateViewLayout(view, params)
+            windowManager.updateViewLayout(card, params)
         } catch (e: Exception) {
-            Log.e(TAG, "Error reserving the card window", e)
+            Log.e(TAG, "Error positioning the card window", e)
         }
+        // At the pill's size before the first card frame, so it cannot flash at full size. The pill
+        // window is hidden on the *next* frame (once the card is composed), so the pill can never
+        // blink out before the card is drawn.
+        expandProgress = 0f
+        cardClosing = false
+        card.visibility = View.VISIBLE
+        cardWindowShown = true
 
-        // Step 2: next frame, when the surface is already card-sized.
-        view.post { beginCardMorph(view) }
+        // Start on the next frame, once the card's content is measured inside its window.
+        card.post { startCardOpen() }
     }
 
-    /** Step 2 of the expansion: swap in the card and grow it inside the already-card-sized window. */
-    private fun beginCardMorph(view: View) {
-        // A collapse (or a removal) may have raced the one-frame reservation.
-        if (!cardWindowActive) return
-        setContentInset(0, 0)
-        uiState = FloatingUiState.RECORDING
-        Log.i(TAG, "Card morph start: view=${view.width}x${view.height}")
+    /** Starts the growth, once the card window is visible and measured. */
+    private fun startCardOpen() {
+        if (!cardWindowShown) return
+        Log.i(TAG, "Card grow start")
+        // The card is on screen now: hide the pill window that sat underneath it.
+        cardHoldsScreen = true
+        updateOverlayVisibility()
         if (!ValueAnimator.areAnimatorsEnabled()) {
             stopCardExpand()
             return
         }
-        expandProgress = 0f
         expandVelocity = 0f
         expandTarget = 1f
         expandLastNanos = System.nanoTime()
         expandStartedAtNanos = expandLastNanos
         expandRunning = true
-        view.postOnAnimation(expandTick)
-    }
-
-    /**
-     * Insets the Compose content from the window's end/bottom edges, in pixels. Positive insets pull
-     * the content in by that much (used for the one frame the pill is still shown in the card-sized
-     * window, so it does not jump when the window's end edge moves).
-     */
-    private fun setContentInset(endPx: Int, bottomPx: Int) {
-        val root = composeView as? ViewGroup ?: return
-        val content = root.getChildAt(0) ?: return
-        val lp = content.layoutParams as? FrameLayout.LayoutParams ?: return
-        if (lp.rightMargin == endPx && lp.bottomMargin == bottomPx) return
-        lp.gravity = Gravity.BOTTOM or Gravity.END
-        lp.rightMargin = endPx
-        lp.bottomMargin = bottomPx
-        content.layoutParams = lp
-    }
-
-    /** Puts the window back to a `WRAP_CONTENT` pill at the intended dock, after a card session. */
-    private fun restorePillWindow() {
-        if (!cardWindowActive) return
-        cardWindowActive = false
-        val view = composeView ?: return
-        val params = layoutParams ?: return
-        setContentInset(0, 0)
-        params.width = WindowManager.LayoutParams.WRAP_CONTENT
-        params.height = WindowManager.LayoutParams.WRAP_CONTENT
-        params.x = dragOffsetX.toInt()
-        params.y = dragOffsetY.toInt()
-        try {
-            windowManager.updateViewLayout(view, params)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error restoring the pill window", e)
-        }
+        cardView?.postOnAnimation(expandTick)
     }
 
     /** Ends the card-expand motion and leaves the card at full scale. */
@@ -1645,18 +1736,23 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * Starts the card -> pill morph: the same transform run backwards, inside the still-card-sized
-     * window. [collapseAfter] runs when it lands, so the swap to the minimized content happens while
-     * the card already sits on the pill's rect — no "disappear, then fly".
+     * Starts the card -> pill morph: the same transform run backwards inside the still-visible card
+     * window. The pill window is revealed first (it sits under the card), so the card shrinks and
+     * fades *onto the real pill* rather than onto an empty container. [collapseAfter] runs when it
+     * lands; there is no window write at any point.
      */
     private fun startCardCollapse(animated: Boolean) {
+        cardHoldsScreen = false
+        cardClosing = true
+        // Reveal the pill underneath the card before the shrink, so the handoff is already in place.
+        updateOverlayVisibility()
         collapseAfter = { finishResting(animated) }
         expandTarget = 0f
         expandVelocity = 0f
         expandLastNanos = System.nanoTime()
         expandStartedAtNanos = expandLastNanos
         expandRunning = true
-        composeView?.postOnAnimation(expandTick)
+        cardView?.postOnAnimation(expandTick)
     }
 
     /** A window's screen rect for an offset and size in the bottom-end gravity's coordinates. */
@@ -1938,10 +2034,10 @@ class FloatingOverlayService : Service() {
     }
 
     private fun resetToResting(animated: Boolean = false) {
-        // The card's close is a morph of its own: keep the card, shrink it onto the pill's rect, and
-        // only then swap to the minimized content and release the card window. Resetting the state
-        // first is what made the card vanish and the pill then appear at the card's corner and fly.
-        if (cardWindowActive && ValueAnimator.areAnimatorsEnabled() &&
+        // The card's close is its own morph: keep the card window, shrink and fade the card onto the
+        // pill (already revealed), and only then hide the card window. Resetting the state first is
+        // what made the card vanish and the pill then appear at the card's corner and fly.
+        if (cardWindowShown && ValueAnimator.areAnimatorsEnabled() &&
             (uiState == FloatingUiState.RECORDING || uiState == FloatingUiState.REVIEW)
         ) {
             if (collapseAfter == null) startCardCollapse(animated)
@@ -1951,28 +2047,15 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * The actual return to rest: swap to the minimized content **while the card still sits at scale
-     * 0 on the pill's rect**, then release the window on the next frame. The card's scale is
-     * deliberately *not* reset here — resetting it first is what made the card pop back to full size
-     * for a frame and the pill then jump/settle.
+     * The actual return to rest. The card window is a separate fixed-size window, so this is just
+     * its visibility flip plus the state reset — no window is resized, and the pill window never
+     * moved, so there is no frame in which either surface is the wrong size.
      */
     private fun finishResting(animated: Boolean) {
         expandRunning = false
         collapseAfter = null
-        // Place the pill at its own rect inside the still-card-sized window, using the same inset the
-        // reservation used, so the content swap has nothing to move.
-        if (cardWindowActive) {
-            val card = cardWindowOffset
-            val pill = pillDockOffset
-            if (card != null && pill != null) setContentInset(pill.x - card.x, pill.y - card.y)
-            val child = (composeView as? ViewGroup)?.getChildAt(0)
-            val lp = child?.layoutParams as? FrameLayout.LayoutParams
-            Log.i(
-                TAG,
-                "finishResting: card=$card pill=$pill gravity=${lp?.gravity} " +
-                    "margins=${lp?.rightMargin},${lp?.bottomMargin} child=${child?.width}x${child?.height}",
-            )
-        }
+        cardClosing = false
+        Log.i(TAG, "finishResting: cardShown=$cardWindowShown card=$cardWindowOffset")
         uiState = FloatingUiState.RESTING_PILL
         quickCaptureActive = false
         quickStatus = null
@@ -1996,25 +2079,13 @@ class FloatingOverlayService : Service() {
         // holding the screen on for a later, idle appearance (D-050).
         refreshKeepScreenOn()
 
-        val view = composeView
-        if (cardWindowActive && view != null) {
-            // After the pill content has actually been laid out at the pill's rect: shrinking the
-            // surface to a WRAP_CONTENT pill at its dock then cannot move it. A plain `post` can
-            // race the recomposition and measure the (invisible) card instead.
-            view.doOnNextLayout {
-                val child = (view as? ViewGroup)?.getChildAt(0)
-                Log.i(
-                    TAG,
-                    "releasePillWindow: root=${view.width}x${view.height} child=${child?.left},${child?.top} " +
-                        "${child?.width}x${child?.height} params=${layoutParams?.width}x${layoutParams?.height}",
-                )
-                restorePillWindow()
-                updateOverlayVisibility(animated)
-            }
-        } else {
-            restorePillWindow()
-            updateOverlayVisibility(animated)
-        }
+        // Hide the card window and show the pill. The pill was already revealed at the start of the
+        // collapse and its window never moved or resized, so this is the whole swap.
+        cardHoldsScreen = false
+        cardWindowShown = false
+        cardView?.visibility = View.GONE
+        cardWindowOffset = null
+        updateOverlayVisibility(animated)
     }
 
     private fun abandonCapture() {
