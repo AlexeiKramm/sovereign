@@ -149,4 +149,22 @@ class SeamHealerTest {
         assertEquals("Yes!  \n", split2.overlapText)
         assertEquals("Yes", split2.strippedOverlap)
     }
+
+    @Test
+    fun `a trailing fragment counts as one sentence in the last-N selection`() {
+        val text = "One. Two. Three"
+
+        // "Three" has no end mark, but it starts after ". ", so it is sentence number three.
+        val one = SeamHealer.split(text, sentenceCount = 1)
+        assertEquals("Three", one.overlapText)
+        assertEquals("Three", one.strippedOverlap)
+
+        val two = SeamHealer.split(text, sentenceCount = 2)
+        assertEquals("Two. Three", two.overlapText)
+        assertEquals("Two. Three", two.strippedOverlap)
+
+        // Fewer sentences than asked for: everything there is, and no more.
+        val all = SeamHealer.split(text, sentenceCount = 4)
+        assertEquals(text, all.overlapText)
+    }
 }
