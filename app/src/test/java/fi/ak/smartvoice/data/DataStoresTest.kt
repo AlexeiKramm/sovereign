@@ -144,7 +144,8 @@ class DataStoresTest {
     fun `profile store provides defaults and manages custom profiles`() {
         val store = ProfileStore(temp.root)
         val builtin = store.allProfiles()
-        assertEquals(1, builtin.size)
+        assertEquals(2, builtin.size)
+        assertTrue(builtin.any { it.id == "rewrite" })
         assertEquals("smart_clean", store.activeProfile().id)
 
         val custom = CleaningProfile(

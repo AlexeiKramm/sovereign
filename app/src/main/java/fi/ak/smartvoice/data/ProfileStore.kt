@@ -35,6 +35,13 @@ class ProfileStore(private val filesDir: File) {
             rules = CleanupPrompt.Variant.SMART_CLEAN.rules,
             isBuiltin = true,
         ),
+        CleaningProfile(
+            id = "rewrite",
+            name = "Rewrite",
+            description = "Rewrites into clean written prose: restructures sentences and wording, keeps the meaning.",
+            rules = CleanupPrompt.Variant.REWRITE.rules,
+            isBuiltin = true,
+        ),
     )
 
     @Synchronized
