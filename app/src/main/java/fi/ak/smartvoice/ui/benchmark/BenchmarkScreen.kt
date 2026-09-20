@@ -1,14 +1,10 @@
 package fi.ak.smartvoice.ui.benchmark
 
 import android.media.MediaPlayer
-import android.os.SystemClock
-import java.io.File
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,56 +14,44 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.activity.compose.BackHandler
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import fi.ak.smartvoice.theme.BadgeCyan
-import fi.ak.smartvoice.theme.BadgeGreen
-import fi.ak.smartvoice.theme.BadgeOrange
-import fi.ak.smartvoice.ui.components.SettingsDivider
-import fi.ak.smartvoice.ui.components.SettingsGroupCard
-import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,59 +60,32 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.asr.AsrModels
-import fi.ak.smartvoice.asr.LocalAsrEngine
-import fi.ak.smartvoice.asr.OfflineVadAsrEngine
-import fi.ak.smartvoice.audio.WavReader
-import fi.ak.smartvoice.cleanup.CleanupPass
-import fi.ak.smartvoice.cleanup.CleanupPrompt
-import fi.ak.smartvoice.cleanup.LiteRtLmCleanupEngine
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
 import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.data.AppSettings
-import fi.ak.smartvoice.data.LiteRtProcessor
-import fi.ak.smartvoice.data.ProfileStore
-import fi.ak.smartvoice.data.DictionaryStore
+import fi.ak.smartvoice.theme.BadgeCyan
+import fi.ak.smartvoice.theme.BadgeGreen
+import fi.ak.smartvoice.theme.BadgeOrange
+import fi.ak.smartvoice.ui.components.SettingsGroupCard
+import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.sqrt
-
-data class BenchmarkLlmModel(val model: LiteRtLmModelSpec) {
-    val id: String get() = model.id
-    val label: String get() = model.label
-    val backendName: String get() = "Google LiteRT-LM"
-    val backendBadge: String get() = if (model.supportsGpu) "LiteRT • GPU/CPU" else "LiteRT • CPU Only"
-    val approximateBytes: Long get() = model.approximateBytes
-}
-
-data class BenchmarkAudioSample(
-    val id: String,
-    val name: String,
-    val assetPath: String,
-    val groundTruth: String,
-    val durationDesc: String,
-    val language: String,
-    val fallbackRawAsr: String,
-)
-
-private val PRELOADED_SAMPLES = listOf(
-    BenchmarkAudioSample(
-        id = "steve_jobs",
-        name = "Steve Jobs 2005 Commencement Address",
-        assetPath = "benchmarks/jobs.wav",
-        groundTruth = "Your time is limited, so don't waste it living someone else's life. Don't be trapped by dogma—which is living with the results of other people's thinking. Don't let the noise of others' opinions drown out your own inner voice. And most important, have the courage to follow your heart and intuition.",
-        durationDesc = "19.3s audio • 16kHz mono WAV",
-        language = "en",
-        fallbackRawAsr = "your time is limited so don't waste it living someone else's life don't be trapped by dogma which is living with the results of other people's thinking don't let the noise of others opinions drown out your own inner voice and most important have the courage to follow your heart and intuition",
-    ),
-)
+import java.io.File
+import java.util.Locale
 
 private val PauseIcon: ImageVector
     get() = ImageVector.Builder(
@@ -194,9 +151,7 @@ private class SampleAudioPlayer(private val context: android.content.Context) {
                 newPlayer.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
                 openedWithAfd = true
-            } catch (_: Exception) {
-                // Asset might be compressed inside APK
-            }
+            } catch (_: Exception) {}
 
             if (!openedWithAfd) {
                 val cacheFile = File(context.cacheDir, "benchmark_audio_preview.wav")
@@ -217,7 +172,7 @@ private class SampleAudioPlayer(private val context: android.content.Context) {
             mediaPlayer = newPlayer
             isPlaying = true
             isPaused = false
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             release()
         }
     }
@@ -239,56 +194,6 @@ private class SampleAudioPlayer(private val context: android.content.Context) {
     }
 }
 
-data class PipelineBenchmarkResult(
-    val sampleName: String,
-    val audioDurationSec: Float,
-    val groundTruth: String,
-    val asrEngineUsed: String,
-    val asrWallMs: Long,
-    val rawAsrText: String,
-    val rawWer: Double,
-    val rawCer: Double,
-    val llmModelUsed: String,
-    val llmProfileUsed: String,
-    val llmTtftMs: Double,
-    val llmDecodeTokPerSec: Double,
-    val llmWallMs: Long,
-    val cleanedText: String,
-    val cleanedWer: Double,
-    val cleanedCer: Double,
-)
-
-data class RepetitionResult(
-    val repIndex: Int,
-    val isWarmup: Boolean,
-    val coldLoadMs: Long,
-    val ttftMs: Double,
-    val prefillSpeed: Double,
-    val decodeSpeed: Double,
-    val wallMs: Long,
-    val generatedTokens: Long,
-    val outputText: String,
-    val peakRamMb: Double = 0.0,
-)
-
-data class BenchmarkSummary(
-    val repsCount: Int,
-    val ttftMean: Double,
-    val ttftStdDev: Double,
-    val prefillMean: Double,
-    val prefillStdDev: Double,
-    val decodeMean: Double,
-    val decodeStdDev: Double,
-    val wallMsMean: Double,
-    val wallMsStdDev: Double,
-    val peakRamMb: Double = 0.0,
-    val avgRamMb: Double = 0.0,
-    val baselineRamMb: Double = 0.0,
-    val deltaRamMb: Double = 0.0,
-    val results: List<RepetitionResult>,
-    val speculativeUsed: Boolean = false,
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BenchmarkScreen(
@@ -301,429 +206,106 @@ fun BenchmarkScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appSettings = remember { AppSettings(context) }
+    val audioPlayer = remember { SampleAudioPlayer(context) }
 
-    var selectedModel by remember { mutableStateOf<BenchmarkLlmModel?>(null) }
-    var selectedComputeUnit by remember { mutableStateOf("npu") }
-    var repetitions by remember { mutableIntStateOf(3) }
-    var warmupFirst by remember { mutableStateOf(true) }
-    var coldRunEachTime by remember { mutableStateOf(false) }
-    var speculativeDecoding by remember { mutableStateOf(appSettings.litertSpeculativeDecoding) }
+    DisposableEffect(Unit) {
+        onDispose { audioPlayer.release() }
+    }
 
-    var samplePrompt by remember {
+    // Benchmark Modes
+    var selectedMode by remember { mutableStateOf(BenchmarkMode.FULL_PIPELINE) }
+
+    // Installed Models
+    var installedAsrModels by remember { mutableStateOf<List<AsrModelSpec>>(emptyList()) }
+    var selectedAsrModel by remember { mutableStateOf<AsrModelSpec?>(null) }
+    var installedLlmModels by remember { mutableStateOf<List<LiteRtLmModelSpec>>(emptyList()) }
+    var selectedLlmModel by remember { mutableStateOf<LiteRtLmModelSpec?>(null) }
+
+    // Audio Fixtures & Prompt
+    var selectedAudioSample by remember { mutableStateOf(BenchmarkAudioSample.FIXTURES[0]) }
+    var samplePromptText by remember {
         mutableStateOf(
-            "So um basically I was thinking we could like try out this new cleanup model and see how it handles all these weird filler words and stuff you know"
+            "Basically I was just thinking that we could maybe like test the model rewrite capability and see how it performs."
         )
     }
 
+    // Execution Settings
+    var selectedComputeUnit by remember { mutableStateOf("gpu") }
+    var speculativeDecoding by remember { mutableStateOf(appSettings.litertSpeculativeDecoding) }
+    var repetitions by remember { mutableIntStateOf(3) }
+    var coldReloadEachRep by remember { mutableStateOf(false) }
+
+    // Execution State
     var isRunning by remember { mutableStateOf(false) }
-    var currentStatusText by remember { mutableStateOf("") }
-    var currentProgress by remember { mutableFloatStateOf(0f) }
+    var statusText by remember { mutableStateOf("") }
+    var progressFraction by remember { mutableFloatStateOf(0f) }
     var summaryResult by remember { mutableStateOf<BenchmarkSummary?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Downloaded / Installed Models state
-    // Audio Pipeline Benchmark State
-    var installedAsrModels by remember { mutableStateOf<List<AsrModelSpec>>(emptyList()) }
-    var selectedAsrModel by remember { mutableStateOf<AsrModelSpec?>(null) }
-    var isCheckingAsrModels by remember { mutableStateOf(true) }
-
-    var installedLlmModels by remember { mutableStateOf<List<BenchmarkLlmModel>>(emptyList()) }
-    var selectedPipelineLlmModel by remember { mutableStateOf<BenchmarkLlmModel?>(null) }
-    var isCheckingLlmModels by remember { mutableStateOf(true) }
-
     LaunchedEffect(Unit) {
-        val asrInstalled = withContext(Dispatchers.IO) {
+        val asrList = withContext(Dispatchers.IO) {
             AsrModels.CATALOG.filter { it.isInstalled(it.directory(context.filesDir)) }
         }
-        installedAsrModels = asrInstalled
-        isCheckingAsrModels = false
-        selectedAsrModel = asrInstalled.firstOrNull { it.id == appSettings.asrModelId }
-            ?: asrInstalled.firstOrNull()
+        installedAsrModels = asrList
+        selectedAsrModel = asrList.firstOrNull { it.id == appSettings.asrModelId } ?: asrList.firstOrNull()
 
-        val litertInstalled = withContext(Dispatchers.IO) {
+        val llmList = withContext(Dispatchers.IO) {
             LiteRtLmModels.ALL.filter { it.isInstalled(context) }
-                .map { BenchmarkLlmModel(it) }
         }
-        installedLlmModels = litertInstalled
-        isCheckingLlmModels = false
-
-        val initialLlm = litertInstalled.firstOrNull { it.id == appSettings.litertModelId }
-            ?: litertInstalled.firstOrNull()
-        selectedPipelineLlmModel = initialLlm
-        selectedModel = initialLlm
-        if (initialLlm?.model?.supportsGpu == false) {
+        installedLlmModels = llmList
+        val initialLlm = llmList.firstOrNull { it.id == appSettings.litertModelId } ?: llmList.firstOrNull()
+        selectedLlmModel = initialLlm
+        if (initialLlm?.supportsGpu == false) {
             selectedComputeUnit = "cpu"
-        } else if (selectedComputeUnit != "cpu") {
-            selectedComputeUnit = "gpu"
         }
     }
 
-    // Audio Pipeline Benchmark State
-    var selectedAudioSample by remember { mutableStateOf(PRELOADED_SAMPLES[0]) }
-    val audioPlayer = remember { SampleAudioPlayer(context) }
-    DisposableEffect(Unit) {
-        onDispose {
-            audioPlayer.release()
-        }
-    }
-    var isPipelineRunning by remember { mutableStateOf(false) }
-    var pipelineStatusText by remember { mutableStateOf("") }
-    var pipelineResult by remember { mutableStateOf<PipelineBenchmarkResult?>(null) }
-
-    fun runAudioPipelineBenchmark() {
-        if (isPipelineRunning) return
-        val asrSpec = selectedAsrModel
-        if (asrSpec == null) {
-            errorMessage = "No ASR model downloaded or selected. Please visit the Models tab to download an ASR model."
+    fun startBenchmark() {
+        if (isRunning) return
+        if (selectedMode != BenchmarkMode.LLM_ONLY && selectedAsrModel == null) {
+            errorMessage = "Please download or select an ASR model first."
             return
         }
-        val llmModel = selectedPipelineLlmModel
-        if (llmModel == null) {
-            errorMessage = "No LLM cleanup model downloaded or selected. Please visit the Models tab to download an LLM model."
+        if (selectedMode != BenchmarkMode.ASR_ONLY && selectedLlmModel == null) {
+            errorMessage = "Please download or select an LLM cleanup model first."
             return
         }
 
         audioPlayer.stop()
-        isPipelineRunning = true
-        pipelineStatusText = "Reading audio asset..."
-        pipelineResult = null
-        errorMessage = null
-
-        scope.launch(Dispatchers.IO) {
-            try {
-                val sample = selectedAudioSample
-                val assetStream = context.assets.open(sample.assetPath)
-                val wavAudio = WavReader.read(assetStream)
-
-                // 1. ASR Stage
-                withContext(Dispatchers.Main) {
-                    pipelineStatusText = "Running ASR (${asrSpec.label})..."
-                }
-
-                val asrModelDir = asrSpec.directory(context.filesDir)
-                val asrStart = SystemClock.elapsedRealtime()
-                var rawAsr = ""
-                val asrEngineLabel = asrSpec.label
-
-                var streamingAsr: LocalAsrEngine? = null
-                var offlineAsr: OfflineVadAsrEngine? = null
-                try {
-                    if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
-                        val asrEngine = LocalAsrEngine(asrModelDir, assetManager = context.assets)
-                        streamingAsr = asrEngine
-                        val availability = asrEngine.load()
-                        if (availability is LocalAsrEngine.Availability.Loaded) {
-                            asrEngine.startSession(language = sample.language)
-                            val chunkSize = 1600 // 100ms chunks at 16kHz
-                            for (i in wavAudio.samples.indices step chunkSize) {
-                                val end = minOf(i + chunkSize, wavAudio.samples.size)
-                                val chunk = wavAudio.samples.copyOfRange(i, end)
-                                asrEngine.accept(chunk)
-                            }
-                            rawAsr = asrEngine.finish().trim()
-                        } else {
-                            rawAsr = sample.fallbackRawAsr
-                        }
-                    } else {
-                        // Offline models (Whisper variants or Parakeet v3 TDT)
-                        val offlineEngine = OfflineVadAsrEngine(
-                            modelDirectory = asrModelDir,
-                            spec = asrSpec,
-                            assetManager = context.assets,
-                        )
-                        offlineAsr = offlineEngine
-                        val availability = offlineEngine.load()
-                        if (availability is LocalAsrEngine.Availability.Loaded) {
-                            offlineEngine.startSession(language = sample.language)
-                            val chunkSize = 1600
-                            for (i in wavAudio.samples.indices step chunkSize) {
-                                val end = minOf(i + chunkSize, wavAudio.samples.size)
-                                val chunk = wavAudio.samples.copyOfRange(i, end)
-                                offlineEngine.accept(chunk)
-                            }
-                            val text = offlineEngine.finish()
-                            rawAsr = text.trim()
-                        } else {
-                            rawAsr = sample.fallbackRawAsr
-                        }
-                    }
-                } finally {
-                    streamingAsr?.unload()
-                    offlineAsr?.unload()
-                }
-                val asrWallMs = SystemClock.elapsedRealtime() - asrStart
-
-                if (rawAsr.isBlank()) {
-                    rawAsr = sample.fallbackRawAsr
-                }
-
-                val rawWer = WerCalculator.calculateWer(sample.groundTruth, rawAsr)
-                val rawCer = WerCalculator.calculateCer(sample.groundTruth, rawAsr)
-
-                // 2. LLM Cleanup Stage
-                withContext(Dispatchers.Main) {
-                    pipelineStatusText = "Running LLM cleanup (${llmModel.label} • ${llmModel.backendBadge})..."
-                }
-
-                val profileStore = ProfileStore(context)
-                val dictionaryStore = DictionaryStore(context)
-                val activeProfile = profileStore.activeProfile()
-                val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
-                val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
-
-                val llmStart = SystemClock.elapsedRealtime()
-                var cleanupEngineInstance: LiteRtLmCleanupEngine? = null
-                val llmPass: CleanupPass = try {
-                    val engine = LiteRtLmCleanupEngine(
-                        context = context,
-                        modelSpec = llmModel.model,
-                        processor = appSettings.litertProcessor,
-                        speculativeDecoding = appSettings.litertSpeculativeDecoding,
-                        vocabulary = dictionaryStore::getEntries,
-                    )
-                    cleanupEngineInstance = engine
-                    engine.clean(
-                        unit = rawAsr,
-                        context = null,
-                        variant = variant,
-                        customRules = customRules,
-                    )
-                } finally {
-                    cleanupEngineInstance?.unload()
-                    System.gc()
-                }
-                val llmWallMs = SystemClock.elapsedRealtime() - llmStart
-                val cleanedText = if (llmPass.cleaned && llmPass.text.isNotBlank()) llmPass.text else rawAsr
-
-                val cleanedWer = WerCalculator.calculateWer(sample.groundTruth, cleanedText)
-                val cleanedCer = WerCalculator.calculateCer(sample.groundTruth, cleanedText)
-
-                val decodeSpeed = if (llmPass.decodeTimeMs > 0.0) {
-                    (llmPass.generatedTokens * 1000.0) / llmPass.decodeTimeMs
-                } else 0.0
-
-                val result = PipelineBenchmarkResult(
-                    sampleName = sample.name,
-                    audioDurationSec = wavAudio.durationSeconds,
-                    groundTruth = sample.groundTruth,
-                    asrEngineUsed = asrEngineLabel,
-                    asrWallMs = asrWallMs,
-                    rawAsrText = rawAsr,
-                    rawWer = rawWer,
-                    rawCer = rawCer,
-                    llmModelUsed = "${llmModel.label} (${llmModel.backendBadge}${if (appSettings.litertSpeculativeDecoding && llmModel.model.supportsSpeculativeDecoding) ", MTP" else ""})",
-                    llmProfileUsed = activeProfile.name,
-                    llmTtftMs = llmPass.ttftMs,
-                    llmDecodeTokPerSec = decodeSpeed,
-                    llmWallMs = llmWallMs,
-                    cleanedText = cleanedText,
-                    cleanedWer = cleanedWer,
-                    cleanedCer = cleanedCer,
-                )
-
-                withContext(Dispatchers.Main) {
-                    pipelineResult = result
-                    isPipelineRunning = false
-                    pipelineStatusText = "Pipeline benchmark completed."
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    errorMessage = "Pipeline benchmark failed: ${e.message}"
-                    isPipelineRunning = false
-                    pipelineStatusText = ""
-                }
-            }
-        }
-    }
-
-    fun runBenchmark() {
-        if (isRunning) return
-        val model = selectedModel
-        if (model == null) {
-            errorMessage = "No LLM model selected. Please download or select an LLM model first."
-            return
-        }
         isRunning = true
         errorMessage = null
         summaryResult = null
+        progressFraction = 0f
+        statusText = "Initializing benchmark..."
 
-        scope.launch(Dispatchers.IO) {
-            val recordedResults = mutableListOf<RepetitionResult>()
-            val totalRuns = (if (warmupFirst) 1 else 0) + repetitions
-            var currentRun = 0
-            val memSampler = MemorySampler()
+        val config = BenchmarkConfig(
+            mode = selectedMode,
+            asrModel = selectedAsrModel,
+            llmModel = selectedLlmModel,
+            audioSample = selectedAudioSample,
+            textPrompt = samplePromptText,
+            computeTarget = selectedComputeUnit,
+            speculativeDecoding = speculativeDecoding,
+            repetitions = repetitions,
+            coldReloadEachRep = coldReloadEachRep,
+        )
 
-            val profileStore = ProfileStore(context)
-            val dictionaryStore = DictionaryStore(context)
-            val activeProfile = profileStore.activeProfile()
-            val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
-            val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
-
+        scope.launch {
             try {
-                val processor = if (selectedComputeUnit == "cpu" || !model.model.supportsGpu) {
-                    LiteRtProcessor.CPU
-                } else {
-                    LiteRtProcessor.GPU
-                }
-
-                var activeEngine: LiteRtLmCleanupEngine? = null
-
-                suspend fun getOrInitEngine(): Pair<LiteRtLmCleanupEngine, Long> {
-                    if (activeEngine != null && !coldRunEachTime) {
-                        return Pair(activeEngine!!, 0L)
-                    }
-                    activeEngine?.unload()
-                    activeEngine = null
-
-                    val startLoad = SystemClock.elapsedRealtime()
-                    val eng = LiteRtLmCleanupEngine(
-                        context = context,
-                        modelSpec = model.model,
-                        processor = processor,
-                        speculativeDecoding = speculativeDecoding,
-                        vocabulary = dictionaryStore::getEntries,
-                    )
-                    try {
-                        eng.load().getOrThrow()
-                    } catch (t: Throwable) {
-                        eng.unload()
-                        throw t
-                    }
-                    val coldLoad = SystemClock.elapsedRealtime() - startLoad
-                    activeEngine = eng
-                    return Pair(eng, coldLoad)
-                }
-
-                memSampler.start(scope)
-
-                try {
-                    if (warmupFirst) {
-                        currentRun++
-                        withContext(Dispatchers.Main) {
-                            currentStatusText = "Warmup run (1/1)..."
-                            currentProgress = currentRun.toFloat() / totalRuns
-                        }
-                        val (eng, _) = getOrInitEngine()
-                        val warmupPass = eng.clean(
-                            unit = "warmup test",
-                            context = null,
-                            variant = variant,
-                            customRules = customRules,
-                        )
-                        if (!warmupPass.cleaned) {
-                            throw RuntimeException("Warmup failed: ${warmupPass.note.ifEmpty { "Model returned empty response" }}")
-                        }
-                        if (coldRunEachTime) {
-                            activeEngine?.unload()
-                            activeEngine = null
-                        }
-                    }
-
-                    for (rep in 1..repetitions) {
-                        currentRun++
-                        withContext(Dispatchers.Main) {
-                            currentStatusText = "Repetition $rep of $repetitions..."
-                            currentProgress = currentRun.toFloat() / totalRuns
-                        }
-
-                        val (eng, coldLoad) = getOrInitEngine()
-                        val wallStart = SystemClock.elapsedRealtime()
-                        val pass = eng.clean(
-                            unit = samplePrompt,
-                            context = null,
-                            variant = variant,
-                            customRules = customRules,
-                        )
-                        val wallMs = SystemClock.elapsedRealtime() - wallStart
-
-                        if (!pass.cleaned) {
-                            throw RuntimeException(pass.note.ifEmpty { "Cleanup pass failed" })
-                        }
-
-                        val decodeSpeed = if (pass.decodeTimeMs > 0.0) {
-                            (pass.generatedTokens * 1000.0) / pass.decodeTimeMs
-                        } else 0.0
-
-                        recordedResults.add(
-                            RepetitionResult(
-                                repIndex = rep,
-                                isWarmup = false,
-                                coldLoadMs = if (coldLoad > 0) coldLoad else pass.loadMs,
-                                ttftMs = pass.ttftMs,
-                                prefillSpeed = if (pass.promptTokens > 0L && pass.promptTimeMs > 0.0) {
-                                    (pass.promptTokens * 1000.0) / pass.promptTimeMs
-                                } else 0.0,
-                                decodeSpeed = decodeSpeed,
-                                wallMs = wallMs,
-                                generatedTokens = pass.generatedTokens,
-                                outputText = pass.text,
-                                peakRamMb = memSampler.currentPeakMb(),
-                            )
-                        )
-
-                        if (coldRunEachTime) {
-                            activeEngine?.unload()
-                            activeEngine = null
-                        }
-                    }
-
-                    val memStats = memSampler.stop()
-                    val n = recordedResults.size
-                    fun mean(selector: (RepetitionResult) -> Double): Double =
-                        if (n == 0) 0.0 else recordedResults.sumOf(selector) / n
-
-                    fun stdDev(selector: (RepetitionResult) -> Double, m: Double): Double {
-                        if (n <= 1) return 0.0
-                        val sumSq = recordedResults.sumOf { (selector(it) - m) * (selector(it) - m) }
-                        return sqrt(sumSq / (n - 1))
-                    }
-
-                    val ttftM = mean { it.ttftMs }
-                    val prefillM = mean { it.prefillSpeed }
-                    val decodeM = mean { it.decodeSpeed }
-                    val wallM = mean { it.wallMs.toDouble() }
-
-                    val summary = BenchmarkSummary(
-                        repsCount = n,
-                        ttftMean = ttftM,
-                        ttftStdDev = stdDev({ it.ttftMs }, ttftM),
-                        prefillMean = prefillM,
-                        prefillStdDev = stdDev({ it.prefillSpeed }, prefillM),
-                        decodeMean = decodeM,
-                        decodeStdDev = stdDev({ it.decodeSpeed }, decodeM),
-                        wallMsMean = wallM,
-                        wallMsStdDev = stdDev({ it.wallMs.toDouble() }, wallM),
-                        peakRamMb = memStats.peakMb,
-                        avgRamMb = memStats.avgMb,
-                        baselineRamMb = memStats.baselineMb,
-                        deltaRamMb = memStats.deltaMb,
-                        results = recordedResults,
-                        speculativeUsed = speculativeDecoding && model.model.supportsSpeculativeDecoding,
-                    )
-
-                    // Display results immediately so user doesn't wait for engine unload
-                    withContext(Dispatchers.Main) {
-                        summaryResult = summary
-                        currentStatusText = "Releasing model resources..."
-                    }
-                } finally {
-                    memSampler.stop()
-                    withContext(Dispatchers.IO) {
-                        activeEngine?.unload()
-                        activeEngine = null
-                        System.gc()
-                    }
-                    withContext(Dispatchers.Main) {
-                        currentStatusText = "Completed $repetitions runs successfully."
-                        isRunning = false
+                val engine = BenchmarkEngine(context)
+                val summary = engine.run(config) { prog, status ->
+                    scope.launch(Dispatchers.Main) {
+                        progressFraction = prog
+                        statusText = status
                     }
                 }
+                summaryResult = summary
             } catch (t: Throwable) {
-                memSampler.stop()
-                withContext(Dispatchers.Main) {
-                    errorMessage = t.message ?: t.toString()
-                    isRunning = false
-                }
+                errorMessage = t.message ?: t.toString()
+            } finally {
+                isRunning = false
+                progressFraction = 0f
+                statusText = ""
             }
         }
     }
@@ -740,13 +322,13 @@ fun BenchmarkScreen(
                 item {
                     Column {
                         Text(
-                            text = "Performance & Benchmarking",
+                            text = "Model Benchmarks",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Test speech recognition and AI cleanup speed on your device.",
+                            text = "Measure on-device speech recognition, LLM cleanup throughput, and RAM.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -754,646 +336,454 @@ fun BenchmarkScreen(
                 }
             }
 
-            // ================= SECTION: AUDIO PIPELINE BENCHMARK =================
+            // ================= UNIFIED BENCHMARK RUNNER CARD =================
             item {
                 SettingsGroupCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Speed,
-                            badgeColor = BadgeCyan,
-                            contentDescription = "Pipeline Benchmark",
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Complete Pipeline Test (Speech → Cleanup)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Tests recognition and AI cleanup against real audio to measure accuracy gains.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "Benchmark Audio Sample:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedCard(
-                        onClick = { audioPlayer.playOrPause(selectedAudioSample.assetPath) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    selectedAudioSample.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                val statusDesc = when {
-                                    audioPlayer.isPlaying -> "Playing audio (tap to pause) • 19.3s"
-                                    audioPlayer.isPaused -> "Paused (tap to resume) • 19.3s"
-                                    else -> selectedAudioSample.durationDesc
-                                }
-                                Text(
-                                    statusDesc,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (audioPlayer.isPlaying) BadgeCyan else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            FilledTonalIconButton(
-                                onClick = { audioPlayer.playOrPause(selectedAudioSample.assetPath) },
-                            ) {
-                                Icon(
-                                    imageVector = if (audioPlayer.isPlaying) PauseIcon else Icons.Default.PlayArrow,
-                                    contentDescription = if (audioPlayer.isPlaying) "Pause audio" else "Play audio",
-                                    tint = if (audioPlayer.isPlaying) BadgeCyan else MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                        }
-                    }
-
-                    // Dropdown selectors for installed ASR and LLM models
-                    AsrModelDropdownSelector(
-                        label = "Select ASR Model for Pipeline:",
-                        installedModels = installedAsrModels,
-                        selectedModel = selectedAsrModel,
-                        onModelSelected = { selectedAsrModel = it },
-                    )
-
-                    LlmModelDropdownSelector(
-                        label = "Select LLM Cleanup Model for Pipeline:",
-                        installedModels = installedLlmModels,
-                        selectedModel = selectedPipelineLlmModel,
-                        onModelSelected = { selectedPipelineLlmModel = it },
-                    )
-
-                    val activeAppProfile = remember { ProfileStore(context).activeProfile() }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "Active App Profile: ",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            activeAppProfile.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = BadgeCyan,
-                        )
-                        Text(
-                            " (using prompt & rules from Profiles tab)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
-                            .padding(12.dp),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                "Ground Truth Reference:",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                "\"${selectedAudioSample.groundTruth}\"",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                selectedAudioSample.durationDesc,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = { runAudioPipelineBenchmark() },
-                        enabled = !isPipelineRunning && !isRunning && selectedAsrModel != null && selectedPipelineLlmModel != null,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = BadgeCyan),
-                    ) {
-                        if (isPipelineRunning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.height(18.dp).width(18.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(pipelineStatusText.ifEmpty { "Benchmarking Pipeline..." }, color = Color.White)
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Test Pipeline", fontWeight = FontWeight.SemiBold, color = Color.White)
-                        }
-                    }
-
-                    errorMessage?.let { msg ->
-                        Text(
-                            text = msg,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-        }
-
-        // Pipeline Results Card
-        pipelineResult?.let { res ->
-            item {
-                SettingsGroupCard(
-                    modifier = Modifier.border(1.dp, BadgeCyan, RoundedCornerShape(20.dp)),
-                ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text(
-                            "Pipeline Benchmark Results: ${res.sampleName}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SettingsIconBadge(
+                                icon = Icons.Default.Speed,
+                                badgeColor = BadgeCyan,
+                                contentDescription = "Benchmark Runner",
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Unified Pipeline Benchmark",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Standard fixtures • Statistical throughput • RAM tracking",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
 
+                        // 3-WAY MODE SELECTOR
                         Text(
-                            "Audio Duration: %.1fs | ASR Wall: %d ms | LLM Wall: %d ms".format(
-                                res.audioDurationSec, res.asrWallMs, res.llmWallMs
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "Benchmark Mode:",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-
-                        SettingsDivider(startIndent = 0.dp)
-
-                        // ASR Stage
-                        Text(
-                            "1. Speech Recogniser Stage (${res.asrEngineUsed}):",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            res.rawAsrText,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Raw ASR WER:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("%.1f%% (CER: %.1f%%)".format(res.rawWer * 100, res.rawCer * 100), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            BenchmarkMode.entries.forEach { mode ->
+                                val isSelected = selectedMode == mode
+                                val shortLabel = when (mode) {
+                                    BenchmarkMode.FULL_PIPELINE -> "Full Pipeline"
+                                    BenchmarkMode.ASR_ONLY -> "ASR Only"
+                                    BenchmarkMode.LLM_ONLY -> "LLM Only"
+                                }
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedMode = mode },
+                                    label = { Text(shortLabel) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = BadgeCyan.copy(alpha = 0.2f),
+                                        selectedLabelColor = BadgeCyan,
+                                    ),
+                                )
+                            }
                         }
 
-                        SettingsDivider(startIndent = 0.dp)
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            thickness = 0.5.dp,
+                        )
 
-                        // LLM Stage
-                        Text(
-                            "2. LLM Cleanup Stage (${res.llmModelUsed} · Profile: ${res.llmProfileUsed}):",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            res.cleanedText,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Cleaned WER:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "%.1f%% (CER: %.1f%%)".format(res.cleanedWer * 100, res.cleanedCer * 100),
-                                fontWeight = FontWeight.Bold,
-                                color = if (res.cleanedWer <= res.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
+                        // DYNAMIC CONTROLS: AUDIO FIXTURE (for Pipeline & ASR)
+                        if (selectedMode != BenchmarkMode.LLM_ONLY) {
+                            AudioFixtureDropdownSelector(
+                                selectedFixture = selectedAudioSample,
+                                onFixtureSelected = { selectedAudioSample = it },
+                                audioPlayer = audioPlayer,
+                            )
+                            AsrModelDropdownSelector(
+                                label = "Select ASR Model:",
+                                installedModels = installedAsrModels,
+                                selectedModel = selectedAsrModel,
+                                onModelSelected = { selectedAsrModel = it },
                             )
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("LLM Latency & Speed:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("TTFT: %.1f ms | %.1f tok/s".format(res.llmTtftMs, res.llmDecodeTokPerSec), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        }
 
-                        val werDelta = (res.rawWer - res.cleanedWer) * 100
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                        ) {
+                        // DYNAMIC CONTROLS: LLM & PROMPT (for Pipeline & LLM)
+                        if (selectedMode != BenchmarkMode.ASR_ONLY) {
+                            LlmModelDropdownSelector(
+                                label = "Select LLM Cleanup Model:",
+                                installedModels = installedLlmModels,
+                                selectedModel = selectedLlmModel,
+                                onModelSelected = { m ->
+                                    selectedLlmModel = m
+                                    if (!m.supportsGpu) selectedComputeUnit = "cpu"
+                                },
+                            )
+
+                            // Compute Target
+                            val supportsGpu = selectedLlmModel?.supportsGpu ?: true
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("WER Improvement:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 Text(
-                                    if (werDelta >= 0) "+%.1f%% accuracy gain".format(werDelta) else "%.1f%%".format(werDelta),
-                                    fontWeight = FontWeight.Bold,
-                                    color = BadgeGreen,
+                                    if (supportsGpu) "Compute Target:" else "Compute Target (CPU Only):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (supportsGpu) {
+                                        FilterChip(
+                                            selected = selectedComputeUnit == "gpu",
+                                            onClick = { selectedComputeUnit = "gpu" },
+                                            label = { Text("GPU") },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = BadgeOrange.copy(alpha = 0.2f),
+                                                selectedLabelColor = BadgeOrange,
+                                            ),
+                                        )
+                                    }
+                                    FilterChip(
+                                        selected = selectedComputeUnit == "cpu",
+                                        onClick = { selectedComputeUnit = "cpu" },
+                                        label = { Text("CPU") },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = BadgeOrange.copy(alpha = 0.2f),
+                                            selectedLabelColor = BadgeOrange,
+                                        ),
+                                    )
+                                }
+                            }
+
+                            // Speculative Decoding (MTP)
+                            val modelSupportsMtp = selectedLlmModel?.supportsSpeculativeDecoding == true
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                    Text(
+                                        "Speculative Decoding (MTP)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        if (modelSupportsMtp) "Drafting heads for parallel candidate tokens" else "Unsupported by this model",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (modelSupportsMtp) BadgeGreen else MaterialTheme.colorScheme.outline,
+                                    )
+                                }
+                                Switch(
+                                    checked = speculativeDecoding && modelSupportsMtp,
+                                    enabled = modelSupportsMtp,
+                                    onCheckedChange = { speculativeDecoding = it },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = BadgeCyan,
+                                    ),
                                 )
                             }
+                        }
+
+                        // LLM ONLY PROMPT SELECTOR
+                        if (selectedMode == BenchmarkMode.LLM_ONLY) {
+                            Text(
+                                text = "Sample Text Source:",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                BenchmarkAudioSample.FIXTURES.forEach { fixture ->
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = {
+                                            samplePromptText = BenchmarkAudioSample.readGroundTruth(context, fixture)
+                                        },
+                                        label = { Text(fixture.name.substringBefore(" ")) },
+                                    )
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = samplePromptText,
+                                onValueChange = { samplePromptText = it },
+                                label = { Text("Input Text for LLM Cleanup") },
+                                modifier = Modifier.fillMaxWidth(),
+                                maxLines = 4,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                ),
+                            )
+                        }
+
+                        // COMMON SETTINGS: REPETITIONS
+                        RepetitionsDropdownSelector(
+                            repetitions = repetitions,
+                            onRepetitionsSelected = { repetitions = it },
+                        )
+
+                        // COLD RELOAD EACH REP SWITCH
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    "Reload Models Each Rep (Cold Benchmark)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    if (coldReloadEachRep) {
+                                        "Measures fresh model disk load variance across all reps"
+                                    } else {
+                                        "1 cold load recorded, followed by warm steady-state reps"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            }
+                            Switch(
+                                checked = coldReloadEachRep,
+                                onCheckedChange = { coldReloadEachRep = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = BadgeCyan,
+                                ),
+                            )
+                        }
+
+                        // ACTION BUTTON
+                        Button(
+                            onClick = { startBenchmark() },
+                            enabled = !isRunning,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = BadgeCyan),
+                        ) {
+                            if (isRunning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.height(18.dp).width(18.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(statusText.ifEmpty { "Benchmarking..." }, color = Color.White)
+                            } else {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Run Benchmark", fontWeight = FontWeight.SemiBold, color = Color.White)
+                            }
+                        }
+
+                        if (isRunning && progressFraction > 0f) {
+                            LinearProgressIndicator(
+                                progress = { progressFraction },
+                                color = BadgeCyan,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+
+                        errorMessage?.let { msg ->
+                            Text(
+                                text = msg,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
             }
-        }
 
-        // ================= SECTION: LLM REPETITION & VARIANCE BENCHMARK =================
-        item {
-            SettingsGroupCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Timer,
-                            badgeColor = BadgeOrange,
-                            contentDescription = "Speed Test",
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+            // ================= SUMMARY RESULTS CARD =================
+            summaryResult?.let { summary ->
+                item {
+                    SettingsGroupCard(
+                        modifier = Modifier.border(1.dp, BadgeCyan, RoundedCornerShape(20.dp)),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
                             Text(
-                                text = "Cleanup Model Speed Test",
+                                "Benchmark Summary (${summary.repsCount} reps • ${if (summary.coldReloadEachRep) "Cold" else "Warm"})",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            Text(
-                                text = "Measure response latency and generation speed across multiple runs.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
 
-                    // Dropdown selector for installed models
-                    LlmModelDropdownSelector(
-                        label = "Select Cleanup Model:",
-                        installedModels = installedLlmModels,
-                        selectedModel = selectedModel,
-                        onModelSelected = { m ->
-                            selectedModel = m
-                            if (!m.model.supportsGpu) {
-                                selectedComputeUnit = "cpu"
+                            // COLD LOAD TIMES SECTION
+                            if (summary.coldReloadEachRep) {
+                                if (summary.mode != BenchmarkMode.LLM_ONLY) {
+                                    ResultRow("ASR Cold Load:", "%.1f ± %.1f ms".format(Locale.US, summary.asrColdLoadStat.mean, summary.asrColdLoadStat.stdDev))
+                                }
+                                if (summary.mode != BenchmarkMode.ASR_ONLY) {
+                                    ResultRow("LLM Cold Load:", "%.1f ± %.1f ms".format(Locale.US, summary.llmColdLoadStat.mean, summary.llmColdLoadStat.stdDev))
+                                }
+                            } else {
+                                if (summary.initialAsrColdLoadMs > 0) {
+                                    ResultRow("ASR Cold Load:", "${summary.initialAsrColdLoadMs} ms")
+                                }
+                                if (summary.initialLlmColdLoadMs > 0) {
+                                    ResultRow("LLM Cold Load:", "${summary.initialLlmColdLoadMs} ms")
+                                }
                             }
-                        },
-                    )
 
-                    // Compute Target
-                    val supportsGpu = selectedModel?.model?.supportsGpu ?: true
-                    Text(
-                        if (supportsGpu) "Compute Target:" else "Compute Target: (CPU Only)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    val computeUnits = if (supportsGpu) {
-                        listOf(
-                            "gpu" to "GPU (Recommended)",
-                            "cpu" to "CPU",
-                        )
-                    } else {
-                        listOf(
-                            "cpu" to "CPU (Only supported)",
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        computeUnits.forEach { (id, label) ->
-                            FilterChip(
-                                selected = selectedComputeUnit == id,
-                                onClick = { selectedComputeUnit = id },
-                                label = { Text(label) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = BadgeOrange.copy(alpha = 0.2f),
-                                    selectedLabelColor = BadgeOrange,
-                                ),
-                            )
-                        }
-                    }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
 
-                    // Prompt Input
-                    OutlinedTextField(
-                        value = samplePrompt,
-                        onValueChange = { samplePrompt = it },
-                        label = { Text("Benchmark Sample Prompt") },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 3,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                        ),
-                    )
-
-                    // Repetitions Dropdown
-                    RepetitionsDropdownSelector(
-                        repetitions = repetitions,
-                        onRepetitionsSelected = { repetitions = it },
-                    )
-
-                    // Warmup Switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column {
-                            Text("Skip First Run (Warmup)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text("Excludes initial cold run from averages", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Switch(
-                            checked = warmupFirst,
-                            onCheckedChange = { warmupFirst = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = BadgeOrange,
-                            ),
-                        )
-                    }
-
-                    // Cold Reload Switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column {
-                            Text("Reload Model Every Run", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text("Measures fresh disk load time on each run", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Switch(
-                            checked = coldRunEachTime,
-                            onCheckedChange = { coldRunEachTime = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = BadgeOrange,
-                            ),
-                        )
-                    }
-
-                    // Speculative Decoding Switch
-                    val modelSupportsSpeculative = selectedModel?.model?.supportsSpeculativeDecoding == true
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "Speculative Decoding (MTP)",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                            // STEADY-STATE THROUGHPUT & LATENCY SECTION
+                            if (summary.mode != BenchmarkMode.LLM_ONLY) {
+                                ResultRow(
+                                    "ASR Wall Time:",
+                                    "%.1f ± %.1f ms".format(Locale.US, summary.asrWallStat.mean, summary.asrWallStat.stdDev),
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    shape = RoundedCornerShape(4.dp),
-                                ) {
-                                    Text(
-                                        text = if (modelSupportsSpeculative) "MTP" else "Unsupported",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (modelSupportsSpeculative) BadgeGreen else MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                val speedup = if (summary.asrRtfStat.mean > 0.0) 1.0 / summary.asrRtfStat.mean else 0.0
+                                ResultRow(
+                                    "ASR Real-Time Factor (RTF):",
+                                    "%.3f (%.1fx realtime)".format(Locale.US, summary.asrRtfStat.mean, speedup),
+                                    valueColor = BadgeCyan,
+                                )
+                            }
+
+                            if (summary.mode != BenchmarkMode.ASR_ONLY) {
+                                ResultRow(
+                                    "LLM TTFT:",
+                                    "%.1f ± %.1f ms".format(Locale.US, summary.llmTtftStat.mean, summary.llmTtftStat.stdDev),
+                                )
+                                if (summary.llmPrefillStat.mean > 0.0) {
+                                    ResultRow(
+                                        "Prefill Speed:",
+                                        "%.1f tok/s".format(Locale.US, summary.llmPrefillStat.mean),
+                                    )
+                                }
+                                ResultRow(
+                                    "Decode Speed:",
+                                    "%.1f ± %.1f tok/s".format(Locale.US, summary.llmDecodeStat.mean, summary.llmDecodeStat.stdDev),
+                                    valueColor = BadgeOrange,
+                                )
+                                ResultRow(
+                                    "LLM Wall Time:",
+                                    "%.1f ± %.1f ms".format(Locale.US, summary.llmWallStat.mean, summary.llmWallStat.stdDev),
+                                )
+                            }
+
+                            if (summary.mode == BenchmarkMode.FULL_PIPELINE) {
+                                ResultRow(
+                                    "End-to-End Latency:",
+                                    "%.1f ± %.1f ms".format(Locale.US, summary.e2eWallStat.mean, summary.e2eWallStat.stdDev),
+                                    valueColor = BadgeGreen,
+                                )
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+                            // PROCESS MEMORY CONSUMPTION
+                            ResultRow(
+                                "Peak RAM (Process):",
+                                "%.0f MB".format(Locale.US, summary.peakRamMb),
+                                valueColor = MaterialTheme.colorScheme.onSurface,
+                            )
+                            ResultRow(
+                                "Average RAM (Process):",
+                                "%.0f MB".format(Locale.US, summary.avgRamMb),
+                                valueColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            // ACCURACY SECTION (ASR / Pipeline)
+                            if (summary.mode != BenchmarkMode.LLM_ONLY && summary.groundTruth.isNotBlank()) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                                ResultRow(
+                                    "Raw ASR Accuracy:",
+                                    "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.rawWer * 100, summary.rawCer * 100),
+                                )
+                                if (summary.mode == BenchmarkMode.FULL_PIPELINE) {
+                                    ResultRow(
+                                        "Cleaned Accuracy:",
+                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
+                                        valueColor = if (summary.cleanedWer <= summary.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
+                                    )
+                                    val werDelta = (summary.rawWer - summary.cleanedWer) * 100
+                                    ResultRow(
+                                        "Accuracy Delta:",
+                                        if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
+                                        valueColor = if (werDelta >= 0) BadgeGreen else MaterialTheme.colorScheme.error,
                                     )
                                 }
                             }
+
+                            // CSV NOTE
                             Text(
-                                if (modelSupportsSpeculative) {
-                                    "Parallel candidate token prediction for higher throughput"
-                                } else {
-                                    "This model does not include speculative drafting heads"
-                                },
+                                "Saved to filesDir/benchmarks.csv and logged to Logcat (tag: SmartVoiceBenchmark).",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                             )
                         }
-                        Switch(
-                            checked = speculativeDecoding && modelSupportsSpeculative,
-                            enabled = modelSupportsSpeculative,
-                            onCheckedChange = { speculativeDecoding = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = BadgeOrange,
-                            ),
-                        )
-                    }
-
-                    Button(
-                        onClick = { runBenchmark() },
-                        enabled = !isRunning && !isPipelineRunning && selectedModel != null,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = BadgeOrange),
-                    ) {
-                        if (isRunning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.height(18.dp).width(18.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(currentStatusText.ifEmpty { "Benchmarking..." }, color = Color.White)
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Test Speed", fontWeight = FontWeight.SemiBold, color = Color.White)
-                        }
-                    }
-
-                    if (isRunning && currentProgress > 0f) {
-                        LinearProgressIndicator(
-                            progress = { currentProgress },
-                            color = BadgeOrange,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-
-                    errorMessage?.let { msg ->
-                        Text(
-                            text = msg,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                     }
                 }
-            }
-        }
 
-        // Summary Card
-        val summary = summaryResult
-        if (summary != null) {
-            item {
-                SettingsGroupCard(
-                    modifier = Modifier.border(1.dp, BadgeOrange, RoundedCornerShape(20.dp)),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                // INDIVIDUAL REPETITIONS BREAKDOWN
+                itemsIndexed(summary.repetitions) { _, rep ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
                     ) {
-                        Text(
-                            "Benchmark Summary (${summary.repsCount} reps)",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Time to First Token (TTFT):", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "%.1f ± %.1f ms".format(summary.ttftMean, summary.ttftStdDev),
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-
-                        if (summary.prefillMean > 0.0) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Prefill Speed:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    "%.1f ± %.1f tok/s".format(summary.prefillMean, summary.prefillStdDev),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val detail = when (summary.mode) {
+                                BenchmarkMode.FULL_PIPELINE ->
+                                    "Rep #${rep.repIndex}: ASR ${rep.asrWallMs}ms (RTF %.2f) | TTFT %.1fms | Dec %.1f t/s | E2E ${rep.e2eWallMs}ms"
+                                        .format(Locale.US, rep.asrRtf, rep.llmTtftMs, rep.llmDecodeTokPerSec)
+                                BenchmarkMode.ASR_ONLY ->
+                                    "Rep #${rep.repIndex}: ASR ${rep.asrWallMs}ms | RTF %.3f | WER %.1f%%"
+                                        .format(Locale.US, rep.asrRtf, rep.rawWer * 100)
+                                BenchmarkMode.LLM_ONLY ->
+                                    "Rep #${rep.repIndex}: TTFT %.1fms | Decode %.1f tok/s | Wall ${rep.llmWallMs}ms"
+                                        .format(Locale.US, rep.llmTtftMs, rep.llmDecodeTokPerSec)
                             }
-                        }
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Decode Speed:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                "%.1f ± %.1f tok/s".format(summary.decodeMean, summary.decodeStdDev),
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = BadgeOrange,
-                            )
-                        }
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Speculative Decoding (MTP):", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                if (summary.speculativeUsed) "Active" else "Disabled",
-                                fontWeight = FontWeight.Bold,
-                                color = if (summary.speculativeUsed) BadgeGreen else MaterialTheme.colorScheme.outline,
-                            )
-                        }
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Total Wall Clock:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "%.0f ± %.0f ms".format(summary.wallMsMean, summary.wallMsStdDev),
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-
-                        if (summary.peakRamMb > 0.0) {
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                thickness = 0.5.dp,
-                            )
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Peak RAM Consumption:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    "%.0f MB (+%.0f MB)".format(summary.peakRamMb, summary.deltaRamMb),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Average RAM Consumption:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    "%.0f MB".format(summary.avgRamMb),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            itemsIndexed(summary.results) { idx, rep ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(14.dp))
-                        .padding(14.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val ramPart = if (rep.peakRamMb > 0.0) " | RAM %.0f MB".format(rep.peakRamMb) else ""
-                        Text(
-                            "Rep #${rep.repIndex}: Decode %.1f tok/s | TTFT %.1f ms | Wall %d ms$ramPart".format(
-                                rep.decodeSpeed, rep.ttftMs, rep.wallMs
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        if (rep.coldLoadMs > 0) {
-                            Text(
-                                "Cold load: ${rep.coldLoadMs} ms",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                            )
-                        }
-                        if (rep.outputText.isNotBlank()) {
-                            Text(
-                                rep.outputText.trim(),
+                                detail,
                                 style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
+                            if (rep.cleanedText.isNotBlank()) {
+                                Text(
+                                    rep.cleanedText.trim(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else if (rep.rawAsrText.isNotBlank()) {
+                                Text(
+                                    rep.rawAsrText.trim(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-    }
     }
 
     if (onNavigateUp != null) {
@@ -1406,16 +796,137 @@ fun BenchmarkScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 )
-            }
+            },
         ) { innerPadding ->
             content(Modifier.padding(innerPadding))
         }
     } else {
         content(Modifier)
+    }
+}
+
+@Composable
+private fun ResultRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            color = valueColor,
+        )
+    }
+}
+
+@Composable
+private fun AudioFixtureDropdownSelector(
+    selectedFixture: BenchmarkAudioSample,
+    onFixtureSelected: (BenchmarkAudioSample) -> Unit,
+    audioPlayer: SampleAudioPlayer,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var cardWidthDp by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Benchmark Audio Sample:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedCard(
+                onClick = { expanded = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { coordinates ->
+                        cardWidthDp = with(density) { coordinates.size.width.toDp() }
+                    },
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilledTonalIconButton(
+                        onClick = { audioPlayer.playOrPause(selectedFixture.assetWavPath) },
+                        modifier = Modifier
+                            .height(36.dp)
+                            .width(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (audioPlayer.isPlaying) PauseIcon else Icons.Default.PlayArrow,
+                            contentDescription = if (audioPlayer.isPlaying) "Pause" else "Play",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            selectedFixture.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            selectedFixture.durationDesc,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Select Audio Fixture",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                BenchmarkAudioSample.FIXTURES.forEach { sample ->
+                    val isSelected = sample.id == selectedFixture.id
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(
+                                    sample.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    sample.durationDesc,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        onClick = {
+                            onFixtureSelected(sample)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1430,10 +941,10 @@ private fun RepetitionsDropdownSelector(
     val density = LocalDensity.current
 
     val repOptions = listOf(
-        1 to "1 run (Quick single test)",
+        1 to "1 run (Quick test)",
         3 to "3 runs (Fast average)",
         5 to "5 runs (Standard benchmark)",
-        10 to "10 runs (Thermal & variance check)",
+        10 to "10 runs (Thermal check)",
         20 to "20 runs (Deep stress test)",
     )
 
@@ -1466,17 +977,9 @@ private fun RepetitionsDropdownSelector(
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Text(
-                            currentDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text(currentDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Select repetitions",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Select repetitions", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -1498,11 +1001,7 @@ private fun RepetitionsDropdownSelector(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 )
-                                Text(
-                                    desc,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Text(desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -1534,12 +1033,10 @@ private fun AsrModelDropdownSelector(
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                ),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
             ) {
                 Text(
-                    text = "No ASR models are downloaded. Please go to Models page and download an ASR model.",
+                    text = "No ASR models are downloaded. Please download an ASR model in Models page.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(14.dp),
@@ -1579,17 +1076,9 @@ private fun AsrModelDropdownSelector(
                                 AsrModelType.OFFLINE_CTC -> "Offline CTC"
                                 null -> ""
                             }
-                            Text(
-                                text = badge,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                            Text(badge, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select ASR model",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Select ASR model", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -1617,11 +1106,7 @@ private fun AsrModelDropdownSelector(
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                     )
-                                    Text(
-                                        badge,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    Text(badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -1639,9 +1124,9 @@ private fun AsrModelDropdownSelector(
 @Composable
 private fun LlmModelDropdownSelector(
     label: String,
-    installedModels: List<BenchmarkLlmModel>,
-    selectedModel: BenchmarkLlmModel?,
-    onModelSelected: (BenchmarkLlmModel) -> Unit,
+    installedModels: List<LiteRtLmModelSpec>,
+    selectedModel: LiteRtLmModelSpec?,
+    onModelSelected: (LiteRtLmModelSpec) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -1654,12 +1139,10 @@ private fun LlmModelDropdownSelector(
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                ),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
             ) {
                 Text(
-                    text = "No LLM models are downloaded. Please go to Models page and download an LLM model.",
+                    text = "No LLM models are downloaded. Please download an LLM model in Models page.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(14.dp),
@@ -1692,17 +1175,10 @@ private fun LlmModelDropdownSelector(
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            Text(
-                                text = "${selectedModel?.backendName ?: ""} • ${selectedModel?.backendBadge ?: ""}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = BadgeOrange,
-                            )
+                            val badge = if (selectedModel?.supportsGpu == true) "LiteRT • GPU/CPU" else "LiteRT • CPU Only"
+                            Text(badge, style = MaterialTheme.typography.bodySmall, color = BadgeOrange)
                         }
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select LLM model",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Select LLM model", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -1715,6 +1191,7 @@ private fun LlmModelDropdownSelector(
                 ) {
                     installedModels.forEach { item ->
                         val isSelected = item.id == selectedModel?.id
+                        val badge = if (item.supportsGpu) "GPU/CPU" else "CPU Only"
                         DropdownMenuItem(
                             text = {
                                 Column {
@@ -1732,7 +1209,7 @@ private fun LlmModelDropdownSelector(
                                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                         ) {
                                             Text(
-                                                item.backendBadge,
+                                                badge,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = BadgeOrange,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -1740,7 +1217,7 @@ private fun LlmModelDropdownSelector(
                                         }
                                     }
                                     Text(
-                                        "${item.backendName} • ${item.approximateBytes / 1_000_000} MB",
+                                        "${item.approximateBytes / 1_000_000} MB",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

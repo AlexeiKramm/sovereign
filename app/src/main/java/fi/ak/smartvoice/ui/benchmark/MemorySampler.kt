@@ -1,5 +1,6 @@
 package fi.ak.smartvoice.ui.benchmark
 
+import android.os.Debug
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -9,20 +10,35 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 data class MemoryStats(
-    val baselineMb: Double,
     val peakMb: Double,
     val avgMb: Double,
-    val deltaMb: Double,
 )
 
 object ProcessMemorySnapshot {
     /**
-     * Reads current process Resident Set Size (RSS) in megabytes from `/proc/self/status`.
-     * This captures the full physical footprint (native C++ LiteRT engine, OpenCL driver buffers,
-     * mmap'd model weights, and JVM heap).
-     * Falls back to JVM heap if `/proc/self/status` is inaccessible.
+     * Reads the current app process physical RAM footprint in megabytes.
+     * Uses [android.os.Debug.MemoryInfo.totalPss] which includes CPU heap, native C++ memory,
+     * mmap'd model weights, and OpenCL/GPU DMA-BUF graphics buffers.
+     *
+     * This metric is strictly isolated to the fi.ak.smartvoice process.
+     * Falls back to /proc/self/status VmRSS or JVM heap if Debug.MemoryInfo is unavailable.
      */
-    fun getRssMb(): Double {
+    fun getProcessRamMb(): Double {
+        return try {
+            val memInfo = Debug.MemoryInfo()
+            Debug.getMemoryInfo(memInfo)
+            val pssKb = memInfo.totalPss
+            if (pssKb > 0) {
+                pssKb / 1024.0
+            } else {
+                getFallbackRssMb()
+            }
+        } catch (_: Throwable) {
+            getFallbackRssMb()
+        }
+    }
+
+    private fun getFallbackRssMb(): Double {
         return try {
             val file = File("/proc/self/status")
             if (file.canRead()) {
@@ -34,40 +50,39 @@ object ProcessMemorySnapshot {
                             break
                         }
                     }
-                    if (rssKb != null) rssKb / 1024.0 else getFallbackRssMb()
+                    if (rssKb != null) rssKb / 1024.0 else getJvmHeapMb()
                 }
             } else {
-                getFallbackRssMb()
+                getJvmHeapMb()
             }
         } catch (_: Throwable) {
-            getFallbackRssMb()
+            getJvmHeapMb()
         }
     }
 
-    private fun getFallbackRssMb(): Double {
+    private fun getJvmHeapMb(): Double {
         val rt = Runtime.getRuntime()
         return (rt.totalMemory() - rt.freeMemory()) / (1024.0 * 1024.0)
     }
 }
 
 /**
- * Periodically samples process RSS memory during benchmark runs to calculate
- * baseline, peak, and average RAM consumption.
+ * Periodically samples process Total PSS memory during benchmark runs to calculate
+ * peak and average RAM consumption.
  */
-class MemorySampler(private val intervalMs: Long = 80L) {
+class MemorySampler(private val intervalMs: Long = 100L) {
     private val samples = mutableListOf<Double>()
-    private var baselineMb: Double = 0.0
     private var job: Job? = null
 
     @Synchronized
     fun start(scope: CoroutineScope) {
         stop()
         samples.clear()
-        baselineMb = ProcessMemorySnapshot.getRssMb()
-        samples.add(baselineMb)
+        val initial = ProcessMemorySnapshot.getProcessRamMb()
+        samples.add(initial)
         job = scope.launch(Dispatchers.IO) {
             while (isActive) {
-                val current = ProcessMemorySnapshot.getRssMb()
+                val current = ProcessMemorySnapshot.getProcessRamMb()
                 synchronized(samples) {
                     samples.add(current)
                 }
@@ -78,7 +93,7 @@ class MemorySampler(private val intervalMs: Long = 80L) {
 
     @Synchronized
     fun currentPeakMb(): Double {
-        val now = ProcessMemorySnapshot.getRssMb()
+        val now = ProcessMemorySnapshot.getProcessRamMb()
         synchronized(samples) {
             samples.add(now)
             return samples.maxOrNull() ?: now
@@ -89,19 +104,16 @@ class MemorySampler(private val intervalMs: Long = 80L) {
     fun stop(): MemoryStats {
         job?.cancel()
         job = null
-        val current = ProcessMemorySnapshot.getRssMb()
+        val current = ProcessMemorySnapshot.getProcessRamMb()
         val (peak, avg) = synchronized(samples) {
             samples.add(current)
             val p = samples.maxOrNull() ?: current
             val a = if (samples.isNotEmpty()) samples.average() else current
             Pair(p, a)
         }
-        val delta = (peak - baselineMb).coerceAtLeast(0.0)
         return MemoryStats(
-            baselineMb = baselineMb,
             peakMb = peak,
             avgMb = avg,
-            deltaMb = delta,
         )
     }
 }

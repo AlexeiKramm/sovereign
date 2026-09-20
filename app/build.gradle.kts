@@ -48,6 +48,12 @@ android {
       }
     }
 
+    sourceSets {
+        getByName("main") {
+            assets.directories.add("${rootDir}/fixtures")
+        }
+    }
+
     lint {
       disable += "PropertyEscape"
     }
