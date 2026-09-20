@@ -26,7 +26,7 @@ class OnboardingModelsTest {
     @Test
     fun `presets pair the agreed models`() {
         val streaming = OnboardingModelPresets.STREAMING
-        assertEquals(AsrModels.NEMOTRON_320MS, streaming.asrModel)
+        assertEquals(AsrModels.NEMOTRON, streaming.asrModel)
         assertEquals(LiteRtLmModels.GEMMA_4_E2B, streaming.llmModel)
 
         val compact = OnboardingModelPresets.COMPACT

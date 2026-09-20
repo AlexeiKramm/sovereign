@@ -29,7 +29,7 @@ object OnboardingModelPresets {
         id = "streaming",
         title = "Best for dictation",
         description = "Text appears as you speak, with the lowest latency.",
-        asrModel = AsrModels.NEMOTRON_320MS,
+        asrModel = AsrModels.NEMOTRON,
         llmModel = LiteRtLmModels.GEMMA_4_E2B,
     )
 

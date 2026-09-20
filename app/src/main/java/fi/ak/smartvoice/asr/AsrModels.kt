@@ -57,7 +57,7 @@ object AsrModels {
     val NEMOTRON = AsrModelSpec(
         id = DEFAULT_MODEL_ID,
         label = "Nemotron 3.5 Streaming (560ms, 0.6B int8)",
-        description = "Standard streaming • Balanced accuracy & speed (~682 MB)",
+        description = "Recommended streaming • Transcribes while speaking with lowest latency (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11",
         revision = "ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
@@ -129,7 +129,7 @@ object AsrModels {
     val WHISPER_BASE = AsrModelSpec(
         id = "whisper-base",
         label = "Whisper Base (int8)",
-        description = "Multilingual • Lightweight offline model (~160 MB)",
+        description = "Compact offline • Lightweight multilingual recognizer with sub-second load (~160 MB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-base",
         revision = "bb53ee204431c90d314c1cc08d28d23e5b7927cc",
@@ -219,7 +219,7 @@ object AsrModels {
     val PARAKEET_TDT_V3 = AsrModelSpec(
         id = "parakeet-tdt-v3",
         label = "Parakeet TDT 0.6B v3 (int8)",
-        description = "Fast English dictation • High accuracy offline (~670 MB)",
+        description = "High-throughput offline • Ultra-fast English recognition at 16x–20x realtime (~670 MB)",
         type = AsrModelType.OFFLINE_TRANSDUCER,
         repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
         revision = "2bda32ec70b097a55adaa07d9a7173915b43cc78",
@@ -253,16 +253,26 @@ object AsrModels {
         ),
     )
 
+    /**
+     * The active ASR catalog offered to users. Pruned per D-055 to exactly 3 models:
+     * 1) Streaming default (Nemotron 560ms)
+     * 2) High-throughput offline (Parakeet TDT v3)
+     * 3) Compact offline (Whisper Base)
+     */
     val CATALOG: List<AsrModelSpec> = listOf(
         NEMOTRON,
-        NEMOTRON_320MS,
-        WHISPER_BASE,
-        WHISPER_SMALL,
-        WHISPER_TURBO,
         PARAKEET_TDT_V3,
+        WHISPER_BASE,
     )
 
-    fun byId(id: String): AsrModelSpec = CATALOG.firstOrNull { it.id == id } ?: NEMOTRON
+    fun byId(id: String): AsrModelSpec =
+        CATALOG.firstOrNull { it.id == id }
+            ?: when (id) {
+                NEMOTRON_320MS.id -> NEMOTRON_320MS
+                WHISPER_SMALL.id -> WHISPER_SMALL
+                WHISPER_TURBO.id -> WHISPER_TURBO
+                else -> NEMOTRON
+            }
 
     const val SAMPLE_RATE = 16_000
 }

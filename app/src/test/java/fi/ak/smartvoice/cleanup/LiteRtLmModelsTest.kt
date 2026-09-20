@@ -41,7 +41,7 @@ class LiteRtLmModelsTest {
     @Test
     fun `catalog contains Gemma 4 and Gemma 3 models`() {
         val ids = LiteRtLmModels.ALL.map { it.id }
-        assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b", "gemma-3-1b-it-qat"), ids)
+        assertEquals(listOf("gemma-4-e2b", "gemma-3-1b-it-qat"), ids)
     }
 
     @Test
@@ -70,7 +70,7 @@ class LiteRtLmModelsTest {
             LiteRtLmModels.GEMMA_4_E4B.sampling,
         )
         assertEquals(
-            SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
+            SamplingParams(temperature = 0.4, topK = 64, topP = 0.95, seed = 0),
             LiteRtLmModels.GEMMA_3_1B_QAT.sampling,
         )
     }

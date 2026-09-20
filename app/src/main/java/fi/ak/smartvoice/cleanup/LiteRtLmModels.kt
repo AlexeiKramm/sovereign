@@ -66,14 +66,15 @@ object LiteRtLmModels {
         fileName = "gemma-4-E2B-it.litertlm",
         sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
         approximateBytes = 2_588_147_712L,
-        note = "Fast on-device cleanup. Optimized for low latency and battery efficiency.",
+        note = "Recommended default • Fast on-device cleanup with GPU MTP acceleration (~2.4 GB).",
         targetHardware = "GPU / CPU",
         sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
     )
 
+    /** Obsolete: Pruned per D-055 (matches E2B quality with 3x slower throughput and 13s cold load). */
     val GEMMA_4_E4B = LiteRtLmModelSpec(
         id = "gemma-4-e4b",
-        label = "Gemma 4 E4B (it)",
+        label = "Gemma 4 E4B (it) [Pruned]",
         repository = "litert-community/gemma-4-E4B-it-litert-lm",
         fileName = "gemma-4-E4B-it.litertlm",
         sha256 = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
@@ -90,17 +91,16 @@ object LiteRtLmModels {
         fileName = "gemma3-1b-it-int4.litertlm",
         sha256 = "1325ae366d31950f137c9c357b9fa89448b176d76998180c08ceaca78bba98be",
         approximateBytes = 584_417_280L,
-        note = "Quantization-aware trained (QAT int4) 1B model. Compact and efficient (~584 MB).",
+        note = "Experimental compact • CPU-only low memory (~584 MB).",
         targetHardware = "CPU (Low memory)",
         supportsSpeculativeDecoding = false,
         supportsGpu = false,
-        sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
+        sampling = SamplingParams(temperature = 0.4, topK = 64, topP = 0.95, seed = 0),
         downloadUrlOverride = "https://huggingface.co/MiCkSoftware/Gemma3-1B-IT-LiteRT/resolve/main/gemma3-1b-it-int4.litertlm",
     )
 
     val ALL: List<LiteRtLmModelSpec> = listOf(
         GEMMA_4_E2B,
-        GEMMA_4_E4B,
         GEMMA_3_1B_QAT,
     )
 
