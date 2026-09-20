@@ -41,21 +41,25 @@ class LiteRtLmModelsTest {
     @Test
     fun `catalog contains Gemma 4 and Qwen models`() {
         val ids = LiteRtLmModels.ALL.map { it.id }
-        assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b", "qwen-3.5-0.8b"), ids)
+        assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b", "gemma-3-1b-it-qat", "qwen-3.5-0.8b", "qwen-3-0.6b"), ids)
     }
 
     @Test
     fun `speculative decoding support flags match model capabilities`() {
         assertTrue(LiteRtLmModels.GEMMA_4_E2B.supportsSpeculativeDecoding)
         assertTrue(LiteRtLmModels.GEMMA_4_E4B.supportsSpeculativeDecoding)
+        org.junit.Assert.assertFalse(LiteRtLmModels.GEMMA_3_1B_QAT.supportsSpeculativeDecoding)
         org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_5_0_8B.supportsSpeculativeDecoding)
+        org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_0_6B.supportsSpeculativeDecoding)
     }
 
     @Test
     fun `gpu support flags match model capabilities`() {
         assertTrue(LiteRtLmModels.GEMMA_4_E2B.supportsGpu)
         assertTrue(LiteRtLmModels.GEMMA_4_E4B.supportsGpu)
+        assertTrue(LiteRtLmModels.GEMMA_3_1B_QAT.supportsGpu)
         org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_5_0_8B.supportsGpu)
+        org.junit.Assert.assertFalse(LiteRtLmModels.QWEN_3_0_6B.supportsGpu)
     }
 
     @Test
@@ -70,8 +74,16 @@ class LiteRtLmModelsTest {
             LiteRtLmModels.GEMMA_4_E4B.sampling,
         )
         assertEquals(
+            SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
+            LiteRtLmModels.GEMMA_3_1B_QAT.sampling,
+        )
+        assertEquals(
             SamplingParams(temperature = 0.2, topK = 20, topP = 1.0, seed = 0),
             LiteRtLmModels.QWEN_3_5_0_8B.sampling,
+        )
+        assertEquals(
+            SamplingParams(temperature = 0.2, topK = 20, topP = 1.0, seed = 0),
+            LiteRtLmModels.QWEN_3_0_6B.sampling,
         )
     }
 
