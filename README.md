@@ -24,7 +24,7 @@ organised, and the rules. Read it before touching anything.
 | Path | What |
 |---|---|
 | `AGENTS.md` | Operating manual (read first) |
-| `docs/V1.md` | The release definition and the pre-release checklist — read this second |
+| `V1.md` | The release definition and the pre-release checklist — read this second |
 | `docs/work/` | Active and archived feature work orders (`PLAN.md` + `CHUNKS.md` per feature) |
 | `docs/DECISIONS.md` | Append-only decision log, newest at the bottom |
 | `docs/archive/` | History only: the pre-2026-09-16 decision log and the shipped UI plan |
