@@ -91,47 +91,17 @@ object LiteRtLmModels {
         sha256 = "1325ae366d31950f137c9c357b9fa89448b176d76998180c08ceaca78bba98be",
         approximateBytes = 584_417_280L,
         note = "Quantization-aware trained (QAT int4) 1B model. Compact and efficient (~584 MB).",
-        targetHardware = "GPU / CPU",
+        targetHardware = "CPU (Low memory)",
         supportsSpeculativeDecoding = false,
-        supportsGpu = true,
+        supportsGpu = false,
         sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
         downloadUrlOverride = "https://huggingface.co/MiCkSoftware/Gemma3-1B-IT-LiteRT/resolve/main/gemma3-1b-it-int4.litertlm",
-    )
-
-    val QWEN_3_5_0_8B = LiteRtLmModelSpec(
-        id = "qwen-3.5-0.8b",
-        label = "Qwen 3.5 0.8B",
-        repository = "litert-community/Qwen3.5-0.8B",
-        fileName = "Qwen3.5-0.8B_int8.litertlm",
-        sha256 = "684d4d34adf7176eb47f6026ff65c33d42584737254e5524a8d1ad62edc21b98",
-        approximateBytes = 963_184_864L,
-        note = "Text-only 0.8B model (dynamic int8, 2048 context). Low memory CPU inference.",
-        targetHardware = "CPU (Low memory)",
-        supportsSpeculativeDecoding = false,
-        supportsGpu = false,
-        sampling = SamplingParams(temperature = 0.2, topK = 20, topP = 1.0, seed = 0),
-    )
-
-    val QWEN_3_0_6B = LiteRtLmModelSpec(
-        id = "qwen-3-0.6b",
-        label = "Qwen 3 0.6B",
-        repository = "litert-community/Qwen3-0.6B",
-        fileName = "Qwen3-0.6B.litertlm",
-        sha256 = "555579ff2f4fd13379abe69c1c3ab5200f7338bc92471557f1d6614a6e5ab0b4",
-        approximateBytes = 614_236_160L,
-        note = "Ultra-compact 0.6B model (dynamic int8). Minimal memory CPU inference (~614 MB).",
-        targetHardware = "CPU (Low memory)",
-        supportsSpeculativeDecoding = false,
-        supportsGpu = false,
-        sampling = SamplingParams(temperature = 0.2, topK = 20, topP = 1.0, seed = 0),
     )
 
     val ALL: List<LiteRtLmModelSpec> = listOf(
         GEMMA_4_E2B,
         GEMMA_4_E4B,
         GEMMA_3_1B_QAT,
-        QWEN_3_5_0_8B,
-        QWEN_3_0_6B,
     )
 
     val DEFAULT: LiteRtLmModelSpec get() = ALL.first()

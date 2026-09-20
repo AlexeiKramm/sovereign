@@ -212,7 +212,7 @@ class DownloadStatusMappingTest {
             listOf(
                 asr(id = otherModel, state = DownloadRunState.RUNNING, progress = progress),
                 litert(id = "gemma-4-e2b", state = DownloadRunState.RUNNING, progress = progress),
-                litert(id = "qwen-3.5-0.8b", state = DownloadRunState.SUCCEEDED),
+                litert(id = "gemma-4-e4b", state = DownloadRunState.SUCCEEDED),
             ),
         )
 
