@@ -2,12 +2,15 @@ package fi.ak.smartvoice.ui.onboarding
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -111,6 +114,10 @@ fun OnboardingScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { viewModel.refreshDashboard() }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* proceed regardless */ }
 
     // The permission screens are Android's own: a grant is only visible on the way back.
     LifecycleResumeEffect(Unit) {
@@ -228,7 +235,14 @@ fun OnboardingScreen(
                         installedPresetIds = installedPresetIds,
                         download = download,
                         onSelect = { selectedPresetId = it.id },
-                        onDownload = { viewModel.startOnboardingDownload(selectedPreset) },
+                        onDownload = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            viewModel.startOnboardingDownload(selectedPreset)
+                        },
                         onCancel = { viewModel.cancelOnboardingDownload() },
                         onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
                         onContinue = { advance() },

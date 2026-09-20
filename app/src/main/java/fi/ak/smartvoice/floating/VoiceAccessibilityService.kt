@@ -1,14 +1,17 @@
 package fi.ak.smartvoice.floating
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import androidx.core.content.ContextCompat
 import fi.ak.smartvoice.data.AppSettings
 
 /**
@@ -32,8 +35,10 @@ class VoiceAccessibilityService : AccessibilityService() {
         instance = this
         Log.i(TAG, "VoiceAccessibilityService connected")
 
-        // Ensure overlay service is running if enabled
-        if (settings.floatingPillEnabled) {
+        // Ensure overlay service is running if enabled and mic permission is held
+        if (settings.floatingPillEnabled &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        ) {
             FloatingOverlayService.start(this)
         }
     }

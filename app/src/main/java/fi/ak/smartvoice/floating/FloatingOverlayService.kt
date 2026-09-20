@@ -386,6 +386,16 @@ class FloatingOverlayService : Service() {
         recorder = WavRecorder()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
+        val hasMic = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasMic) {
+            Log.w(TAG, "RECORD_AUDIO not granted; stopping FloatingOverlayService")
+            stopSelf()
+            return
+        }
+
         createNotificationChannel()
         startForegroundWithNotification()
 
@@ -456,14 +466,14 @@ class FloatingOverlayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Floating Dictation Pill",
-                NotificationManager.IMPORTANCE_LOW
+                "Smart Voice Service",
+                NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Allows Smart Voice dictation over any keyboard"
+                description = "Keeps the floating dictation pill active"
                 setShowBadge(false)
             }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.createNotificationChannel(channel)
         }
     }
 
@@ -481,10 +491,15 @@ class FloatingOverlayService : Service() {
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasMic) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasMic) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Failed to startForeground: missing permission", e)
+            stopSelf()
         }
     }
 
@@ -2303,6 +2318,10 @@ class FloatingOverlayService : Service() {
             private set
 
         fun start(context: Context) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "Cannot start FloatingOverlayService: RECORD_AUDIO permission not granted")
+                return
+            }
             val intent = Intent(context, FloatingOverlayService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ContextCompat.startForegroundService(context, intent)
@@ -2319,7 +2338,9 @@ class FloatingOverlayService : Service() {
         fun updateVisibility(context: Context, isKeyboardOpen: Boolean, hasEditableFocus: Boolean) {
             instance?.onKeyboardOrFocusChanged(isKeyboardOpen, hasEditableFocus) ?: run {
                 val settings = AppSettings(context)
-                if (settings.floatingPillEnabled) {
+                if (settings.floatingPillEnabled &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                ) {
                     start(context)
                 }
             }
