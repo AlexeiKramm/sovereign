@@ -96,8 +96,6 @@ class BenchmarkEngineTest {
             cleanedText = "They were now illuminated.",
             cleanedWer = 0.0,
             cleanedCer = 0.0,
-            peakRamMb = 1850.0,
-            avgRamMb = 1620.0,
             repetitions = emptyList(),
         )
 
@@ -105,8 +103,6 @@ class BenchmarkEngineTest {
         // Here we verify the summary data class integrity and metric values
         assertEquals(BenchmarkMode.FULL_PIPELINE, summary.mode)
         assertEquals(3, summary.repsCount)
-        assertEquals(1850.0, summary.peakRamMb, 0.1)
-        assertEquals(1620.0, summary.avgRamMb, 0.1)
         assertEquals(0.08, summary.rawWer, 0.001)
         assertEquals(0.0, summary.cleanedWer, 0.001)
     }

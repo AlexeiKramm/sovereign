@@ -101,7 +101,7 @@ class OfflineVadAsrEngine(
                         tokens = File(modelDirectory, spec.tokensFileName).absolutePath,
                         numThreads = numThreads,
                         provider = "cpu",
-                        modelType = "transducer",
+                        modelType = "nemo_transducer",
                     )
                 }
                 AsrModelType.OFFLINE_CTC -> {

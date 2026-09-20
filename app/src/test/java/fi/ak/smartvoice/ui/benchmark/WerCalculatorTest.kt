@@ -55,4 +55,38 @@ class WerCalculatorTest {
         assertEquals(1.0, WerCalculator.calculateWer("hello", ""), 0.0001)
         assertEquals(1.0, WerCalculator.calculateWer("", "hello"), 0.0001)
     }
+
+    @Test
+    fun `computeDiff aligns exact match correctly`() {
+        val text = "Today is a sunny day."
+        val diff = WerCalculator.computeDiff(text, text)
+        assertEquals(5, diff.size)
+        assertTrue(diff.all { it.op == DiffOp.MATCH })
+    }
+
+    @Test
+    fun `computeDiff detects substitution deletion and insertion`() {
+        val ref = "The quick brown fox jumps"
+        val hyp = "The slow brown fox really jumps"
+        val diff = WerCalculator.computeDiff(ref, hyp)
+
+        assertEquals(DiffOp.MATCH, diff[0].op)
+        assertEquals("The", diff[0].text)
+
+        assertEquals(DiffOp.SUBSTITUTION, diff[1].op)
+        assertEquals("slow", diff[1].text)
+        assertEquals("quick", diff[1].expected)
+
+        assertEquals(DiffOp.MATCH, diff[2].op)
+        assertEquals("brown", diff[2].text)
+
+        assertEquals(DiffOp.MATCH, diff[3].op)
+        assertEquals("fox", diff[3].text)
+
+        assertEquals(DiffOp.INSERTION, diff[4].op)
+        assertEquals("really", diff[4].text)
+
+        assertEquals(DiffOp.MATCH, diff[5].op)
+        assertEquals("jumps", diff[5].text)
+    }
 }

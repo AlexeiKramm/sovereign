@@ -74,4 +74,94 @@ object WerCalculator {
         }
         return prev[n]
     }
+
+    /**
+     * Computes a word-by-word alignment diff between a reference text and hypothesis text.
+     * Highlights exact matches, word substitutions, deletions (missing words), and insertions (extra words).
+     */
+    fun computeDiff(reference: String, hypothesis: String): List<DiffItem> {
+        val refWords = reference.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val hypWords = hypothesis.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+
+        if (refWords.isEmpty()) {
+            return hypWords.map { DiffItem(DiffOp.INSERTION, it) }
+        }
+        if (hypWords.isEmpty()) {
+            return refWords.map { DiffItem(DiffOp.DELETION, "", it) }
+        }
+
+        fun norm(w: String) = w.lowercase().filter { it.isLetterOrDigit() }
+
+        val m = refWords.size
+        val n = hypWords.size
+        val dp = Array(m + 1) { DoubleArray(n + 1) }
+
+        for (i in 0..m) dp[i][0] = i.toDouble()
+        for (j in 0..n) dp[0][j] = j.toDouble()
+
+        for (i in 1..m) {
+            for (j in 1..n) {
+                val r = refWords[i - 1]
+                val h = hypWords[j - 1]
+                val cost = when {
+                    r == h -> 0.0
+                    norm(r) == norm(h) -> 0.2
+                    else -> 1.0
+                }
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1.0,
+                    dp[i][j - 1] + 1.0,
+                    dp[i - 1][j - 1] + cost,
+                )
+            }
+        }
+
+        var i = m
+        var j = n
+        val result = mutableListOf<DiffItem>()
+
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0) {
+                val r = refWords[i - 1]
+                val h = hypWords[j - 1]
+                val cost = when {
+                    r == h -> 0.0
+                    norm(r) == norm(h) -> 0.2
+                    else -> 1.0
+                }
+                if (Math.abs(dp[i][j] - (dp[i - 1][j - 1] + cost)) < 1e-6) {
+                    if (r == h) {
+                        result.add(DiffItem(DiffOp.MATCH, h))
+                    } else {
+                        result.add(DiffItem(DiffOp.SUBSTITUTION, h, r))
+                    }
+                    i--
+                    j--
+                    continue
+                }
+            }
+            if (i > 0 && (j == 0 || Math.abs(dp[i][j] - (dp[i - 1][j] + 1.0)) < 1e-6)) {
+                result.add(DiffItem(DiffOp.DELETION, "", refWords[i - 1]))
+                i--
+            } else if (j > 0) {
+                result.add(DiffItem(DiffOp.INSERTION, hypWords[j - 1]))
+                j--
+            }
+        }
+
+        return result.reversed()
+    }
 }
+
+enum class DiffOp {
+    MATCH,
+    SUBSTITUTION,
+    INSERTION,
+    DELETION,
+}
+
+data class DiffItem(
+    val op: DiffOp,
+    val text: String,
+    val expected: String? = null,
+)

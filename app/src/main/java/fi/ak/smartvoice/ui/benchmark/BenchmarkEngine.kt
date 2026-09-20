@@ -141,8 +141,6 @@ data class BenchmarkSummary(
     val cleanedText: String,
     val cleanedWer: Double,
     val cleanedCer: Double,
-    val peakRamMb: Double,
-    val avgRamMb: Double,
     val repetitions: List<RepetitionMeasurement>,
 )
 
@@ -168,8 +166,7 @@ object BenchmarkCsvLogger {
         "timestamp,mode,asr_model,llm_model,compute_target,mtp,sample_name,audio_dur_sec,reps,cold_reload," +
             "cold_asr_load_ms,cold_llm_load_ms,asr_wall_mean_ms,asr_wall_std_ms,asr_rtf_mean,asr_rtf_std," +
             "llm_ttft_mean_ms,llm_ttft_std_ms,llm_prefill_mean_tps,llm_decode_mean_tps,llm_decode_std_tps," +
-            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms,raw_wer,raw_cer,cleaned_wer,cleaned_cer," +
-            "peak_ram_mb,avg_ram_mb"
+            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms,raw_wer,raw_cer,cleaned_wer,cleaned_cer"
 
     fun log(context: Context, summary: BenchmarkSummary): String {
         val isoTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
@@ -203,8 +200,6 @@ object BenchmarkCsvLogger {
             String.format(Locale.US, "%.4f", summary.rawCer),
             String.format(Locale.US, "%.4f", summary.cleanedWer),
             String.format(Locale.US, "%.4f", summary.cleanedCer),
-            String.format(Locale.US, "%.1f", summary.peakRamMb),
-            String.format(Locale.US, "%.1f", summary.avgRamMb),
         ).joinToString(",")
 
         Log.i("SmartVoiceBenchmark", "CSV: $csvLine")
@@ -235,23 +230,15 @@ class BenchmarkEngine(private val context: Context) {
         config: BenchmarkConfig,
         onProgress: (progress: Float, status: String) -> Unit,
     ): BenchmarkSummary = withContext(Dispatchers.IO) {
-        val memSampler = MemorySampler()
-        memSampler.start(this)
-
-        try {
-            when (config.mode) {
-                BenchmarkMode.FULL_PIPELINE -> runFullPipeline(config, memSampler, onProgress)
-                BenchmarkMode.ASR_ONLY -> runAsrOnly(config, memSampler, onProgress)
-                BenchmarkMode.LLM_ONLY -> runLlmOnly(config, memSampler, onProgress)
-            }
-        } finally {
-            memSampler.stop()
+        when (config.mode) {
+            BenchmarkMode.FULL_PIPELINE -> runFullPipeline(config, onProgress)
+            BenchmarkMode.ASR_ONLY -> runAsrOnly(config, onProgress)
+            BenchmarkMode.LLM_ONLY -> runLlmOnly(config, onProgress)
         }
     }
 
     private suspend fun runFullPipeline(
         config: BenchmarkConfig,
-        memSampler: MemorySampler,
         onProgress: (progress: Float, status: String) -> Unit,
     ): BenchmarkSummary {
         val asrSpec = checkNotNull(config.asrModel) { "ASR model is required for Full Pipeline" }
@@ -409,7 +396,6 @@ class BenchmarkEngine(private val context: Context) {
                 }
             }
 
-            val memStats = memSampler.stop()
             val summary = buildSummary(
                 config = config,
                 groundTruth = groundTruth,
@@ -417,7 +403,6 @@ class BenchmarkEngine(private val context: Context) {
                 initialAsrColdLoadMs = initialAsrColdLoadMs,
                 initialLlmColdLoadMs = initialLlmColdLoadMs,
                 repetitions = repetitions,
-                memStats = memStats,
             )
 
             BenchmarkCsvLogger.log(context, summary)
@@ -431,7 +416,6 @@ class BenchmarkEngine(private val context: Context) {
 
     private suspend fun runAsrOnly(
         config: BenchmarkConfig,
-        memSampler: MemorySampler,
         onProgress: (progress: Float, status: String) -> Unit,
     ): BenchmarkSummary {
         val asrSpec = checkNotNull(config.asrModel) { "ASR model is required for ASR Only mode" }
@@ -519,7 +503,6 @@ class BenchmarkEngine(private val context: Context) {
                 }
             }
 
-            val memStats = memSampler.stop()
             val summary = buildSummary(
                 config = config,
                 groundTruth = groundTruth,
@@ -527,7 +510,6 @@ class BenchmarkEngine(private val context: Context) {
                 initialAsrColdLoadMs = initialAsrColdLoadMs,
                 initialLlmColdLoadMs = 0L,
                 repetitions = repetitions,
-                memStats = memStats,
             )
 
             BenchmarkCsvLogger.log(context, summary)
@@ -540,7 +522,6 @@ class BenchmarkEngine(private val context: Context) {
 
     private suspend fun runLlmOnly(
         config: BenchmarkConfig,
-        memSampler: MemorySampler,
         onProgress: (progress: Float, status: String) -> Unit,
     ): BenchmarkSummary {
         val llmSpec = checkNotNull(config.llmModel) { "LLM model is required for LLM Only mode" }
@@ -583,31 +564,35 @@ class BenchmarkEngine(private val context: Context) {
             onProgress(0.1f, "Cold loading LLM model...")
             initialLlmColdLoadMs = loadLlm()
 
+            val prompt = config.textPrompt.ifBlank {
+                "Today is monday and we need to schedule a meeting with alex and sarah at 3pm to review the quarterly roadmap"
+            }
+
             if (!config.coldReloadEachRep) {
-                onProgress(0.15f, "Warming up LLM...")
-                persistentLlm?.clean(unit = "warmup run", context = null, variant = variant, customRules = customRules)
-            } else {
-                unloadLlm()
+                onProgress(0.2f, "Warming up LLM...")
+                val engine = checkNotNull(persistentLlm)
+                engine.clean(
+                    unit = "warmup run",
+                    context = null,
+                    variant = variant,
+                    customRules = customRules,
+                )
             }
 
             val repetitions = mutableListOf<RepetitionMeasurement>()
             val totalReps = config.repetitions
-            val prompt = config.textPrompt.ifBlank {
-                "Basically I was just thinking that we could maybe like test the model rewrite capability and see how it performs."
-            }
-
             for (rep in 1..totalReps) {
-                val repFraction = (rep.toFloat() / totalReps) * 0.8f + 0.15f
-                var llmLoad = 0L
-
-                if (config.coldReloadEachRep) {
+                val repFraction = (rep.toFloat() / totalReps) * 0.75f + 0.2f
+                var repColdLoad = 0L
+                if (config.coldReloadEachRep && rep > 1) {
                     onProgress(repFraction, "Rep $rep/$totalReps: Cold loading LLM...")
-                    llmLoad = loadLlm()
+                    repColdLoad = loadLlm()
                 }
 
-                onProgress(repFraction, "Rep $rep/$totalReps: Generating cleanup...")
+                onProgress(repFraction, "Running LLM repetition $rep/$totalReps...")
+                val engine = checkNotNull(persistentLlm)
                 val llmStart = SystemClock.elapsedRealtime()
-                val pass = persistentLlm!!.clean(
+                val pass = engine.clean(
                     unit = prompt,
                     context = null,
                     variant = variant,
@@ -622,12 +607,20 @@ class BenchmarkEngine(private val context: Context) {
                     RepetitionMeasurement(
                         repIndex = rep,
                         isCold = config.coldReloadEachRep,
-                        llmColdLoadMs = if (config.coldReloadEachRep) llmLoad else initialLlmColdLoadMs,
+                        asrColdLoadMs = 0L,
+                        llmColdLoadMs = if (rep == 1) initialLlmColdLoadMs else repColdLoad,
+                        asrWallMs = 0L,
+                        asrRtf = 0.0,
+                        rawAsrText = prompt,
+                        rawWer = 0.0,
+                        rawCer = 0.0,
                         llmTtftMs = pass.ttftMs,
                         llmPrefillTokPerSec = prefillSpeed,
                         llmDecodeTokPerSec = decodeSpeed,
                         llmWallMs = llmWallMs,
                         cleanedText = if (pass.cleaned) pass.text else prompt,
+                        cleanedWer = 0.0,
+                        cleanedCer = 0.0,
                         e2eWallMs = llmWallMs,
                     )
                 )
@@ -637,7 +630,6 @@ class BenchmarkEngine(private val context: Context) {
                 }
             }
 
-            val memStats = memSampler.stop()
             val summary = buildSummary(
                 config = config,
                 groundTruth = "",
@@ -645,7 +637,6 @@ class BenchmarkEngine(private val context: Context) {
                 initialAsrColdLoadMs = 0L,
                 initialLlmColdLoadMs = initialLlmColdLoadMs,
                 repetitions = repetitions,
-                memStats = memStats,
             )
 
             BenchmarkCsvLogger.log(context, summary)
@@ -663,7 +654,6 @@ class BenchmarkEngine(private val context: Context) {
         initialAsrColdLoadMs: Long,
         initialLlmColdLoadMs: Long,
         repetitions: List<RepetitionMeasurement>,
-        memStats: MemoryStats,
     ): BenchmarkSummary {
         val asrColdLoads = repetitions.map { it.asrColdLoadMs.toDouble() }
         val llmColdLoads = repetitions.map { it.llmColdLoadMs.toDouble() }
@@ -711,8 +701,6 @@ class BenchmarkEngine(private val context: Context) {
             cleanedText = cleanedText,
             cleanedWer = cleanedWer,
             cleanedCer = cleanedCer,
-            peakRamMb = memStats.peakMb,
-            avgRamMb = memStats.avgMb,
             repetitions = repetitions,
         )
     }

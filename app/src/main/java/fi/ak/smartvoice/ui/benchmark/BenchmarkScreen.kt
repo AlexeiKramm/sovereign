@@ -67,8 +67,12 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
@@ -637,19 +641,6 @@ fun BenchmarkScreen(
                                     "%.1f ± %.1f ms".format(Locale.US, summary.e2eWallStat.mean, summary.e2eWallStat.stdDev),
                                     valueColor = BadgeGreen,
                                 )
-                                if (summary.groundTruth.isNotBlank()) {
-                                    ResultRow(
-                                        "Final Cleaned Accuracy:",
-                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
-                                        valueColor = if (summary.cleanedWer <= summary.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
-                                    )
-                                    val werDelta = (summary.rawWer - summary.cleanedWer) * 100
-                                    ResultRow(
-                                        "Accuracy Delta vs Raw:",
-                                        if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
-                                        valueColor = if (werDelta >= 0) BadgeGreen else MaterialTheme.colorScheme.error,
-                                    )
-                                }
                             }
 
                             // 1) MODEL LOAD TIMES SECTION
@@ -702,7 +693,7 @@ fun BenchmarkScreen(
                                 }
                             }
 
-                            // 3) LLM SECTION (Speed, Latency, Decode)
+                            // 3) LLM SECTION (Speed, Latency, Decode, Cleaned Accuracy)
                             if (summary.mode != BenchmarkMode.ASR_ONLY) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
                                 SectionHeader(
@@ -729,22 +720,20 @@ fun BenchmarkScreen(
                                     "LLM Wall Time:",
                                     "%.1f ± %.1f ms".format(Locale.US, summary.llmWallStat.mean, summary.llmWallStat.stdDev),
                                 )
+                                if (summary.mode == BenchmarkMode.FULL_PIPELINE && summary.groundTruth.isNotBlank()) {
+                                    ResultRow(
+                                        "Cleaned Accuracy:",
+                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
+                                        valueColor = if (summary.cleanedWer <= summary.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
+                                    )
+                                    val werDelta = (summary.rawWer - summary.cleanedWer) * 100
+                                    ResultRow(
+                                        "Accuracy Delta vs Raw:",
+                                        if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
+                                        valueColor = if (werDelta >= 0) BadgeGreen else MaterialTheme.colorScheme.error,
+                                    )
+                                }
                             }
-
-                            // 4) PROCESS MEMORY CONSUMPTION
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
-                            SectionHeader("4. Process Memory Consumption", color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                            ResultRow(
-                                "Peak RAM (Process):",
-                                "%.0f MB".format(Locale.US, summary.peakRamMb),
-                                valueColor = MaterialTheme.colorScheme.onSurface,
-                            )
-                            ResultRow(
-                                "Average RAM (Process):",
-                                "%.0f MB".format(Locale.US, summary.avgRamMb),
-                                valueColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
 
                             // CSV NOTE
                             Text(
@@ -756,50 +745,18 @@ fun BenchmarkScreen(
                     }
                 }
 
-                // INDIVIDUAL REPETITIONS BREAKDOWN
-                itemsIndexed(summary.repetitions) { _, rep ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            val detail = when (summary.mode) {
-                                BenchmarkMode.FULL_PIPELINE ->
-                                    "Rep #${rep.repIndex}: ASR ${rep.asrWallMs}ms (RTF %.2f) | TTFT %.1fms | Dec %.1f t/s | E2E ${rep.e2eWallMs}ms"
-                                        .format(Locale.US, rep.asrRtf, rep.llmTtftMs, rep.llmDecodeTokPerSec)
-                                BenchmarkMode.ASR_ONLY ->
-                                    "Rep #${rep.repIndex}: ASR ${rep.asrWallMs}ms | RTF %.3f | WER %.1f%%"
-                                        .format(Locale.US, rep.asrRtf, rep.rawWer * 100)
-                                BenchmarkMode.LLM_ONLY ->
-                                    "Rep #${rep.repIndex}: TTFT %.1fms | Decode %.1f tok/s | Wall ${rep.llmWallMs}ms"
-                                        .format(Locale.US, rep.llmTtftMs, rep.llmDecodeTokPerSec)
-                            }
-                            Text(
-                                detail,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            if (rep.cleanedText.isNotBlank()) {
-                                Text(
-                                    rep.cleanedText.trim(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            } else if (rep.rawAsrText.isNotBlank()) {
-                                Text(
-                                    rep.rawAsrText.trim(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                // TRANSCRIPTION DIFF COMPARISON CARD (Replacing redundant repetition cards)
+                item {
+                    val displayHypothesis = if (summary.mode == BenchmarkMode.ASR_ONLY) {
+                        summary.rawAsrText
+                    } else {
+                        summary.cleanedText.ifBlank { summary.rawAsrText }
                     }
+                    TranscriptionDiffCard(
+                        groundTruth = summary.groundTruth,
+                        hypothesisText = displayHypothesis,
+                        mode = summary.mode,
+                    )
                 }
             }
         }
@@ -1260,6 +1217,171 @@ private fun LlmModelDropdownSelector(
                                 onModelSelected(item)
                                 expanded = false
                             },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranscriptionDiffCard(
+    groundTruth: String,
+    hypothesisText: String,
+    mode: BenchmarkMode,
+) {
+    SettingsGroupCard(
+        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = if (mode == BenchmarkMode.ASR_ONLY) "ASR Output vs Ground Truth" else "Cleaned Output vs Ground Truth",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            if (groundTruth.isNotBlank()) {
+                val diff = remember(groundTruth, hypothesisText) {
+                    WerCalculator.computeDiff(groundTruth, hypothesisText)
+                }
+                val errorCount = diff.count { it.op != DiffOp.MATCH }
+
+                if (errorCount == 0) {
+                    Text(
+                        text = "✓ Perfect Match (100% accurate)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = BadgeGreen,
+                    )
+                } else {
+                    val substitutions = diff.count { it.op == DiffOp.SUBSTITUTION }
+                    val deletions = diff.count { it.op == DiffOp.DELETION }
+                    val insertions = diff.count { it.op == DiffOp.INSERTION }
+                    Text(
+                        text = "Differences: $substitutions substitutions, $deletions missing, $insertions extra",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+
+                // Reference (Ground Truth) display
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                ) {
+                    Text(
+                        "Expected (Ground Truth):",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        groundTruth,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                // Annotated Cleaned / Output Text
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                ) {
+                    Text(
+                        if (mode == BenchmarkMode.ASR_ONLY) "Actual ASR Output (with corrections):" else "Actual Cleaned Output (with corrections):",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val annotatedText = remember(diff) {
+                        buildAnnotatedString {
+                            diff.forEach { item ->
+                                when (item.op) {
+                                    DiffOp.MATCH -> {
+                                        append(item.text)
+                                        append(" ")
+                                    }
+                                    DiffOp.SUBSTITUTION -> {
+                                        withStyle(
+                                            SpanStyle(
+                                                color = Color(0xFFFF5252),
+                                                textDecoration = TextDecoration.LineThrough,
+                                            )
+                                        ) {
+                                            append(item.text)
+                                        }
+                                        withStyle(
+                                            SpanStyle(
+                                                color = BadgeGreen,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        ) {
+                                            append(" [${item.expected ?: ""}] ")
+                                        }
+                                    }
+                                    DiffOp.DELETION -> {
+                                        withStyle(
+                                            SpanStyle(
+                                                color = BadgeGreen,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        ) {
+                                            append(" [missing: ${item.expected ?: ""}] ")
+                                        }
+                                    }
+                                    DiffOp.INSERTION -> {
+                                        withStyle(
+                                            SpanStyle(
+                                                color = Color(0xFFFF5252),
+                                                textDecoration = TextDecoration.LineThrough,
+                                            )
+                                        ) {
+                                            append(item.text)
+                                        }
+                                        append(" ")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = annotatedText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            } else {
+                if (hypothesisText.isNotBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                    ) {
+                        Text(
+                            "Model Output:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            hypothesisText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
