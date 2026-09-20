@@ -6,7 +6,6 @@ import android.util.Log
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.asr.LocalAsrEngine
-import fi.ak.smartvoice.asr.OfflineVadAsrEngine
 import fi.ak.smartvoice.audio.WavReader
 import fi.ak.smartvoice.cleanup.CleanupPass
 import fi.ak.smartvoice.cleanup.CleanupPrompt
@@ -273,8 +272,7 @@ class BenchmarkEngine(private val context: Context) {
             LiteRtProcessor.GPU
         }
 
-        var persistentStreamingAsr: LocalAsrEngine? = null
-        var persistentOfflineAsr: OfflineVadAsrEngine? = null
+        var persistentAsr: LocalAsrEngine? = null
         var persistentLlm: LiteRtLmCleanupEngine? = null
 
         var initialAsrColdLoadMs = 0L
@@ -282,24 +280,23 @@ class BenchmarkEngine(private val context: Context) {
 
         suspend fun loadAsr(): Long {
             val start = SystemClock.elapsedRealtime()
-            val asrDir = asrSpec.directory(context.filesDir)
-            if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
-                val engine = LocalAsrEngine(asrDir, assetManager = context.assets)
-                engine.load()
-                persistentStreamingAsr = engine
-            } else {
-                val engine = OfflineVadAsrEngine(asrDir, asrSpec, assetManager = context.assets)
-                engine.load()
-                persistentOfflineAsr = engine
+            val engine = LocalAsrEngine(
+                modelDirectory = asrSpec.directory(context.filesDir),
+                modelSpec = asrSpec,
+                assetManager = context.assets,
+            )
+            val availability = engine.load()
+            if (availability !is LocalAsrEngine.Availability.Loaded) {
+                val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: availability.toString()
+                error("ASR engine failed to load: $reason for ${asrSpec.label}")
             }
+            persistentAsr = engine
             return SystemClock.elapsedRealtime() - start
         }
 
         suspend fun unloadAsr() {
-            persistentStreamingAsr?.unload()
-            persistentStreamingAsr = null
-            persistentOfflineAsr?.unload()
-            persistentOfflineAsr = null
+            persistentAsr?.unload()
+            persistentAsr = null
         }
 
         suspend fun loadLlm(): Long {
@@ -331,7 +328,7 @@ class BenchmarkEngine(private val context: Context) {
             // Warmup pass if running warm steady-state
             if (!config.coldReloadEachRep) {
                 onProgress(0.15f, "Warming up pipeline...")
-                runSingleAsr(persistentStreamingAsr, persistentOfflineAsr, wavAudio.samples, config.audioSample.language)
+                persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
                 persistentLlm?.clean(unit = "warmup pass", context = null, variant = variant, customRules = customRules)
             } else {
                 // If coldReloadEachRep, unload now so rep 1 does a cold reload
@@ -356,9 +353,7 @@ class BenchmarkEngine(private val context: Context) {
                 onProgress(repFraction, "Rep $rep/$totalReps: Running ASR...")
                 val e2eStart = SystemClock.elapsedRealtime()
                 val asrStart = SystemClock.elapsedRealtime()
-                val rawAsr = runSingleAsr(
-                    persistentStreamingAsr,
-                    persistentOfflineAsr,
+                val rawAsr = persistentAsr!!.transcribeBuffer(
                     wavAudio.samples,
                     config.audioSample.language,
                 )
@@ -445,30 +440,28 @@ class BenchmarkEngine(private val context: Context) {
         val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
         val groundTruth = BenchmarkAudioSample.readGroundTruth(context, config.audioSample)
 
-        var persistentStreamingAsr: LocalAsrEngine? = null
-        var persistentOfflineAsr: OfflineVadAsrEngine? = null
+        var persistentAsr: LocalAsrEngine? = null
         var initialAsrColdLoadMs = 0L
 
         suspend fun loadAsr(): Long {
             val start = SystemClock.elapsedRealtime()
-            val asrDir = asrSpec.directory(context.filesDir)
-            if (asrSpec.type == AsrModelType.STREAMING_TRANSDUCER) {
-                val engine = LocalAsrEngine(asrDir, assetManager = context.assets)
-                engine.load()
-                persistentStreamingAsr = engine
-            } else {
-                val engine = OfflineVadAsrEngine(asrDir, asrSpec, assetManager = context.assets)
-                engine.load()
-                persistentOfflineAsr = engine
+            val engine = LocalAsrEngine(
+                modelDirectory = asrSpec.directory(context.filesDir),
+                modelSpec = asrSpec,
+                assetManager = context.assets,
+            )
+            val availability = engine.load()
+            if (availability !is LocalAsrEngine.Availability.Loaded) {
+                val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: availability.toString()
+                error("ASR engine failed to load: $reason for ${asrSpec.label}")
             }
+            persistentAsr = engine
             return SystemClock.elapsedRealtime() - start
         }
 
         suspend fun unloadAsr() {
-            persistentStreamingAsr?.unload()
-            persistentStreamingAsr = null
-            persistentOfflineAsr?.unload()
-            persistentOfflineAsr = null
+            persistentAsr?.unload()
+            persistentAsr = null
             System.gc()
         }
 
@@ -478,7 +471,7 @@ class BenchmarkEngine(private val context: Context) {
 
             if (!config.coldReloadEachRep) {
                 onProgress(0.15f, "Warming up ASR...")
-                runSingleAsr(persistentStreamingAsr, persistentOfflineAsr, wavAudio.samples, config.audioSample.language)
+                persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
             } else {
                 unloadAsr()
             }
@@ -497,9 +490,7 @@ class BenchmarkEngine(private val context: Context) {
 
                 onProgress(repFraction, "Rep $rep/$totalReps: Running ASR recognition...")
                 val asrStart = SystemClock.elapsedRealtime()
-                val rawAsr = runSingleAsr(
-                    persistentStreamingAsr,
-                    persistentOfflineAsr,
+                val rawAsr = persistentAsr!!.transcribeBuffer(
                     wavAudio.samples,
                     config.audioSample.language,
                 )
@@ -662,32 +653,6 @@ class BenchmarkEngine(private val context: Context) {
             return summary
         } finally {
             unloadLlm()
-        }
-    }
-
-    private fun runSingleAsr(
-        streaming: LocalAsrEngine?,
-        offline: OfflineVadAsrEngine?,
-        samples: FloatArray,
-        language: String,
-    ): String {
-        val chunkSize = 1600 // 100ms at 16kHz
-        return if (streaming != null) {
-            streaming.startSession(language = language)
-            for (i in samples.indices step chunkSize) {
-                val end = minOf(i + chunkSize, samples.size)
-                streaming.accept(samples.copyOfRange(i, end))
-            }
-            streaming.finish().trim()
-        } else if (offline != null) {
-            offline.startSession(language = language)
-            for (i in samples.indices step chunkSize) {
-                val end = minOf(i + chunkSize, samples.size)
-                offline.accept(samples.copyOfRange(i, end))
-            }
-            offline.finish().trim()
-        } else {
-            ""
         }
     }
 

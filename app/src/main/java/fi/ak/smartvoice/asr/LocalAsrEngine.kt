@@ -280,6 +280,23 @@ class LocalAsrEngine(
         return text
     }
 
+    /**
+     * Transcribes an in-memory audio sample buffer sequentially.
+     * Useful for file-based transcription and standard benchmarking fixtures.
+     */
+    fun transcribeBuffer(
+        samples: FloatArray,
+        language: String,
+        chunkSize: Int = 1600,
+    ): String {
+        startSession(language = language)
+        for (i in samples.indices step chunkSize) {
+            val end = minOf(i + chunkSize, samples.size)
+            accept(samples.copyOfRange(i, end))
+        }
+        return finish().trim()
+    }
+
     fun abort() {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             offlineEngine?.abort()

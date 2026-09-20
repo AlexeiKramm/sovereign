@@ -1064,17 +1064,10 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 val asrStart = SystemClock.elapsedRealtime()
-                withContext(asrDispatcher) {
+                val rawText = withContext(asrDispatcher) {
                     localEngine.load()
-                    localEngine.startSession(settings.language)
-                    val chunkSize = 16000 // 1 second chunks
-                    for (i in samples.indices step chunkSize) {
-                        val end = minOf(i + chunkSize, samples.size)
-                        val chunk = samples.copyOfRange(i, end)
-                        localEngine.accept(chunk)
-                    }
+                    localEngine.transcribeBuffer(samples, settings.language)
                 }
-                val rawText = withContext(asrDispatcher) { localEngine.finish().trim() }
                 val asrMs = SystemClock.elapsedRealtime() - asrStart
 
                 if (rawText.isBlank()) {

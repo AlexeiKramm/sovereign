@@ -628,42 +628,90 @@ fun BenchmarkScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
 
-                            // COLD LOAD TIMES SECTION
-                            if (summary.coldReloadEachRep) {
-                                if (summary.mode != BenchmarkMode.LLM_ONLY) {
-                                    ResultRow("ASR Cold Load:", "%.1f ± %.1f ms".format(Locale.US, summary.asrColdLoadStat.mean, summary.asrColdLoadStat.stdDev))
-                                }
-                                if (summary.mode != BenchmarkMode.ASR_ONLY) {
-                                    ResultRow("LLM Cold Load:", "%.1f ± %.1f ms".format(Locale.US, summary.llmColdLoadStat.mean, summary.llmColdLoadStat.stdDev))
-                                }
-                            } else {
-                                if (summary.initialAsrColdLoadMs > 0) {
-                                    ResultRow("ASR Cold Load:", "${summary.initialAsrColdLoadMs} ms")
-                                }
-                                if (summary.initialLlmColdLoadMs > 0) {
-                                    ResultRow("LLM Cold Load:", "${summary.initialLlmColdLoadMs} ms")
+                            // TOP-LEVEL PIPELINE OVERVIEW (When running Full Pipeline)
+                            if (summary.mode == BenchmarkMode.FULL_PIPELINE) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                                SectionHeader("Pipeline Overview", color = BadgeGreen)
+                                ResultRow(
+                                    "End-to-End Latency:",
+                                    "%.1f ± %.1f ms".format(Locale.US, summary.e2eWallStat.mean, summary.e2eWallStat.stdDev),
+                                    valueColor = BadgeGreen,
+                                )
+                                if (summary.groundTruth.isNotBlank()) {
+                                    ResultRow(
+                                        "Final Cleaned Accuracy:",
+                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
+                                        valueColor = if (summary.cleanedWer <= summary.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
+                                    )
+                                    val werDelta = (summary.rawWer - summary.cleanedWer) * 100
+                                    ResultRow(
+                                        "Accuracy Delta vs Raw:",
+                                        if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
+                                        valueColor = if (werDelta >= 0) BadgeGreen else MaterialTheme.colorScheme.error,
+                                    )
                                 }
                             }
 
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                            // 1) MODEL LOAD TIMES SECTION
+                            val showAsrLoad = (summary.coldReloadEachRep && summary.mode != BenchmarkMode.LLM_ONLY) ||
+                                    (!summary.coldReloadEachRep && summary.initialAsrColdLoadMs > 0)
+                            val showLlmLoad = (summary.coldReloadEachRep && summary.mode != BenchmarkMode.ASR_ONLY) ||
+                                    (!summary.coldReloadEachRep && summary.initialLlmColdLoadMs > 0)
 
-                            // STEADY-STATE THROUGHPUT & LATENCY SECTION
+                            if (showAsrLoad || showLlmLoad) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                                SectionHeader("1. Model Load Times")
+
+                                if (summary.coldReloadEachRep) {
+                                    if (summary.mode != BenchmarkMode.LLM_ONLY) {
+                                        ResultRow("ASR Cold Load:", "%.1f ± %.1f ms".format(Locale.US, summary.asrColdLoadStat.mean, summary.asrColdLoadStat.stdDev))
+                                    }
+                                    if (summary.mode != BenchmarkMode.ASR_ONLY) {
+                                        ResultRow("LLM Cold Load:", "%.1f ± %.1f ms".format(Locale.US, summary.llmColdLoadStat.mean, summary.llmColdLoadStat.stdDev))
+                                    }
+                                } else {
+                                    if (summary.initialAsrColdLoadMs > 0) {
+                                        ResultRow("ASR Cold Load:", "${summary.initialAsrColdLoadMs} ms")
+                                    }
+                                    if (summary.initialLlmColdLoadMs > 0) {
+                                        ResultRow("LLM Cold Load:", "${summary.initialLlmColdLoadMs} ms")
+                                    }
+                                }
+                            }
+
+                            // 2) ASR SECTION (Speed, RTF, Raw Accuracy)
                             if (summary.mode != BenchmarkMode.LLM_ONLY) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                                SectionHeader("2. ASR Performance (Speech → Text)", color = BadgeCyan)
+
                                 ResultRow(
                                     "ASR Wall Time:",
                                     "%.1f ± %.1f ms".format(Locale.US, summary.asrWallStat.mean, summary.asrWallStat.stdDev),
                                 )
                                 val speedup = if (summary.asrRtfStat.mean > 0.0) 1.0 / summary.asrRtfStat.mean else 0.0
                                 ResultRow(
-                                    "ASR Real-Time Factor (RTF):",
+                                    "Real-Time Factor (RTF):",
                                     "%.3f (%.1fx realtime)".format(Locale.US, summary.asrRtfStat.mean, speedup),
                                     valueColor = BadgeCyan,
                                 )
+                                if (summary.groundTruth.isNotBlank()) {
+                                    ResultRow(
+                                        "Raw ASR Accuracy:",
+                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.rawWer * 100, summary.rawCer * 100),
+                                    )
+                                }
                             }
 
+                            // 3) LLM SECTION (Speed, Latency, Decode)
                             if (summary.mode != BenchmarkMode.ASR_ONLY) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                                SectionHeader(
+                                    if (summary.mode == BenchmarkMode.FULL_PIPELINE) "3. LLM Cleanup Performance" else "2. LLM Cleanup Performance",
+                                    color = BadgeOrange,
+                                )
+
                                 ResultRow(
-                                    "LLM TTFT:",
+                                    "Time to First Token (TTFT):",
                                     "%.1f ± %.1f ms".format(Locale.US, summary.llmTtftStat.mean, summary.llmTtftStat.stdDev),
                                 )
                                 if (summary.llmPrefillStat.mean > 0.0) {
@@ -683,17 +731,10 @@ fun BenchmarkScreen(
                                 )
                             }
 
-                            if (summary.mode == BenchmarkMode.FULL_PIPELINE) {
-                                ResultRow(
-                                    "End-to-End Latency:",
-                                    "%.1f ± %.1f ms".format(Locale.US, summary.e2eWallStat.mean, summary.e2eWallStat.stdDev),
-                                    valueColor = BadgeGreen,
-                                )
-                            }
-
+                            // 4) PROCESS MEMORY CONSUMPTION
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                            SectionHeader("4. Process Memory Consumption", color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                            // PROCESS MEMORY CONSUMPTION
                             ResultRow(
                                 "Peak RAM (Process):",
                                 "%.0f MB".format(Locale.US, summary.peakRamMb),
@@ -704,28 +745,6 @@ fun BenchmarkScreen(
                                 "%.0f MB".format(Locale.US, summary.avgRamMb),
                                 valueColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-
-                            // ACCURACY SECTION (ASR / Pipeline)
-                            if (summary.mode != BenchmarkMode.LLM_ONLY && summary.groundTruth.isNotBlank()) {
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
-                                ResultRow(
-                                    "Raw ASR Accuracy:",
-                                    "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.rawWer * 100, summary.rawCer * 100),
-                                )
-                                if (summary.mode == BenchmarkMode.FULL_PIPELINE) {
-                                    ResultRow(
-                                        "Cleaned Accuracy:",
-                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
-                                        valueColor = if (summary.cleanedWer <= summary.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
-                                    )
-                                    val werDelta = (summary.rawWer - summary.cleanedWer) * 100
-                                    ResultRow(
-                                        "Accuracy Delta:",
-                                        if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
-                                        valueColor = if (werDelta >= 0) BadgeGreen else MaterialTheme.colorScheme.error,
-                                    )
-                                }
-                            }
 
                             // CSV NOTE
                             Text(
@@ -826,6 +845,20 @@ private fun ResultRow(
             color = valueColor,
         )
     }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    color: Color = MaterialTheme.colorScheme.primary,
+) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+    )
 }
 
 @Composable
