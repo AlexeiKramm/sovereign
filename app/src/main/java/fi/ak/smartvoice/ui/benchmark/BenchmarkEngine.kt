@@ -166,7 +166,8 @@ object BenchmarkCsvLogger {
         "timestamp,mode,asr_model,llm_model,compute_target,mtp,sample_name,audio_dur_sec,reps,cold_reload," +
             "cold_asr_load_ms,cold_llm_load_ms,asr_wall_mean_ms,asr_wall_std_ms,asr_rtf_mean,asr_rtf_std," +
             "llm_ttft_mean_ms,llm_ttft_std_ms,llm_prefill_mean_tps,llm_decode_mean_tps,llm_decode_std_tps," +
-            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms,raw_wer,raw_cer,cleaned_wer,cleaned_cer"
+            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms,raw_wer,raw_cer,cleaned_wer,cleaned_cer," +
+            "ground_truth,raw_asr_text,cleaned_text"
 
     fun log(context: Context, summary: BenchmarkSummary): String {
         val isoTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
@@ -200,9 +201,15 @@ object BenchmarkCsvLogger {
             String.format(Locale.US, "%.4f", summary.rawCer),
             String.format(Locale.US, "%.4f", summary.cleanedWer),
             String.format(Locale.US, "%.4f", summary.cleanedCer),
+            escapeCsv(summary.groundTruth),
+            escapeCsv(summary.rawAsrText),
+            escapeCsv(summary.cleanedText),
         ).joinToString(",")
 
         Log.i("SmartVoiceBenchmark", "CSV: $csvLine")
+        Log.i("SmartVoiceBenchmark", "GroundTruth: ${summary.groundTruth}")
+        Log.i("SmartVoiceBenchmark", "Raw ASR: ${summary.rawAsrText}")
+        Log.i("SmartVoiceBenchmark", "Cleaned: ${summary.cleanedText}")
 
         try {
             val file = File(context.filesDir, "benchmarks.csv")
