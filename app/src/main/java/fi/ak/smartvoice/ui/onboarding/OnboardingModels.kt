@@ -17,9 +17,9 @@ data class OnboardingModelPreset(
     val title: String,
     val description: String,
     val asrModel: AsrModelSpec,
-    val llmModel: LiteRtLmModelSpec,
+    val llmModel: LiteRtLmModelSpec? = null,
 ) {
-    val totalBytes: Long get() = asrModel.totalBytes + llmModel.approximateBytes
+    val totalBytes: Long get() = asrModel.totalBytes + (llmModel?.approximateBytes ?: 0L)
 }
 
 object OnboardingModelPresets {
@@ -28,21 +28,30 @@ object OnboardingModelPresets {
     val STREAMING = OnboardingModelPreset(
         id = "streaming",
         title = "Best for dictation",
-        description = "Text appears as you speak, with the lowest latency.",
+        description = "Text appears as you speak, with smart AI cleanup.",
         asrModel = AsrModels.NEMOTRON,
         llmModel = LiteRtLmModels.GEMMA_4_E2B,
     )
 
-    /** A smaller speech model; transcription lands when you stop talking. */
-    val COMPACT = OnboardingModelPreset(
-        id = "compact",
-        title = "Compact speech model",
-        description = "Smaller download. Text appears when you pause.",
-        asrModel = AsrModels.WHISPER_BASE,
+    /** Offline high-accuracy recogniser — fastest English transcription with Gemma cleanup. */
+    val HIGH_ACCURACY = OnboardingModelPreset(
+        id = "high_accuracy",
+        title = "High accuracy",
+        description = "Fastest offline English recognition with smart AI cleanup.",
+        asrModel = AsrModels.PARAKEET_TDT_V3,
         llmModel = LiteRtLmModels.GEMMA_4_E2B,
     )
 
-    val ALL: List<OnboardingModelPreset> = listOf(STREAMING, COMPACT)
+    /** Minimal download speech model without LLM cleanup. */
+    val COMPACT = OnboardingModelPreset(
+        id = "compact",
+        title = "Low storage & battery",
+        description = "Small download (~160 MB). Direct speech-to-text without AI cleanup.",
+        asrModel = AsrModels.WHISPER_BASE,
+        llmModel = null,
+    )
+
+    val ALL: List<OnboardingModelPreset> = listOf(STREAMING, HIGH_ACCURACY, COMPACT)
 
     fun byId(id: String?): OnboardingModelPreset = ALL.firstOrNull { it.id == id } ?: STREAMING
 }

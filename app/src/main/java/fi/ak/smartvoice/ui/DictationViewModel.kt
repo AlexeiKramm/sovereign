@@ -629,7 +629,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         OnboardingModelPresets.ALL
             .filter { preset ->
                 preset.asrModel.isInstalled(preset.asrModel.directory(app.filesDir)) &&
-                    LiteRtLmModelStore.isInstalled(app, preset.llmModel)
+                    (preset.llmModel == null || LiteRtLmModelStore.isInstalled(app, preset.llmModel))
             }
             .map { it.id }
             .toSet()
@@ -639,15 +639,28 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Queues a preset's two models as one background work item. The worker downloads the speech
-     * model and then the cleanup model, so a rotation or a process death cannot strand the second
-     * half; both become the active selection as soon as the request is accepted.
+     * Applies a preset's models to active settings: selects the ASR model, configures the LLM
+     * cleanup model if present, and sets cleanupEnabled accordingly.
+     */
+    fun applyPreset(preset: OnboardingModelPreset) {
+        selectAsrModel(preset.asrModel)
+        if (preset.llmModel != null) {
+            selectLitertModel(preset.llmModel)
+            settings.cleanupEnabled = true
+        } else {
+            settings.cleanupEnabled = false
+        }
+    }
+
+    /**
+     * Queues a preset for download. If the preset includes an LLM cleanup model, both models are
+     * fetched sequentially; otherwise only the speech model is queued. Both the models and
+     * cleanup settings become the active selection as soon as the request is accepted.
      */
     fun startOnboardingDownload(preset: OnboardingModelPreset) {
         val request = DownloadRequest.Preset(preset.id)
         if (_downloadSnapshots.value.any { it.request == request && it.isActive }) return
-        selectAsrModel(preset.asrModel)
-        selectLitertModel(preset.llmModel)
+        applyPreset(preset)
         ModelDownloads.enqueue(app, request)
     }
 

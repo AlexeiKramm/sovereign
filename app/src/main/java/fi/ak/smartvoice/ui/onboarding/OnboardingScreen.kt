@@ -245,7 +245,10 @@ fun OnboardingScreen(
                         },
                         onCancel = { viewModel.cancelOnboardingDownload() },
                         onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
-                        onContinue = { advance() },
+                        onContinue = {
+                            viewModel.applyPreset(selectedPreset)
+                            advance()
+                        },
                         onLater = { advance() },
                     )
 
@@ -651,7 +654,11 @@ private fun PresetCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "${preset.asrModel.label} + ${preset.llmModel.label}",
+                    text = if (preset.llmModel != null) {
+                        "${preset.asrModel.label} + ${preset.llmModel.label}"
+                    } else {
+                        "${preset.asrModel.label} · Speech only"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -12,9 +12,9 @@ import org.junit.Test
 class OnboardingModelsTest {
 
     @Test
-    fun `catalog offers two presets with unique ids`() {
+    fun `catalog offers three presets with unique ids`() {
         val ids = OnboardingModelPresets.ALL.map { it.id }
-        assertEquals(2, OnboardingModelPresets.ALL.size)
+        assertEquals(3, OnboardingModelPresets.ALL.size)
         assertEquals(ids.size, ids.toSet().size)
         OnboardingModelPresets.ALL.forEach { preset ->
             assertTrue(preset.title.isNotBlank())
@@ -29,25 +29,31 @@ class OnboardingModelsTest {
         assertEquals(AsrModels.NEMOTRON, streaming.asrModel)
         assertEquals(LiteRtLmModels.GEMMA_4_E2B, streaming.llmModel)
 
+        val highAccuracy = OnboardingModelPresets.HIGH_ACCURACY
+        assertEquals(AsrModels.PARAKEET_TDT_V3, highAccuracy.asrModel)
+        assertEquals(LiteRtLmModels.GEMMA_4_E2B, highAccuracy.llmModel)
+
         val compact = OnboardingModelPresets.COMPACT
         assertEquals(AsrModels.WHISPER_BASE, compact.asrModel)
-        assertEquals(LiteRtLmModels.GEMMA_4_E2B, compact.llmModel)
+        assertEquals(null, compact.llmModel)
     }
 
     @Test
-    fun `total bytes is the sum of the two models`() {
+    fun `total bytes is the sum of every stage in the preset`() {
         OnboardingModelPresets.ALL.forEach { preset ->
             assertEquals(
-                preset.asrModel.totalBytes + preset.llmModel.approximateBytes,
+                preset.asrModel.totalBytes + (preset.llmModel?.approximateBytes ?: 0L),
                 preset.totalBytes,
             )
         }
+        assertEquals(AsrModels.WHISPER_BASE.totalBytes, OnboardingModelPresets.COMPACT.totalBytes)
     }
 
     @Test
     fun `byId falls back to the first preset`() {
         assertEquals(OnboardingModelPresets.STREAMING, OnboardingModelPresets.byId(null))
         assertEquals(OnboardingModelPresets.STREAMING, OnboardingModelPresets.byId("nonsense"))
+        assertEquals(OnboardingModelPresets.HIGH_ACCURACY, OnboardingModelPresets.byId("high_accuracy"))
         assertEquals(OnboardingModelPresets.COMPACT, OnboardingModelPresets.byId("compact"))
     }
 

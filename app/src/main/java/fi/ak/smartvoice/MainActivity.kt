@@ -48,14 +48,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Asked once, at first composition: the wizard is the root until it is finished or
-            // skipped. It must not vanish mid-flow when the last permission is granted.
-            var showWizard by rememberSaveable { mutableStateOf(viewModel.shouldShowOnboarding()) }
+            val forceWizard = intent.getBooleanExtra("show_onboarding", false)
+            val initialStep = intent.getStringExtra("onboarding_step")?.let { name ->
+                runCatching { fi.ak.smartvoice.ui.onboarding.OnboardingStep.valueOf(name) }.getOrNull()
+            } ?: fi.ak.smartvoice.ui.onboarding.OnboardingStep.MICROPHONE
+
+            var showWizard by rememberSaveable { mutableStateOf(forceWizard || viewModel.shouldShowOnboarding()) }
             SmartVoiceTheme(themeMode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (showWizard) {
                         OnboardingScreen(
                             viewModel = viewModel,
+                            initialStep = initialStep,
                             onFinished = {
                                 viewModel.completeOnboarding()
                                 showWizard = false

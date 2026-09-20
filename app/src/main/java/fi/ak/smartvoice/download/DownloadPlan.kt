@@ -69,20 +69,25 @@ data class DownloadPlan(
             }
 
             is DownloadRequest.Preset -> OnboardingModelPresets.byId(request.modelId).let { preset ->
-                DownloadPlan(
-                    label = preset.title,
-                    stages = listOf(
-                        DownloadStage(
-                            label = PresetStage.SPEECH,
-                            directory = preset.asrModel.directory(context.filesDir),
-                            files = preset.asrModel.remoteFiles(),
-                        ),
+                val stages = mutableListOf(
+                    DownloadStage(
+                        label = PresetStage.SPEECH,
+                        directory = preset.asrModel.directory(context.filesDir),
+                        files = preset.asrModel.remoteFiles(),
+                    ),
+                )
+                preset.llmModel?.let { llm ->
+                    stages.add(
                         DownloadStage(
                             label = PresetStage.CLEANUP,
                             directory = LiteRtLmModelStore.getDirectory(context),
-                            files = preset.llmModel.remoteFiles(),
+                            files = llm.remoteFiles(),
                         ),
-                    ),
+                    )
+                }
+                DownloadPlan(
+                    label = preset.title,
+                    stages = stages,
                 )
             }
         }
