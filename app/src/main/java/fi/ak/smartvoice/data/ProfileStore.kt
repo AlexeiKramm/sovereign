@@ -87,6 +87,25 @@ class ProfileStore(private val filesDir: File) {
         save(current.copy(activeProfileId = newActive, customProfiles = updated))
     }
 
+    /**
+     * Atomically restores custom profiles and active profile id. Used for backup restoration.
+     */
+    @Synchronized
+    fun restoreProfiles(customProfiles: List<CleaningProfile>, activeProfileId: String) {
+        val sanitizedProfiles = customProfiles
+            .filterNot { it.isBuiltin }
+            .map { it.copy(name = it.name.trim(), rules = it.rules.trim()) }
+            .filter { it.name.isNotBlank() && it.rules.isNotBlank() }
+
+        val validActiveId = if (allProfiles().any { it.id == activeProfileId } || sanitizedProfiles.any { it.id == activeProfileId }) {
+            activeProfileId
+        } else {
+            builtinProfiles.first().id
+        }
+
+        save(ProfileData(activeProfileId = validActiveId, customProfiles = sanitizedProfiles))
+    }
+
     private fun save(data: ProfileData) {
         try {
             file.writeText(json.encodeToString(data))

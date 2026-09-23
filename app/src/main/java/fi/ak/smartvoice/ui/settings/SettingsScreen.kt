@@ -87,8 +87,10 @@ import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.Motion
 import fi.ak.smartvoice.ui.DictationViewModel
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.History
 import fi.ak.smartvoice.ui.ServerStatus
+import fi.ak.smartvoice.ui.backup.BackupScreen
 import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
@@ -111,6 +113,7 @@ enum class SettingsSubScreen {
     BENCHMARK,
     MODELS,
     TRANSCRIBE,
+    BACKUP,
     LEGACY,
 }
 
@@ -167,6 +170,14 @@ fun SettingsScreen(
             ) {
                 TranscribeHubScreen(viewModel = viewModel)
             }
+            return
+        }
+        SettingsSubScreen.BACKUP -> {
+            BackupScreen(
+                viewModel = viewModel,
+                modifier = modifier,
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+            )
             return
         }
         SettingsSubScreen.LEGACY -> {
@@ -428,6 +439,27 @@ fun SettingsScreen(
                     )
                 },
                 onClick = { currentSubScreen = SettingsSubScreen.TRANSCRIBE },
+            )
+            SettingsDivider(startIndent = 72.dp)
+            SettingsItemRow(
+                title = "Backup & Restore",
+                subtitle = "Export or restore dictionary, profiles, and settings",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.Backup,
+                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        contentDescription = "Backup and restore",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open backup and restore",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.BACKUP },
             )
         }
 

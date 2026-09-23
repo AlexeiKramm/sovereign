@@ -158,6 +158,25 @@ class DictionaryStore(private val storageDir: File) {
         save(updated)
     }
 
+    /**
+     * Atomically replaces all stored dictionary entries with [entries]. Used for backup restoration.
+     */
+    @Synchronized
+    fun replaceEntries(entries: List<DictionaryEntry>) {
+        val cleaned = entries
+            .map { entry ->
+                val trimmedCorrect = entry.correct.trim()
+                val trimmedIncorrect = entry.incorrect
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() && !it.equals(trimmedCorrect, ignoreCase = true) }
+                    .distinct()
+                DictionaryEntry(trimmedCorrect, trimmedIncorrect)
+            }
+            .filter { it.correct.isNotBlank() }
+            .sortedBy { it.correct.lowercase() }
+        save(cleaned)
+    }
+
     @Synchronized
     fun clear() {
         if (file.exists()) {

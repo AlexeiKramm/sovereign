@@ -26,10 +26,14 @@ import fi.ak.smartvoice.data.DictationRecord
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.data.DictionaryEntry
 import fi.ak.smartvoice.data.DictionaryStore
+import fi.ak.smartvoice.data.AppBackup
+import fi.ak.smartvoice.data.BackupManager
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 import fi.ak.smartvoice.download.DownloadProgress
 import fi.ak.smartvoice.download.DownloadRequest
@@ -596,6 +600,65 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun removeDictionaryCorrection(correct: String, incorrect: String) {
         dictionaryStore.removeCorrection(correct, incorrect)
         refreshDictionary()
+    }
+
+    // ------------------------------------------------------------------------
+    // Backup & Restore: single-file JSON configuration round-trip (Step S08)
+    // ------------------------------------------------------------------------
+
+    private fun getAppVersionName(): String = try {
+        app.packageManager.getPackageInfo(app.packageName, 0).versionName.orEmpty()
+    } catch (_: Exception) {
+        "dev"
+    }
+
+    fun exportBackup(outputStream: OutputStream): Result<Unit> = runCatching {
+        val backup = BackupManager.createBackup(
+            dictionaryEntries = dictionaryStore.getEntries(),
+            profileData = profileStore.load(),
+            settings = settings,
+            appVersion = getAppVersionName(),
+        )
+        BackupManager.exportToStream(outputStream, backup)
+    }
+
+    fun inspectBackup(inputStream: InputStream): Result<AppBackup> {
+        return BackupManager.importFromStream(inputStream)
+    }
+
+    fun restoreBackup(backup: AppBackup): Result<Unit> = runCatching {
+        BackupManager.restore(
+            backup = backup,
+            dictionaryStore = dictionaryStore,
+            profileStore = profileStore,
+            settings = settings,
+        )
+        refreshAllAfterRestore()
+    }
+
+    fun refreshAllAfterRestore() {
+        refreshDictionary()
+        refreshProfiles()
+        refreshHistory()
+        _themeMode.value = settings.themeMode
+        _pauseField.value = field(settings.pauseSilenceSeconds)
+        _stopField.value = field(settings.stopAfterSilenceSeconds)
+        _healingSentencesCount.value = settings.healingSentencesCount
+        _floatingPillEnabled.value = settings.floatingPillEnabled
+        _floatingPillOnlyWhenKeyboardOpen.value = settings.floatingPillOnlyWhenKeyboardOpen
+        _floatingPillAutoCommit.value = settings.floatingPillAutoCommit
+        _quickDictateOnHold.value = settings.quickDictateOnHold
+        _pillFlickFriction.value = settings.pillFlickFriction
+        _enginePreference.value = settings.enginePreference
+        _serverUrl.value = settings.serverUrl
+        _litertProcessor.value = settings.litertProcessor
+        _litertSpeculativeDecoding.value = settings.litertSpeculativeDecoding
+        _selectedAsrModel.value = settings.asrModel
+        _selectedLitertModel.value = settings.litertModel
+        _unloadOnScreenOff.value = settings.unloadOnScreenOff
+        _keepScreenOnWhileRecording.value = settings.keepScreenOnWhileRecording
+        _unloadOnKeyboardClose.value = settings.unloadOnKeyboardClose
+        _modelIdleTimeoutMinutes.value = settings.modelIdleTimeoutMinutes
     }
 
     fun refreshUsageStats() {
