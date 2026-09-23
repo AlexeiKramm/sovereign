@@ -50,6 +50,8 @@ import fi.ak.smartvoice.cleanup.SeamHealer
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
 import fi.ak.smartvoice.data.CleaningProfile
+import fi.ak.smartvoice.data.DictationHistoryStore
+import fi.ak.smartvoice.data.DictationRecord
 import fi.ak.smartvoice.data.DictionaryStore
 import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsStore
@@ -57,6 +59,7 @@ import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.engine.Engine
 import fi.ak.smartvoice.engine.ModelResidency
 import fi.ak.smartvoice.text.UtteranceFinalizer
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -96,6 +99,7 @@ class FloatingOverlayService : Service() {
     private lateinit var profileStore: ProfileStore
     private lateinit var dictionaryStore: DictionaryStore
     private lateinit var usageStatsStore: UsageStatsStore
+    private lateinit var historyStore: DictationHistoryStore
     private lateinit var recorder: WavRecorder
     private lateinit var localEngine: LocalAsrEngine
     private lateinit var localSession: LocalAsrSession
@@ -383,6 +387,7 @@ class FloatingOverlayService : Service() {
         profileStore = ProfileStore(this)
         dictionaryStore = DictionaryStore(this)
         usageStatsStore = UsageStatsStore(this)
+        historyStore = DictationHistoryStore(this)
         recorder = WavRecorder()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
@@ -1858,6 +1863,7 @@ class FloatingOverlayService : Service() {
             val toType = UtteranceFinalizer.forInsertion(textToInject)
             val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
             recordUsageStats(deliveredText = textToInject)
+            recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
             if (injected) {
                 // A cleanup failure still injects the raw words; say so rather than claim a polish.
                 showQuickResult(if (errorMessage != null) "Inserted as spoken" else "Inserted")
@@ -1940,12 +1946,13 @@ class FloatingOverlayService : Service() {
             abandonCapture()
         }
         val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
+        var injected = false
         if (textToInject.isNotBlank()) {
             // A trailing space separates this session from the next: the pill has no memory of where
             // the cursor sits between sessions, and re-dictating must not glue the new segment onto
             // this one. It comes after terminal punctuation too ("Done. ").
             val toType = UtteranceFinalizer.forInsertion(textToInject)
-            val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
+            injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
             if (!injected) {
                 // Never fail silently: the words are on the clipboard, so tell the user how to use them.
                 Log.w(TAG, "Text injected via clipboard fallback")
@@ -1953,6 +1960,7 @@ class FloatingOverlayService : Service() {
             }
         }
         recordUsageStats(deliveredText = textToInject)
+        recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
         resetToResting()
     }
 
@@ -1979,6 +1987,34 @@ class FloatingOverlayService : Service() {
             wordsRemoved = diff.wordsRemoved,
             wordsChanged = diff.wordsChanged,
             wordsAdded = diff.wordsAdded,
+        )
+    }
+
+    private fun recordHistory(deliveredText: String, insertedSuccessfully: Boolean) {
+        if (!settings.historyEnabled) return
+        val raw = rawTextAccumulator.toString().trim()
+        val cleaned = deliveredText.trim()
+        if (raw.isEmpty() && cleaned.isEmpty()) return
+
+        val diff = if (cleanupEngaged && raw.isNotEmpty()) {
+            WordDiffCalculator.calculate(rawText = raw, cleanedText = cleaned)
+        } else {
+            WordDiffCalculator.verbatim(raw.ifEmpty { cleaned })
+        }
+
+        historyStore.record(
+            record = DictationRecord(
+                id = UUID.randomUUID().toString(),
+                timestampMs = System.currentTimeMillis(),
+                durationSeconds = currentSessionSeconds(),
+                rawText = raw.ifEmpty { cleaned },
+                cleanedText = cleaned.ifEmpty { raw },
+                asrModel = settings.asrModel.label,
+                llmModel = if (cleanupEngaged) settings.litertModel.label else null,
+                wordsCleaned = diff.wordsCleaned,
+                insertedSuccessfully = insertedSuccessfully,
+            ),
+            maxCapacity = settings.historyCapacity,
         )
     }
 

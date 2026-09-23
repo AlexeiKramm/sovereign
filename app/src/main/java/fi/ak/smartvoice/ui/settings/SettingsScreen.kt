@@ -87,6 +87,7 @@ import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.Motion
 import fi.ak.smartvoice.ui.DictationViewModel
+import androidx.compose.material.icons.filled.History
 import fi.ak.smartvoice.ui.ServerStatus
 import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
 import fi.ak.smartvoice.ui.components.SettingsDivider
@@ -97,6 +98,7 @@ import fi.ak.smartvoice.ui.components.SettingsSectionHeader
 import fi.ak.smartvoice.ui.components.SettingsSliderRow
 import fi.ak.smartvoice.ui.components.SettingsToggleRow
 import fi.ak.smartvoice.ui.components.SubScreenHost
+import fi.ak.smartvoice.ui.history.HistoryScreen
 import fi.ak.smartvoice.ui.models.ModelsScreen
 import fi.ak.smartvoice.ui.stats.StatsScreen
 import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
@@ -104,6 +106,7 @@ import java.util.Locale
 
 enum class SettingsSubScreen {
     MAIN,
+    HISTORY,
     STATS,
     BENCHMARK,
     MODELS,
@@ -126,6 +129,14 @@ fun SettingsScreen(
     var currentSubScreen by remember { mutableStateOf(SettingsSubScreen.MAIN) }
 
     when (currentSubScreen) {
+        SettingsSubScreen.HISTORY -> {
+            HistoryScreen(
+                viewModel = viewModel,
+                modifier = modifier,
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+            )
+            return
+        }
         SettingsSubScreen.STATS -> {
             StatsScreen(
                 modifier = modifier,
@@ -314,6 +325,27 @@ fun SettingsScreen(
         // --- DIAGNOSTICS & TOOLS ---
         SettingsSectionHeader(title = "Diagnostics & Tools")
         SettingsGroupCard {
+            SettingsItemRow(
+                title = "Dictation History",
+                subtitle = "Review, copy, and re-insert recent dictations",
+                badge = {
+                    SettingsIconBadge(
+                        icon = Icons.Default.History,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        contentDescription = "Dictation History",
+                    )
+                },
+                trailing = {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open Dictation History",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                onClick = { currentSubScreen = SettingsSubScreen.HISTORY },
+            )
+            SettingsDivider(startIndent = 72.dp)
             SettingsItemRow(
                 title = "Usage & Battery Statistics",
                 subtitle = "Audio metrics, power draw, and transcription history",

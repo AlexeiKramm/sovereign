@@ -20,6 +20,9 @@ import fi.ak.smartvoice.cleanup.LiteRtCompatibilityTester
 import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
 import fi.ak.smartvoice.data.CleaningProfile
+import fi.ak.smartvoice.data.DictationHistoryData
+import fi.ak.smartvoice.data.DictationHistoryStore
+import fi.ak.smartvoice.data.DictationRecord
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.data.DictionaryEntry
 import fi.ak.smartvoice.data.DictionaryStore
@@ -27,6 +30,7 @@ import fi.ak.smartvoice.data.ProfileStore
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.UsageStatsStore
 import fi.ak.smartvoice.data.WordDiffCalculator
+import java.util.UUID
 import fi.ak.smartvoice.download.DownloadProgress
 import fi.ak.smartvoice.download.DownloadRequest
 import fi.ak.smartvoice.download.DownloadRunState
@@ -500,6 +504,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _usageStats = MutableStateFlow(usageStatsStore.load())
     val usageStats: StateFlow<UsageStatsData> = _usageStats.asStateFlow()
 
+    private val dictationHistoryStore = DictationHistoryStore(application)
+    private val _dictationHistory = MutableStateFlow(dictationHistoryStore.load())
+    val dictationHistory: StateFlow<DictationHistoryData> = _dictationHistory.asStateFlow()
+
+    private val _historyEnabled = MutableStateFlow(settings.historyEnabled)
+    val historyEnabled: StateFlow<Boolean> = _historyEnabled.asStateFlow()
+
     /** The shared dictionary, exposed reactively so Profiles and the pill never disagree. */
     private val _dictionaryEntries = MutableStateFlow(dictionaryStore.getEntries())
     val dictionaryEntries: StateFlow<List<DictionaryEntry>> = _dictionaryEntries.asStateFlow()
@@ -517,6 +528,31 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshUsageStats()
         refreshInstalledPresets()
         refreshDictionary()
+        refreshHistory()
+    }
+
+    fun refreshHistory() {
+        _dictationHistory.value = dictationHistoryStore.load()
+        _historyEnabled.value = settings.historyEnabled
+    }
+
+    fun setHistoryEnabled(enabled: Boolean) {
+        settings.historyEnabled = enabled
+        _historyEnabled.value = enabled
+    }
+
+    fun deleteHistoryRecord(id: String) {
+        dictationHistoryStore.delete(id)
+        refreshHistory()
+    }
+
+    fun clearHistory() {
+        dictationHistoryStore.clear()
+        refreshHistory()
+    }
+
+    fun reinsertHistoryText(text: String): Boolean {
+        return VoiceAccessibilityService.instance?.injectText(text) ?: false
     }
 
     fun refreshProfiles() {
@@ -981,6 +1017,24 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 wordsAdded = 0,
             )
 
+            if (settings.historyEnabled && text.isNotBlank()) {
+                dictationHistoryStore.record(
+                    record = DictationRecord(
+                        id = UUID.randomUUID().toString(),
+                        timestampMs = System.currentTimeMillis(),
+                        durationSeconds = audioSeconds,
+                        rawText = text,
+                        cleanedText = text,
+                        asrModel = settings.asrModel.label,
+                        llmModel = null,
+                        wordsCleaned = 0,
+                        insertedSuccessfully = false,
+                    ),
+                    maxCapacity = settings.historyCapacity,
+                )
+                refreshHistory()
+            }
+
             _state.value = DictationUiState.Done(
                 DictationOutcome(
                     text = text,
@@ -1028,6 +1082,24 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     wordsChanged = correctionsCount,
                     wordsAdded = 0,
                 )
+
+                if (settings.historyEnabled && response.text.isNotBlank()) {
+                    dictationHistoryStore.record(
+                        record = DictationRecord(
+                            id = UUID.randomUUID().toString(),
+                            timestampMs = System.currentTimeMillis(),
+                            durationSeconds = audioSeconds,
+                            rawText = response.text,
+                            cleanedText = response.text,
+                            asrModel = "Server",
+                            llmModel = null,
+                            wordsCleaned = correctionsCount,
+                            insertedSuccessfully = false,
+                        ),
+                        maxCapacity = settings.historyCapacity,
+                    )
+                    refreshHistory()
+                }
 
                 _state.value = DictationUiState.Done(
                     DictationOutcome(

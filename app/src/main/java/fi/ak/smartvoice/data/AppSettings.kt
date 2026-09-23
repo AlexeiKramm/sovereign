@@ -243,6 +243,16 @@ class AppSettings(context: Context) {
         get() = prefs.getFloat(KEY_PILL_FLICK_FRICTION, DEFAULT_PILL_FLICK_FRICTION)
         set(value) = prefs.edit { putFloat(KEY_PILL_FLICK_FRICTION, value) }
 
+    /** Whether dictation history transcripts are saved locally. Default is true. */
+    var historyEnabled: Boolean
+        get() = prefs.getBoolean(KEY_HISTORY_ENABLED, DEFAULT_HISTORY_ENABLED)
+        set(value) = prefs.edit { putBoolean(KEY_HISTORY_ENABLED, value) }
+
+    /** Maximum number of history items retained locally. Default is 50. */
+    var historyCapacity: Int
+        get() = prefs.getInt(KEY_HISTORY_CAPACITY, DEFAULT_HISTORY_CAPACITY)
+        set(value) = prefs.edit { putInt(KEY_HISTORY_CAPACITY, value) }
+
     /**
      * Where the user last left the pill, in pixels from the screen's END and BOTTOM edges
      * (the overlay window's gravity is `BOTTOM or END`). [PILL_POSITION_UNSET] means "never
@@ -303,7 +313,11 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_X = "floating_pill_x"
         private const val KEY_FLOATING_PILL_Y = "floating_pill_y"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        private const val KEY_HISTORY_ENABLED = "history_enabled"
+        private const val KEY_HISTORY_CAPACITY = "history_capacity"
 
+        const val DEFAULT_HISTORY_ENABLED = true
+        const val DEFAULT_HISTORY_CAPACITY = 50
         const val DEFAULT_FLOATING_PILL_ENABLED = true
         const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
