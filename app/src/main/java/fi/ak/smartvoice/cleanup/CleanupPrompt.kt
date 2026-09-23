@@ -47,29 +47,11 @@ object CleanupPrompt {
      */
     enum class Variant(val label: String, val rules: String) {
         /**
-         * The unified on-device cleanup profile: drops vocal fillers, repairs stutters and mid-sentence
-         * self-corrections, converts spoken numbers/times/currency into digits and symbols, and formats
-         * spoken enumerations into clean markdown bullet points.
+         * The default rewrite profile: restructures sentences and wording into clean, natural written
+         * prose while preserving the speaker's meaning and all facts.
          */
         SMART_CLEAN(
-            label = "smart clean — fillers, lists, numbers, punctuation",
-            rules = "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
-                "- Smooth out false starts, abandoned clauses, and self-corrections so sentences read cleanly and coherently.\n" +
-                "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
-                "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
-                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
-                "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
-                "- Preserve the speaker's core message, vocabulary, and tone—do not summarize, add outside facts, or rewrite into a completely different voice.",
-        ),
-
-        /**
-         * The rewrite profile: the same fixes as SMART_CLEAN, but explicitly licensed to rewrite the
-         * whole text — reorder, restructure, split or merge sentences, and replace wording — while the
-         * meaning and every fact stay identical. It exists because SMART_CLEAN's "preserve vocabulary"
-         * clause reads to a cautious model as "change almost nothing".
-         */
-        REWRITE(
-            label = "rewrite — restructure and polish",
+            label = "smart clean — restructure and polish",
             rules = "- Rewrite the whole text into clean, natural written prose: turn the rough spoken transcript into the written form it was reaching for.\n" +
                 "- You may reorder words, restructure, split, or merge sentences, and replace wording wherever it improves grammar, clarity, or flow.\n" +
                 "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
@@ -80,13 +62,51 @@ object CleanupPrompt {
                 "- Format spoken enumerations, sequences, and list items as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
                 "- Keep the meaning exactly: never add a fact, name, number, or detail that was not spoken, and never omit or merge away an idea that was.\n" +
                 "- Keep the result close to the original length; this is a rewrite, not a summary.",
+        ),
+
+        /**
+         * Conservative cleanup profile: preserves original words and phrasing. Drops vocal fillers,
+         * repairs stutters and mid-sentence self-corrections, converts spoken numbers/times/currency
+         * into digits and symbols, and formats spoken enumerations into clean markdown bullet points.
+         */
+        CONSERVATIVE(
+            label = "conservative — fillers, lists, numbers, punctuation",
+            rules = "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
+                "- Smooth out false starts, abandoned clauses, and self-corrections so sentences read cleanly and coherently.\n" +
+                "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
+                "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
+                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
+                "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
+                "- Preserve the speaker's core message, vocabulary, and tone—do not summarize, add outside facts, or rewrite into a completely different voice.",
+        ),
+
+        /**
+         * Aggressive rewrite profile: aggressively tightens and condenses into punchy, direct written
+         * prose. Ruthlessly eliminates conversational padding and rambling while preserving facts and intent.
+         */
+        AGGRESSIVE_REWRITE(
+            label = "aggressive rewrite — concise and direct",
+            rules = "- Aggressively rewrite and tighten the text into punchy, direct, professional written prose.\n" +
+                "- Ruthlessly eliminate conversational padding, rambling repetitions, throat-clearing, and verbose phrasing (e.g., \"what I really wanted to say is that basically\" -> cut straight to the point).\n" +
+                "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
+                "- Merge disjointed thoughts and boldly restructure run-on or circular spoken sentences into crisp, coherent statements.\n" +
+                "- Replace weak, passive spoken constructions with active verbs and clear, direct language.\n" +
+                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
+                "- Format spoken enumerations, sequences, and list items as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
+                "- Preserve all core facts, names, numbers, and the speaker's actual intent—never fabricate or alter substance, but do not hesitate to cut pure conversational fluff.\n" +
+                "- Prioritize brevity, clarity, and impact over keeping the original word count.",
         );
 
         companion object {
             val DEFAULT = SMART_CLEAN
+            val REWRITE: Variant get() = SMART_CLEAN
 
             fun fromId(id: String?): Variant = when (id) {
-                "rewrite" -> REWRITE
+                "aggressive_rewrite" -> AGGRESSIVE_REWRITE
+                "conservative" -> CONSERVATIVE
+                "smart_clean" -> SMART_CLEAN
+                "rewrite" -> SMART_CLEAN
+                "legacy_standard" -> CONSERVATIVE
                 else -> SMART_CLEAN
             }
         }

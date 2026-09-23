@@ -1018,7 +1018,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 ticker = viewModelScope.launch {
                     while (isActive) {
                         delay(TICK_MS)
-                        if (recorder.capturedSeconds >= 300.0) {
+                        if (recorder.capturedSeconds >= 600.0) {
                             stopAndTranscribe()
                             return@launch
                         }

@@ -47,21 +47,34 @@ class CleanupPromptTest {
         assertEquals(labels.size, labels.toSet().size)
         assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.DEFAULT)
         assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("smart_clean"))
-        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("legacy_standard"))
+        assertEquals(CleanupPrompt.Variant.CONSERVATIVE, CleanupPrompt.Variant.fromId("conservative"))
+        assertEquals(CleanupPrompt.Variant.AGGRESSIVE_REWRITE, CleanupPrompt.Variant.fromId("aggressive_rewrite"))
     }
 
     @Test
-    fun `the rewrite variant is licensed to rewrite but keeps every fact`() {
-        val rules = CleanupPrompt.Variant.REWRITE.rules
+    fun `the smart clean variant is licensed to rewrite but keeps every fact`() {
+        val rules = CleanupPrompt.Variant.SMART_CLEAN.rules
         assertTrue(rules.contains("Rewrite the whole text"))
         assertTrue(rules.contains("restructure"))
         assertTrue(rules.contains("Keep the meaning exactly"))
         assertTrue(rules.contains("not a summary"))
         assertTrue(
-            "the rewrite rules must differ from smart clean",
-            CleanupPrompt.Variant.REWRITE.rules != CleanupPrompt.Variant.SMART_CLEAN.rules,
+            "the smart clean rules must differ from conservative",
+            CleanupPrompt.Variant.SMART_CLEAN.rules != CleanupPrompt.Variant.CONSERVATIVE.rules,
         )
-        assertEquals(CleanupPrompt.Variant.REWRITE, CleanupPrompt.Variant.fromId("rewrite"))
+        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("rewrite"))
+    }
+
+    @Test
+    fun `the aggressive rewrite variant tightens text and eliminates padding`() {
+        val rules = CleanupPrompt.Variant.AGGRESSIVE_REWRITE.rules
+        assertTrue(rules.contains("Aggressively rewrite"))
+        assertTrue(rules.contains("Ruthlessly eliminate"))
+        assertTrue(rules.contains("Prioritize brevity"))
+        assertTrue(
+            "aggressive rewrite rules must differ from smart clean",
+            CleanupPrompt.Variant.AGGRESSIVE_REWRITE.rules != CleanupPrompt.Variant.SMART_CLEAN.rules,
+        )
     }
 
     @Test

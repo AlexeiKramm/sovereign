@@ -31,15 +31,22 @@ class ProfileStore(private val filesDir: File) {
         CleaningProfile(
             id = "smart_clean",
             name = "Smart Clean",
-            description = "Removes fillers, repairs self-corrections, formats lists and numbers, punctuates.",
+            description = "Rewrites into clean, natural written prose: restructures sentences and wording, keeps the meaning.",
             rules = CleanupPrompt.Variant.SMART_CLEAN.rules,
             isBuiltin = true,
         ),
         CleaningProfile(
-            id = "rewrite",
-            name = "Rewrite",
-            description = "Rewrites into clean written prose: restructures sentences and wording, keeps the meaning.",
-            rules = CleanupPrompt.Variant.REWRITE.rules,
+            id = "conservative",
+            name = "Conservative",
+            description = "Preserves original words and structure. Removes fillers, repairs self-corrections, formats lists and numbers, punctuates.",
+            rules = CleanupPrompt.Variant.CONSERVATIVE.rules,
+            isBuiltin = true,
+        ),
+        CleaningProfile(
+            id = "aggressive_rewrite",
+            name = "Agressive Rewrite",
+            description = "Aggressively tightens and condenses into punchy written prose, cutting conversational padding and redundancy.",
+            rules = CleanupPrompt.Variant.AGGRESSIVE_REWRITE.rules,
             isBuiltin = true,
         ),
     )
@@ -63,6 +70,7 @@ class ProfileStore(private val filesDir: File) {
     @Synchronized
     fun activeProfile(): CleaningProfile {
         val id = load().activeProfileId
+        if (id == "rewrite") return builtinProfiles.first { it.id == "smart_clean" }
         return allProfiles().firstOrNull { it.id == id } ?: builtinProfiles.first()
     }
 
@@ -99,6 +107,8 @@ class ProfileStore(private val filesDir: File) {
 
         val validActiveId = if (allProfiles().any { it.id == activeProfileId } || sanitizedProfiles.any { it.id == activeProfileId }) {
             activeProfileId
+        } else if (activeProfileId == "rewrite") {
+            "smart_clean"
         } else {
             builtinProfiles.first().id
         }

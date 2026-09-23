@@ -2249,8 +2249,8 @@ class FloatingOverlayService : Service() {
                     stopCapture()
                     break
                 }
-                // 3. Max recording duration ceiling (300s / 5min): a runaway guard on both paths.
-                if (recorder.capturedSeconds >= 300.0) {
+                // 3. Max recording duration ceiling (600s / 10min): a runaway guard on both paths.
+                if (recorder.capturedSeconds >= 600.0) {
                     Log.i(TAG, "Max recording duration ceiling reached")
                     stopCapture()
                     break
