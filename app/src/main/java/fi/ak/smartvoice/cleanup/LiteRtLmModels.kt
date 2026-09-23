@@ -61,7 +61,7 @@ object LiteRtLmModels {
 
     val GEMMA_4_E2B = LiteRtLmModelSpec(
         id = "gemma-4-e2b",
-        label = "Gemma 4 E2B (it)",
+        label = "Gemma4 E2B",
         repository = "litert-community/gemma-4-E2B-it-litert-lm",
         fileName = "gemma-4-E2B-it.litertlm",
         sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
@@ -74,7 +74,7 @@ object LiteRtLmModels {
     /** Obsolete: Pruned per D-055 (matches E2B quality with 3x slower throughput and 13s cold load). */
     val GEMMA_4_E4B = LiteRtLmModelSpec(
         id = "gemma-4-e4b",
-        label = "Gemma 4 E4B (it) [Pruned]",
+        label = "Gemma4 E4B [Pruned]",
         repository = "litert-community/gemma-4-E4B-it-litert-lm",
         fileName = "gemma-4-E4B-it.litertlm",
         sha256 = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
@@ -84,9 +84,10 @@ object LiteRtLmModels {
         sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
     )
 
+    /** Inactive: Pruned in favor of Gemma4 E2B default. Kept for backwards compatibility. */
     val GEMMA_3_1B_QAT = LiteRtLmModelSpec(
         id = "gemma-3-1b-it-qat",
-        label = "Gemma 3 1B (dynamic_int4 QAT)",
+        label = "Gemma 3 1B [Inactive]",
         repository = "litert-community/Gemma3-1B-IT",
         fileName = "gemma3-1b-it-int4.litertlm",
         sha256 = "1325ae366d31950f137c9c357b9fa89448b176d76998180c08ceaca78bba98be",
@@ -99,13 +100,20 @@ object LiteRtLmModels {
         downloadUrlOverride = "https://huggingface.co/MiCkSoftware/Gemma3-1B-IT-LiteRT/resolve/main/gemma3-1b-it-int4.litertlm",
     )
 
+    /**
+     * Active LiteRT-LM catalog.
+     */
     val ALL: List<LiteRtLmModelSpec> = listOf(
         GEMMA_4_E2B,
-        GEMMA_3_1B_QAT,
     )
 
     val DEFAULT: LiteRtLmModelSpec get() = ALL.first()
 
     fun byId(id: String?): LiteRtLmModelSpec =
-        ALL.firstOrNull { it.id == id } ?: DEFAULT
+        ALL.firstOrNull { it.id == id }
+            ?: when (id) {
+                GEMMA_3_1B_QAT.id -> GEMMA_3_1B_QAT
+                GEMMA_4_E4B.id -> GEMMA_4_E4B
+                else -> DEFAULT
+            }
 }

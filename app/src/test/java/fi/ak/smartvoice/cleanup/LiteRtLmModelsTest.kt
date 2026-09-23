@@ -39,9 +39,9 @@ class LiteRtLmModelsTest {
     }
 
     @Test
-    fun `catalog contains Gemma 4 and Gemma 3 models`() {
+    fun `catalog contains active Gemma 4 E2B model`() {
         val ids = LiteRtLmModels.ALL.map { it.id }
-        assertEquals(listOf("gemma-4-e2b", "gemma-3-1b-it-qat"), ids)
+        assertEquals(listOf("gemma-4-e2b"), ids)
     }
 
     @Test

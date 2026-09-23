@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -372,12 +373,16 @@ private fun HistoryRecordCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
                         text = timeFormatted,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -390,15 +395,21 @@ private fun HistoryRecordCard(
                         text = String.format(Locale.US, "%.1f s", record.durationSeconds),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     // ASR tag
-                    ModelBadge(text = record.asrModel, color = BadgeCyan)
+                    ModelBadge(text = normalizeModelBadge(record.asrModel), color = BadgeCyan)
                     // LLM tag
                     if (record.llmModel != null) {
-                        ModelBadge(text = record.llmModel, color = BadgeViolet)
+                        ModelBadge(text = normalizeModelBadge(record.llmModel), color = BadgeViolet)
                     }
                 }
             }
@@ -527,7 +538,27 @@ private fun ModelBadge(text: String, color: Color) {
             text = text,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
+    }
+}
+
+private fun normalizeModelBadge(name: String): String {
+    return when {
+        name.contains("Nemotron", ignoreCase = true) -> "Nemotron 3.5"
+        name.contains("Parakeet", ignoreCase = true) -> "Parakeet v3"
+        name.contains("Whisper", ignoreCase = true) -> {
+            if (name.contains("turbo", ignoreCase = true)) "Whisper Large Turbo"
+            else if (name.contains("small", ignoreCase = true)) "Whisper Small"
+            else "Whisper Base"
+        }
+        name.contains("Gemma", ignoreCase = true) -> {
+            if (name.contains("3", ignoreCase = true)) "Gemma 3 1B"
+            else "Gemma4 E2B"
+        }
+        else -> name.substringBefore("(").trim()
     }
 }
