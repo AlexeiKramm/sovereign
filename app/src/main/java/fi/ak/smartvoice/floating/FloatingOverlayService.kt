@@ -150,6 +150,26 @@ class FloatingOverlayService : Service() {
                 }
                 Log.i(TAG, "debug receiver set phase: $debugPillPhase")
             }
+            intent?.getStringExtra("card")?.let { cardAction ->
+                when (cardAction.uppercase()) {
+                    "OPEN", "EXPAND", "REVIEW" -> {
+                        val text = intent.getStringExtra("transcript")
+                            ?: "So the plan for this week is to finish the fixture set, then move on to the benchmark harness, and after that we can prune the model list down to the three winners before any feature work starts on the cleanup pass."
+                        previewText = text
+                        rawText = text
+                        uiState = if (intent.getStringExtra("state")?.uppercase() == "RECORDING") {
+                            FloatingUiState.RECORDING
+                        } else {
+                            FloatingUiState.REVIEW
+                        }
+                        openCard()
+                    }
+                    "CLOSE", "COLLAPSE" -> {
+                        startCardCollapse(animated = false)
+                    }
+                }
+                Log.i(TAG, "debug receiver card action: $cardAction, uiState: $uiState")
+            }
         }
     }
 

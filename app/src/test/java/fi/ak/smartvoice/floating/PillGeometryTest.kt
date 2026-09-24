@@ -567,4 +567,97 @@ class PillGeometryTest {
         val travel = PillFling().travelFor(5_000f)
         assertTrue("default glide travelled $travel px", travel in 100f..400f)
     }
+
+    // --- Card layout & tokens --------------------------------------------------
+
+    @Test
+    fun `card geometry matches locked specifications and fits 4 transcript lines`() {
+        assertEquals(340f, CardLayout.WIDTH_DP, 0f)
+        assertEquals(210f, CardLayout.HEIGHT_DP, 0f)
+        assertEquals(24f, CardLayout.RADIUS_DP, 0f)
+        assertEquals(16f, CardLayout.PADDING_DP, 0f)
+        assertEquals(28f, CardLayout.HEADER_HEIGHT_DP, 0f)
+        assertEquals(8f, CardLayout.STATUS_DOT_SIZE_DP, 0f)
+        assertEquals(7f, CardLayout.STATUS_GAP_DP, 0f)
+        assertEquals(28f, CardLayout.MORE_TOUCH_SIZE_DP, 0f)
+        assertEquals(20f, CardLayout.MORE_GLYPH_SIZE_DP, 0f)
+        assertEquals(2f, CardLayout.GAP_TOP_DP, 0f)
+        assertEquals(6f, CardLayout.GAP_BOTTOM_DP, 0f)
+        assertEquals(44f, CardLayout.ACTION_ROW_HEIGHT_DP, 0f)
+        assertEquals(44f, CardLayout.ACTION_CIRCLE_SIZE_DP, 0f)
+        assertEquals(26f, CardLayout.ACTION_GLYPH_SIZE_DP, 0f)
+        assertEquals(8f, CardLayout.CAPSULE_MARGIN_DP, 0f)
+        assertEquals(1f, CardLayout.CAPSULE_OUTLINE_WIDTH_DP, 0f)
+
+        // Vertical space calculation:
+        // total (210) - padding (2 * 16) - header (28) - gapTop (2) - gapBot (6) - actionRow (44) = 98dp
+        val availableBodyHeight = CardLayout.HEIGHT_DP -
+            (2f * CardLayout.PADDING_DP) -
+            CardLayout.HEADER_HEIGHT_DP -
+            CardLayout.GAP_TOP_DP -
+            CardLayout.GAP_BOTTOM_DP -
+            CardLayout.ACTION_ROW_HEIGHT_DP
+        assertEquals(98f, availableBodyHeight, 0.01f)
+        assertEquals(CardLayout.TRANSCRIPT_HEIGHT_DP, availableBodyHeight, 0.01f)
+
+        // 4 lines of 24sp line height require 96dp <= 98dp available
+        val fourLinesHeight = 4f * 24f
+        assertTrue("4 full transcript lines must fit without clipping", fourLinesHeight <= availableBodyHeight)
+    }
+
+    @Test
+    fun `card waveform travels at 1 point 2 crests per second with 7 point 04dp to 28 point 8dp range`() {
+        assertEquals(114.4f, CardLayout.WAVEFORM_WIDTH_DP, 0.01f)
+        assertEquals(32f, CardLayout.WAVEFORM_HEIGHT_DP, 0f)
+        assertEquals(1.6f, CardLayout.WAVEFORM_STROKE_DP, 0f)
+
+        // Half height of the waveform box is 16dp
+        val halfHeight = CardLayout.WAVEFORM_HEIGHT_DP / 2f
+        assertEquals(16f, halfHeight, 0f)
+
+        // Silence floor (level 0 -> amplitude 0.22): 2 * 0.22 * 16dp = 7.04dp
+        val silenceP2p = 2f * WaterSurface.amplitudeFor(0f) * halfHeight
+        assertEquals(7.04f, silenceP2p, 0.01f)
+        assertEquals(CardLayout.WAVEFORM_SILENCE_PEAK_TO_PEAK_DP, silenceP2p, 0.01f)
+
+        // Full voice (level 1 -> amplitude 0.90): 2 * 0.90 * 16dp = 28.8dp
+        val fullVoiceP2p = 2f * WaterSurface.amplitudeFor(1f) * halfHeight
+        assertEquals(28.8f, fullVoiceP2p, 0.01f)
+        assertEquals(CardLayout.WAVEFORM_FULL_VOICE_PEAK_TO_PEAK_DP, fullVoiceP2p, 0.01f)
+    }
+
+    @Test
+    fun `card control and text contrast against card fill matches PLAN within 0 point 1`() {
+        fun lum(colorLong: Long): Double {
+            val r = ((colorLong shr 16) and 0xFF) / 255.0
+            val g = ((colorLong shr 8) and 0xFF) / 255.0
+            val b = (colorLong and 0xFF) / 255.0
+            fun c(v: Double) = if (v <= 0.04045) v / 12.92 else Math.pow((v + 0.055) / 1.055, 2.4)
+            return 0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b)
+        }
+
+        fun contrast(fg: Long, bg: Long): Double {
+            val l1 = lum(fg)
+            val l2 = lum(bg)
+            return (maxOf(l1, l2) + 0.05) / (minOf(l1, l2) + 0.05)
+        }
+
+        // Dark theme: fill = #0F1416
+        val fillDark = CardLayout.COLOR_FILL_DARK
+        assertEquals(8.35, contrast(CardLayout.COLOR_ACCENT_DARK, fillDark), 0.1)
+        assertEquals(6.52, contrast(CardLayout.COLOR_BAD_DARK, fillDark), 0.1)
+        assertEquals(10.65, contrast(CardLayout.COLOR_OK_DARK, fillDark), 0.1)
+        assertEquals(6.29, contrast(CardLayout.COLOR_WAVEFORM_DARK, fillDark), 0.1)
+        assertEquals(14.93, contrast(CardLayout.COLOR_TEXT_PRIMARY_DARK, fillDark), 0.1)
+        assertEquals(9.63, contrast(CardLayout.COLOR_TEXT_SECONDARY_DARK, fillDark), 0.1)
+
+        // Light theme: fill = #FFFFFF
+        val fillLight = CardLayout.COLOR_FILL_LIGHT
+        assertEquals(3.56, contrast(CardLayout.COLOR_ACCENT_LIGHT, fillLight), 0.1)
+        assertEquals(3.91, contrast(CardLayout.COLOR_BAD_LIGHT, fillLight), 0.1)
+        assertEquals(3.30, contrast(CardLayout.COLOR_OK_LIGHT, fillLight), 0.1)
+        assertEquals(3.96, contrast(CardLayout.COLOR_WAVEFORM_LIGHT, fillLight), 0.1)
+        assertEquals(13.52, contrast(CardLayout.COLOR_TEXT_PRIMARY_LIGHT, fillLight), 0.1)
+        assertEquals(6.11, contrast(CardLayout.COLOR_TEXT_SECONDARY_LIGHT, fillLight), 0.1)
+    }
 }

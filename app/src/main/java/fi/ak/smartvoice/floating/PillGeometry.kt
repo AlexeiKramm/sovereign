@@ -98,6 +98,138 @@ object PillLayout {
 }
 
 /**
+ * Static dimensions and color tokens for the expanded dictation card.
+ *
+ * Deliberately free of Android and Compose types so JVM unit tests can verify layout numbers
+ * without an instrumented environment.
+ */
+object CardLayout {
+
+    /** Total width of the expanded card in dp. */
+    const val WIDTH_DP = 340f
+
+    /** Total height of the expanded card in dp. */
+    const val HEIGHT_DP = 210f
+
+    /** Corner radius of the card container in dp. */
+    const val RADIUS_DP = 24f
+
+    /** Inner padding of the card container in dp. */
+    const val PADDING_DP = 16f
+
+    /** Height of the header row in dp. */
+    const val HEADER_HEIGHT_DP = 28f
+
+    /** Diameter of the status dot in dp. */
+    const val STATUS_DOT_SIZE_DP = 8f
+
+    /** Gap between status dot and status text in dp. */
+    const val STATUS_GAP_DP = 7f
+
+    /** Touch target size of the quick settings button in dp. */
+    const val MORE_TOUCH_SIZE_DP = 28f
+
+    /** Glyph size of the quick settings more_horiz icon in dp. */
+    const val MORE_GLYPH_SIZE_DP = 20f
+
+    /** Compensated vertical gap between header and transcript in dp (locked variant C). */
+    const val GAP_TOP_DP = 2f
+
+    /** Compensated vertical gap between transcript and action row in dp (locked variant C). */
+    const val GAP_BOTTOM_DP = 6f
+
+    /** Total height of the transcript viewing area in dp (210 - 32 padding - 28 header - 2 gap - 6 gap - 44 row = 98dp). */
+    const val TRANSCRIPT_HEIGHT_DP = 98f
+
+    /** Height of the bottom action row in dp. */
+    const val ACTION_ROW_HEIGHT_DP = 44f
+
+    /** Diameter of the circular action buttons in dp. */
+    const val ACTION_CIRCLE_SIZE_DP = 44f
+
+    /** Glyph size inside the circular action buttons in dp. */
+    const val ACTION_GLYPH_SIZE_DP = 26f
+
+    /** Margin on each side of the middle capsule in dp. */
+    const val CAPSULE_MARGIN_DP = 8f
+
+    /** Outline border width of the middle capsule and outline action buttons in dp. */
+    const val CAPSULE_OUTLINE_WIDTH_DP = 1f
+
+    /** Width of the card waveform canvas in dp (44dp * 2.6). */
+    const val WAVEFORM_WIDTH_DP = 114.4f
+
+    /** Height of the card waveform canvas in dp. */
+    const val WAVEFORM_HEIGHT_DP = 32f
+
+    /** Stroke width of the card waveform in dp. */
+    const val WAVEFORM_STROKE_DP = 1.6f
+
+    /** Peak-to-peak amplitude of the card waveform at silence floor (level 0) in dp (7.04dp). */
+    const val WAVEFORM_SILENCE_PEAK_TO_PEAK_DP = 2f * 0.22f * (WAVEFORM_HEIGHT_DP / 2f)
+
+    /** Peak-to-peak amplitude of the card waveform at full voice (level 1) in dp (28.8dp). */
+    const val WAVEFORM_FULL_VOICE_PEAK_TO_PEAK_DP = 2f * 0.90f * (WAVEFORM_HEIGHT_DP / 2f)
+
+    /** Card fill color (Dark): #0F1416. */
+    const val COLOR_FILL_DARK = 0xFF0F1416L
+
+    /** Card fill color (Light): #FFFFFF. */
+    const val COLOR_FILL_LIGHT = 0xFFFFFFFFL
+
+    /** Neutral lines, control outlines, and secondary text (Dark): #BEBAB8. */
+    const val COLOR_LINE_DARK = 0xFFBEBAB8L
+
+    /** Neutral lines, control outlines, and secondary text (Light): #5C6368. */
+    const val COLOR_LINE_LIGHT = 0xFF5C6368L
+
+    /** Primary transcript text (Dark): #E9E6E4. */
+    const val COLOR_TEXT_PRIMARY_DARK = 0xFFE9E6E4L
+
+    /** Primary transcript text (Light): #2B2F31. */
+    const val COLOR_TEXT_PRIMARY_LIGHT = 0xFF2B2F31L
+
+    /** Secondary text (Dark): #BEBAB8. */
+    const val COLOR_TEXT_SECONDARY_DARK = 0xFFBEBAB8L
+
+    /** Secondary text (Light): #5C6368. */
+    const val COLOR_TEXT_SECONDARY_LIGHT = 0xFF5C6368L
+
+    /** Tertiary text (more_horiz glyph): #7F888E. */
+    const val COLOR_TEXT_TERTIARY = 0xFF7F888EL
+
+    /** Accent color (Dark): #FF9248. */
+    const val COLOR_ACCENT_DARK = 0xFFFF9248L
+
+    /** Accent color (Light): #EA580C. */
+    const val COLOR_ACCENT_LIGHT = 0xFFEA580CL
+
+    /** Accept glyph on filled button (Dark): #1A1207. */
+    const val COLOR_ACCEPT_GLYPH_DARK = 0xFF1A1207L
+
+    /** Accept glyph on filled button (Light): #FFFFFF. */
+    const val COLOR_ACCEPT_GLYPH_LIGHT = 0xFFFFFFFFL
+
+    /** Waveform color at 85% accent (Dark): #DB7F40. */
+    const val COLOR_WAVEFORM_DARK = 0xFFDB7F40L
+
+    /** Waveform color at 85% accent (Light): #D55A1A. */
+    const val COLOR_WAVEFORM_LIGHT = 0xFFD55A1AL
+
+    /** Ok / success status dot color (Dark): #4ADE80. */
+    const val COLOR_OK_DARK = 0xFF4ADE80L
+
+    /** Ok / success status dot color (Light): #16A34A. */
+    const val COLOR_OK_LIGHT = 0xFF16A34AL
+
+    /** Bad / failure reject button color (Dark): #FF6766. */
+    const val COLOR_BAD_DARK = 0xFFFF6766L
+
+    /** Bad / failure reject button color (Light): #E5484D. */
+    const val COLOR_BAD_LIGHT = 0xFFE5484DL
+}
+
+/**
  * Pure geometry for the pill: where it docks by default, and how a drag is kept on screen.
  *
  * Deliberately free of Android, `WindowManager` and Compose types so the JVM unit tests can

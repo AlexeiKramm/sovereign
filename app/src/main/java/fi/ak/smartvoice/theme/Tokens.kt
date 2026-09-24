@@ -55,6 +55,9 @@ object ColorRoles {
     val AccentDark = Color(0xFFFF9248)
     val AccentLight = Color(0xFFEA580C)
 
+    val AcceptGlyphDark = Color(0xFF1A1207)
+    val AcceptGlyphLight = Color(0xFFFFFFFF)
+
     val WaveformDark = Color(0xFFDB7F40)
     val WaveformLight = Color(0xFFD55A1A)
 
@@ -72,4 +75,12 @@ object ColorRoles {
 
     val FillDark = Color(0xFF0F1416)
     val FillLight = Color(0xFFFFFFFF)
+
+    val TextPrimaryDark = Color(0xFFE9E6E4)
+    val TextPrimaryLight = Color(0xFF2B2F31)
+
+    val TextSecondaryDark = Color(0xFFBEBAB8)
+    val TextSecondaryLight = Color(0xFF5C6368)
+
+    val TextTertiary = Color(0xFF7F888E)
 }

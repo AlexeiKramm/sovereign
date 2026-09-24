@@ -170,7 +170,7 @@ private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
  * Width of the expanded card (and of the settings view that replaces it). Internal rather than
  * private because the service needs it to compute the card's expansion geometry (`PillExpand`).
  */
-internal val CARD_WIDTH = 340.dp
+internal val CARD_WIDTH = CardLayout.WIDTH_DP.dp
 
 /**
  * Fixed height of the expanded card. The dictation view and the settings view are both exactly this
@@ -178,7 +178,7 @@ internal val CARD_WIDTH = 340.dp
  * shake, because a `WRAP_CONTENT` overlay's new bounds and its Compose content are not applied on the
  * same frame. The transcript and the settings list scroll inside this fixed box.
  */
-internal val CARD_HEIGHT = 210.dp
+internal val CARD_HEIGHT = CardLayout.HEIGHT_DP.dp
 
 /**
  * The transparent padding the overlay's `Box` adds around whichever content is showing. The window
@@ -298,6 +298,7 @@ fun FloatingDictationOverlay(
                     contentAlignment = Alignment.BottomEnd,
                 ) {
                     ExpandedCardView(
+                        darkTheme = darkTheme,
                         uiState = uiState,
                         previewText = previewText,
                         rawText = rawText,
@@ -788,6 +789,7 @@ private suspend fun AwaitPointerEventScope.awaitRelease(pointerId: PointerId) {
  */
 @Composable
 fun ExpandedCardView(
+    darkTheme: Boolean = isSystemInDarkTheme(),
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
@@ -815,7 +817,8 @@ fun ExpandedCardView(
     onWordFormSubmit: (String) -> Unit,
     onWordDismiss: () -> Unit,
 ) {
-    val scheme = MaterialTheme.colorScheme
+    val cardFill = if (darkTheme) Color(CardLayout.COLOR_FILL_DARK) else Color(CardLayout.COLOR_FILL_LIGHT)
+    val cardText = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT)
 
     Surface(
         modifier = Modifier
@@ -831,11 +834,9 @@ fun ExpandedCardView(
                 scaleY = sy
                 transformOrigin = TransformOrigin(cardGrowth.originX, cardGrowth.originY)
             }
-            .shadow(elevation = 16.dp, shape = RoundedCornerShape(Radius.lg))
-            .clip(RoundedCornerShape(Radius.lg))
-            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg)),
-        color = scheme.surfaceContainerHigh,
-        contentColor = scheme.onSurface,
+            .clip(RoundedCornerShape(CardLayout.RADIUS_DP.dp)),
+        color = cardFill,
+        contentColor = cardText,
     ) {
         AnimatedContent(
             targetState = settingsOpen,
@@ -869,6 +870,7 @@ fun ExpandedCardView(
                 )
             } else {
                 DictationCard(
+                    darkTheme = darkTheme,
                     uiState = uiState,
                     previewText = previewText,
                     rawText = rawText,
@@ -896,6 +898,7 @@ fun ExpandedCardView(
 /** The dictation side of the card: transcript, status, and the ✕ · waveform · refresh · ✓ row. */
 @Composable
 private fun DictationCard(
+    darkTheme: Boolean,
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
@@ -916,7 +919,6 @@ private fun DictationCard(
     onWordDismiss: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    val scheme = MaterialTheme.colorScheme
     val failed = errorMessage != null
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
@@ -928,32 +930,62 @@ private fun DictationCard(
     val canFixWords = uiState == FloatingUiState.REVIEW && !failed && !isProcessing &&
         displayText.isNotBlank()
     val transcriptLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
-    val transcript = remember(displayText, wordSelection, scheme.primary) {
-        highlightedTranscript(displayText, wordSelection, scheme.primary)
+    val accentColor = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT)
+    val transcript = remember(displayText, wordSelection, accentColor) {
+        highlightedTranscript(displayText, wordSelection, accentColor)
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(Spacing.lg)) {
-        // Drag grip on the left, settings on the right. Dragging the text or the buttons would fight
-        // scrolling and tapping, so only this strip moves the pill.
+    Column(modifier = Modifier.fillMaxSize().padding(CardLayout.PADDING_DP.dp)) {
+        // Header row: 28dp, status dot 8dp + gap 7dp + status text 15sp/22sp, more_horiz 20dp
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(CardLayout.HEADER_HEIGHT_DP.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // The card is not draggable (the pill is dragged before it expands), so the header is
-            // just a spacer that pushes the quick-settings button to the end.
-            Spacer(modifier = Modifier.weight(1f))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+            ) {
+                val dotColor = if (failed) {
+                    if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT)
+                } else {
+                    if (darkTheme) Color(CardLayout.COLOR_OK_DARK) else Color(CardLayout.COLOR_OK_LIGHT)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(CardLayout.STATUS_DOT_SIZE_DP.dp)
+                        .clip(CircleShape)
+                        .background(dotColor),
+                )
+                Spacer(modifier = Modifier.width(CardLayout.STATUS_GAP_DP.dp))
+                val statusTitle = when {
+                    failed -> "Error"
+                    isProcessing -> "Polishing…"
+                    uiState == FloatingUiState.RECORDING -> "Listening…"
+                    displayText.isNotBlank() -> "Review"
+                    else -> "Tap to speak"
+                }
+                Text(
+                    text = statusTitle,
+                    color = if (darkTheme) Color(CardLayout.COLOR_TEXT_SECONDARY_DARK) else Color(CardLayout.COLOR_TEXT_SECONDARY_LIGHT),
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp,
+                )
+            }
             Icon(
                 imageVector = Icons.Default.MoreHoriz,
                 contentDescription = "Quick settings",
-                tint = scheme.onSurfaceVariant,
+                tint = Color(CardLayout.COLOR_TEXT_TERTIARY),
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(CardLayout.MORE_TOUCH_SIZE_DP.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onOpenSettings),
+                    .clickable(onClick = onOpenSettings)
+                    .padding(4.dp), // 20dp glyph inside 28dp touch area
             )
         }
 
-        Spacer(modifier = Modifier.height(Spacing.sm))
+        Spacer(modifier = Modifier.height(CardLayout.GAP_TOP_DP.dp))
 
         if (wordForm != null) {
             // A word action's form takes the whole body: a field and its buttons do not fit beside
@@ -983,17 +1015,10 @@ private fun DictationCard(
                         .fillMaxSize()
                         .verticalScroll(scrollState),
                 ) {
-                    if (displayText.isBlank() && !isProcessing) {
-                        Text(
-                            text = if (uiState == FloatingUiState.RECORDING) "Listening…" else "Tap to speak",
-                            color = scheme.onSurfaceVariant,
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp,
-                        )
-                    } else {
+                    if (displayText.isNotBlank()) {
                         Text(
                             text = transcript,
-                            color = scheme.onSurface,
+                            color = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
                             lineHeight = 24.sp,
@@ -1035,18 +1060,18 @@ private fun DictationCard(
             }
 
             if (failed) {
-                Spacer(modifier = Modifier.height(Spacing.sm))
+                Spacer(modifier = Modifier.height(Spacing.xs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Warning,
                         contentDescription = null,
-                        tint = scheme.error,
+                        tint = if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT),
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(modifier = Modifier.width(Spacing.xs))
                     Text(
                         text = errorMessage.orEmpty(),
-                        color = scheme.error,
+                        color = if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT),
                         fontSize = 12.sp,
                     )
                 }
@@ -1056,107 +1081,127 @@ private fun DictationCard(
                 Spacer(modifier = Modifier.height(Spacing.xs))
                 Text(
                     text = statusNote,
-                    color = scheme.primary,
+                    color = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT),
                     fontSize = 11.sp,
                 )
             }
 
-            Spacer(modifier = Modifier.height(Spacing.md))
+            Spacer(modifier = Modifier.height(CardLayout.GAP_BOTTOM_DP.dp))
 
             // Action row: cancel · waveform/state · reprocess · commit.
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(CardLayout.ACTION_ROW_HEIGHT_DP.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
+                // Reject (cancel)
                 CircleAction(
                     icon = Icons.Default.Close,
                     description = "Cancel dictation",
-                    container = scheme.surfaceContainerHighest,
-                    content = scheme.onSurfaceVariant,
+                    filled = false,
+                    color = if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT),
                     onClick = onCancel,
                 )
 
+                // Middle capsule
                 Surface(
                     modifier = Modifier
-                        .height(44.dp)
+                        .height(CardLayout.ACTION_ROW_HEIGHT_DP.dp)
                         .weight(1f)
-                        .padding(horizontal = Spacing.sm)
-                        .clip(RoundedCornerShape(22.dp))
+                        .padding(horizontal = CardLayout.CAPSULE_MARGIN_DP.dp)
+                        .clip(CircleShape)
+                        .border(
+                            width = CardLayout.CAPSULE_OUTLINE_WIDTH_DP.dp,
+                            color = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT),
+                            shape = CircleShape,
+                        )
                         .clickable(enabled = !isProcessing, onClick = onToggleRecording),
-                    color = scheme.primaryContainer,
-                    contentColor = scheme.onPrimaryContainer,
+                    color = Color.Transparent,
+                    contentColor = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = Spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
                     ) {
                         when {
                             isProcessing -> {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = scheme.onPrimaryContainer,
-                                )
-                                Spacer(modifier = Modifier.width(Spacing.sm))
-                                Text(
-                                    text = "Polishing…",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT),
+                                    )
+                                    Spacer(modifier = Modifier.width(Spacing.sm))
+                                    Text(
+                                        text = "Polishing…",
+                                        color = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+
+                            uiState == FloatingUiState.RECORDING -> {
+                                CardWaveform(
+                                    audioLevel = audioLevel,
+                                    color = if (darkTheme) Color(CardLayout.COLOR_WAVEFORM_DARK) else Color(CardLayout.COLOR_WAVEFORM_LIGHT),
+                                    modifier = Modifier.size(
+                                        width = CardLayout.WAVEFORM_WIDTH_DP.dp,
+                                        height = CardLayout.WAVEFORM_HEIGHT_DP.dp,
+                                    ),
                                 )
                             }
 
-                            uiState == FloatingUiState.RECORDING -> WaterSurfaceWave(
-                                audioLevel = audioLevel,
-                                // Error: the surface darkens instead of going silent.
-                                color = if (failed) {
-                                    scheme.onPrimaryContainer.copy(alpha = 0.35f)
-                                } else {
-                                    scheme.onPrimaryContainer
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(32.dp),
-                            )
-
                             else -> {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(modifier = Modifier.width(Spacing.xs))
-                                Text(
-                                    text = "Speak again",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT),
+                                    )
+                                    Spacer(modifier = Modifier.width(Spacing.xs))
+                                    Text(
+                                        text = "Speak again",
+                                        color = if (darkTheme) Color(CardLayout.COLOR_TEXT_SECONDARY_DARK) else Color(CardLayout.COLOR_TEXT_SECONDARY_LIGHT),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
+                // Refresh (reprocess)
+                val refreshColor = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT)
                 CircleAction(
                     icon = Icons.Default.Refresh,
                     description = "Reprocess full text with AI",
-                    container = scheme.surfaceContainerHighest,
-                    content = if (!isProcessing && rawText.isNotBlank()) {
-                        scheme.primary
-                    } else {
-                        scheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    },
+                    filled = false,
+                    color = if (!isProcessing && rawText.isNotBlank()) refreshColor else refreshColor.copy(alpha = 0.4f),
                     enabled = !isProcessing && rawText.isNotBlank(),
                     onClick = onReprocess,
                 )
 
-                Spacer(modifier = Modifier.width(Spacing.sm))
+                Spacer(modifier = Modifier.width(CardLayout.CAPSULE_MARGIN_DP.dp))
 
+                // Accept (commit)
+                val acceptAccent = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT)
+                val acceptGlyph = if (darkTheme) Color(CardLayout.COLOR_ACCEPT_GLYPH_DARK) else Color(CardLayout.COLOR_ACCEPT_GLYPH_LIGHT)
                 CircleAction(
                     icon = Icons.Default.Check,
                     description = "Insert text",
-                    container = scheme.primary,
-                    content = scheme.onPrimary,
+                    filled = true,
+                    containerColor = acceptAccent,
+                    contentColor = acceptGlyph,
                     enabled = previewText.isNotBlank() || rawText.isNotBlank(),
                     onClick = onCommit,
                 )
@@ -1343,27 +1388,89 @@ private fun WordFixForm(
 private fun CircleAction(
     icon: ImageVector,
     description: String,
-    container: Color,
-    content: Color,
+    filled: Boolean,
+    color: Color = Color.Unspecified,
+    containerColor: Color = Color.Transparent,
+    contentColor: Color = Color.Unspecified,
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
+    val finalContainer = if (filled) containerColor else Color.Transparent
+    val finalContent = if (filled) contentColor else color
+    val borderModifier = if (filled) {
+        Modifier
+    } else {
+        Modifier.border(
+            width = CardLayout.CAPSULE_OUTLINE_WIDTH_DP.dp,
+            color = color,
+            shape = CircleShape,
+        )
+    }
+
     Surface(
         modifier = Modifier
-            .size(44.dp)
+            .size(CardLayout.ACTION_CIRCLE_SIZE_DP.dp)
             .clip(CircleShape)
+            .then(borderModifier)
             .clickable(enabled = enabled, onClick = onClick),
-        color = container,
-        contentColor = content,
+        color = finalContainer,
+        contentColor = finalContent,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = icon,
                 contentDescription = description,
-                modifier = Modifier.size(20.dp),
-                tint = content,
+                modifier = Modifier.size(CardLayout.ACTION_GLYPH_SIZE_DP.dp),
+                tint = finalContent,
             )
         }
+    }
+}
+
+/**
+ * The card waveform: travels at 1.2 crests/s (7.5398 rad/s) and follows the mic level,
+ * ranging from 7.04dp peak-to-peak at silence floor to 28.8dp at full voice, in a 32dp container.
+ */
+@Composable
+private fun CardWaveform(
+    audioLevel: () -> Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val phase = remember { mutableFloatStateOf(0f) }
+    val stagedLevel = remember { mutableFloatStateOf(0f) }
+    val fastLevel = remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+            lastNanos = nowNanos
+
+            // Perceptual level (dB window), followed by two-pole filter (0.08s attack / 0.30s release)
+            val target = VoiceLevel.perceptual(audioLevel())
+            val tau = (if (target > stagedLevel.floatValue) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
+                TWO_POLE_CORRECTION
+            val follow = 1f - exp(-dtSeconds / tau)
+            stagedLevel.floatValue += (target - stagedLevel.floatValue) * follow
+            fastLevel.floatValue += (stagedLevel.floatValue - fastLevel.floatValue) * follow
+
+            // Constant phase speed 7.5398 rad/s (1.2 crests/s)
+            phase.floatValue = (phase.floatValue + dtSeconds * WaterSurface.OMEGA_RECORDING) % TWO_PI
+        }
+    }
+
+    Canvas(modifier) {
+        drawWaterSurface(
+            values = WaterSurface.samples(
+                phase = phase.floatValue,
+                amplitude = WaterSurface.amplitudeFor(fastLevel.floatValue),
+            ),
+            color = color,
+            strokeWidth = CardLayout.WAVEFORM_STROKE_DP.dp,
+            glowAlpha = 0f,
+        )
     }
 }
 
