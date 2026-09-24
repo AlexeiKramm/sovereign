@@ -1,17 +1,13 @@
 package fi.ak.smartvoice.floating
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -186,10 +182,6 @@ internal val CARD_HEIGHT = 210.dp
  */
 internal val OVERLAY_INSET = 8.dp
 
-/** The resting pill's waveform, and therefore the resting pill's whole content. */
-private val RESTING_WAVE_WIDTH = 34.dp
-private val RESTING_WAVE_HEIGHT = 26.dp
-
 @Composable
 fun FloatingDictationOverlay(
     darkTheme: Boolean,
@@ -348,6 +340,7 @@ fun FloatingDictationOverlay(
                     statusText = quickStatus,
                     statusIsError = quickStatusIsError,
                     quickCaptureEnabled = quickCaptureEnabled,
+                    darkTheme = darkTheme,
                     onTap = onPillClicked,
                     onQuickCaptureStart = onQuickCaptureStart,
                     onQuickCaptureEnd = onQuickCaptureEnd,
@@ -365,15 +358,12 @@ fun FloatingDictationOverlay(
 private const val CARD_CLOSE_FADE = 0.35f
 
 /**
- * The minimized pill: at rest it is a small waveform that *breathes* while the engines this
- * configuration needs are resident and sits still while they are not; during quick capture the same
+ * The minimized pill: a portrait stadium (`35 × 55.65dp`) displaying a minimalist mark inside.
+ * At rest it displays a two-lobe flat resting mark. During quick capture the same
  * box becomes a live listening surface, then a processing spinner, then a one-line result.
  *
  * All four phases are one composable on purpose — see [MinimizedPillPhase]. Nothing here changes
  * the window's height, so the pill never resizes during a hold.
- *
- * CHUNK-3B removed the `···` from here: on the collapsed pill it was lost screen space, and quick
- * settings are now reached by opening the card first.
  */
 @Composable
 fun MinimizedPillView(
@@ -390,25 +380,36 @@ fun MinimizedPillView(
     onDragBy: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
+    darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current.density
     val showError = phase == MinimizedPillPhase.RESULT && statusIsError
-    val container = when {
-        showError -> scheme.errorContainer
-        phase == MinimizedPillPhase.LISTENING -> scheme.primary
-        else -> scheme.primaryContainer
+    val container = if (darkTheme) {
+        Color(PillLayout.COLOR_FILL_DARK)
+    } else {
+        Color(PillLayout.COLOR_FILL_LIGHT)
+    }
+    val borderColor = if (darkTheme) {
+        Color(PillLayout.COLOR_BORDER_DARK)
+    } else {
+        Color(PillLayout.COLOR_BORDER_LIGHT)
     }
     val content = when {
-        showError -> scheme.onErrorContainer
-        phase == MinimizedPillPhase.LISTENING -> scheme.onPrimary
-        else -> scheme.onPrimaryContainer
+        showError -> scheme.error
+        phase == MinimizedPillPhase.LISTENING -> scheme.primary
+        else -> borderColor
     }
 
     Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(Radius.lg))
-            .border(1.dp, scheme.outlineVariant, RoundedCornerShape(Radius.lg))
+            .size(width = PillLayout.WIDTH_DP.dp, height = PillLayout.HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(PillLayout.RADIUS_DP.dp))
+            .border(
+                width = PillLayout.BORDER_WIDTH_DP.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(PillLayout.RADIUS_DP.dp),
+            )
             .semantics { onClick(label = "Dictate") { onTap(); true } }
             .minimizedPillGestures(
                 quickCaptureEnabled = quickCaptureEnabled,
@@ -425,33 +426,22 @@ fun MinimizedPillView(
         contentColor = content,
     ) {
         Box(
-            modifier = Modifier
-                .padding(horizontal = Spacing.lg, vertical = Spacing.sm)
-                .height(RESTING_WAVE_HEIGHT)
-                .widthIn(min = RESTING_WAVE_WIDTH),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             when (phase) {
                 MinimizedPillPhase.RESTING -> {
-                    // `breath` is a State, not a value: reading it inside the layer/draw lambdas
-                    // below means the pulse costs a layer update per frame instead of a
-                    // recomposition per frame. It is only requested at rest, so listening does not
-                    // pay for an animation it does not read.
-                    val breath = rememberBreath(modelReady)
                     Canvas(
                         modifier = Modifier
-                            .width(RESTING_WAVE_WIDTH)
-                            .height(RESTING_WAVE_HEIGHT)
-                            .graphicsLayer {
-                                val pulse = 1f + breath.value * 0.03f
-                                scaleX = pulse
-                                scaleY = pulse
-                            },
+                            .size(
+                                width = PillLayout.MARK_WIDTH_DP.dp,
+                                height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
+                            ),
                     ) {
                         drawWaterSurface(
                             values = WaterSurface.restingSamples(),
-                            color = content.copy(alpha = 0.7f + breath.value * 0.3f),
-                            strokeWidth = 1.8.dp,
+                            color = content,
+                            strokeWidth = PillLayout.MARK_STROKE_DP.dp,
                         )
                     }
                 }
@@ -460,8 +450,10 @@ fun MinimizedPillView(
                     audioLevel = audioLevel,
                     color = content,
                     modifier = Modifier
-                        .width(RESTING_WAVE_WIDTH)
-                        .height(RESTING_WAVE_HEIGHT),
+                        .size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
+                        ),
                 )
 
                 MinimizedPillPhase.PROCESSING -> CircularProgressIndicator(
@@ -577,28 +569,6 @@ private suspend fun AwaitPointerEventScope.awaitRelease(pointerId: PointerId) {
         change.consume()
         if (!change.pressed) return
     }
-}
-
-/**
- * Slow, low-frequency breathing. While the configuration is not warm the state is a constant zero,
- * so a resting pill with nothing to signal costs no animation frames at all — it is not merely
- * faded.
- */
-@Composable
-private fun rememberBreath(modelReady: Boolean): State<Float> {
-    if (!modelReady) {
-        return remember { mutableFloatStateOf(0f) }
-    }
-    val transition = rememberInfiniteTransition(label = "pill-breath")
-    return transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pill-breath-value",
-    )
 }
 
 /**

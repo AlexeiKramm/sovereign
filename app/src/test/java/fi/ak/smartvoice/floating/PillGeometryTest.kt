@@ -233,21 +233,55 @@ class PillGeometryTest {
     }
 
     @Test
-    fun `the resting packet has a big, a medium and a tiny lobe each side`() {
+    fun `the resting mark has two lobes each side with flat envelope and exact zeros and peaks`() {
         val samples = WaterSurface.restingSamples()
-        val n = WaterSurface.SEGMENTS
-        fun at(u: Float) = samples[((u + 1f) * n / 2f).toInt()]
+        val n = WaterSurface.SEGMENTS // 96
+        fun at(u: Float) = samples[(((u + 1f) / 2f) * n).toInt()]
 
-        // Lobe centres for k = 3π sit at u = ±1/6, ±1/2, ±5/6.
-        val inner = abs(at(-1f / 6f))
-        val mid = abs(at(-1f / 2f))
-        val outer = abs(at(-5f / 6f))
-        assertTrue("inner=$inner mid=$mid outer=$outer", inner > mid && mid > outer)
-        assertTrue("the outer lobe should still be visible", outer > 0.05f)
+        // Zeros at u = -1, -0.5, 0, +0.5, +1
+        assertEquals("zero at u=-1", 0f, at(-1f), 1e-5f)
+        assertEquals("zero at u=-0.5", 0f, at(-0.5f), 1e-5f)
+        assertEquals("zero at u=0", 0f, at(0f), 1e-5f)
+        assertEquals("zero at u=+0.5", 0f, at(0.5f), 1e-5f)
+        assertEquals("zero at u=+1", 0f, at(1f), 1e-5f)
 
-        // The user's convention: positive on the left, negative on the right.
-        assertTrue(at(-1f / 6f) > 0f)
-        assertTrue(at(1f / 6f) < 0f)
+        // Peak locations at u = -0.75, -0.25, +0.25, +0.75
+        val peak1 = at(-0.75f) // negative lobe
+        val peak2 = at(-0.25f) // positive lobe
+        val peak3 = at(+0.25f) // negative lobe
+        val peak4 = at(+0.75f) // positive lobe
+
+        // All 4 lobes have equal peak magnitude
+        val expectedAmp = WaterSurface.RESTING_AMPLITUDE
+        assertEquals(-expectedAmp, peak1, 1e-5f)
+        assertEquals(expectedAmp, peak2, 1e-5f)
+        assertEquals(-expectedAmp, peak3, 1e-5f)
+        assertEquals(expectedAmp, peak4, 1e-5f)
+
+        // Peak magnitude * box half-height equals 0.975dp (1.95dp peak-to-peak)
+        val boxHalfHeightDp = PillLayout.MARK_BOX_HEIGHT_DP / 2f
+        val peakHeightDp = expectedAmp * boxHalfHeightDp
+        assertEquals(PillLayout.MARK_AMPLITUDE_DP, peakHeightDp, 1e-5f)
+        assertEquals(1.95f, peakHeightDp * 2f, 1e-5f)
+    }
+
+    @Test
+    fun `pill layout tokens match the locked visual design spec`() {
+        assertEquals(35f, PillLayout.WIDTH_DP, 0f)
+        assertEquals(55.65f, PillLayout.HEIGHT_DP, 0f)
+        assertEquals(PillLayout.WIDTH_DP / 2f, PillLayout.RADIUS_DP, 0f)
+        assertEquals(0.5f, PillLayout.BORDER_WIDTH_DP, 0f)
+
+        assertEquals(24f, PillLayout.MARK_WIDTH_DP, 0f)
+        assertEquals(2.17f, PillLayout.MARK_BOX_HEIGHT_DP, 0f)
+        assertEquals(1.95f, PillLayout.MARK_PEAK_TO_PEAK_DP, 0f)
+        assertEquals(0.975f, PillLayout.MARK_AMPLITUDE_DP, 0f)
+        assertEquals(0.49f, PillLayout.MARK_STROKE_DP, 0f)
+
+        assertEquals(0xFF0F1416L, PillLayout.COLOR_FILL_DARK)
+        assertEquals(0xFFFFFFFFL, PillLayout.COLOR_FILL_LIGHT)
+        assertEquals(0xFFBEBAB8L, PillLayout.COLOR_BORDER_DARK)
+        assertEquals(0xFF5C6368L, PillLayout.COLOR_BORDER_LIGHT)
     }
 
     @Test

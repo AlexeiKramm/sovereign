@@ -14,6 +14,54 @@ import kotlin.math.sin
 data class PillPoint(val x: Int, val y: Int)
 
 /**
+ * Static dimensions and color tokens for the minimized floating pill.
+ *
+ * Deliberately free of Android and Compose types so JVM unit tests can verify layout numbers
+ * without an instrumented environment.
+ */
+object PillLayout {
+
+    /** Pill container width in density-independent pixels. */
+    const val WIDTH_DP = 35f
+
+    /** Pill container height in density-independent pixels. */
+    const val HEIGHT_DP = 55.65f
+
+    /** Corner radius of the stadium (WIDTH_DP / 2). */
+    const val RADIUS_DP = 17.5f
+
+    /** Border thickness around the stadium. */
+    const val BORDER_WIDTH_DP = 0.5f
+
+    /** Width of the mark (resting waveform / icon canvas) in dp. */
+    const val MARK_WIDTH_DP = 24f
+
+    /** Height of the mark's bounding box in dp. */
+    const val MARK_BOX_HEIGHT_DP = 2.17f
+
+    /** Peak-to-peak amplitude of the resting mark in dp. */
+    const val MARK_PEAK_TO_PEAK_DP = 1.95f
+
+    /** Peak amplitude (from centerline) of the resting mark in dp. */
+    const val MARK_AMPLITUDE_DP = MARK_PEAK_TO_PEAK_DP / 2f
+
+    /** Stroke width of the resting mark in dp. */
+    const val MARK_STROKE_DP = 0.49f
+
+    /** Dark theme container fill color (#0F1416). */
+    const val COLOR_FILL_DARK = 0xFF0F1416L
+
+    /** Light theme container fill color (#FFFFFF). */
+    const val COLOR_FILL_LIGHT = 0xFFFFFFFFL
+
+    /** Dark theme border and neutral role color (#BEBAB8). */
+    const val COLOR_BORDER_DARK = 0xFFBEBAB8L
+
+    /** Light theme border and neutral role color (#5C6368). */
+    const val COLOR_BORDER_LIGHT = 0xFF5C6368L
+}
+
+/**
  * Pure geometry for the pill: where it docks by default, and how a drag is kept on screen.
  *
  * Deliberately free of Android, `WindowManager` and Compose types so the JVM unit tests can
@@ -98,10 +146,9 @@ object PillDock {
     const val RECORDING_LOBES = 6f
 
     /**
-     * Lobes each side for the small resting pill. Three gives the read the user asked for — one big,
-     * one medium, one tiny per side.
+     * Lobes each side for the resting mark. Two gives four humps across the width.
      */
-    const val RESTING_LOBES = 3f
+    const val RESTING_LOBES = 2f
 
     /**
      * How much the recording wave's amplitude is offset from zero, so the standing wave never
@@ -116,8 +163,11 @@ object PillDock {
      */
     const val ENVELOPE_POWER = 1.5f
 
-    /** Peak height of the small resting wave, as a fraction of the available half-height. */
-    const val RESTING_AMPLITUDE = 0.90f
+    /**
+     * Peak height of the resting wave as a fraction of the mark box half-height (1.085dp).
+     * Sized so peak amplitude is 0.975dp (1.95dp peak-to-peak).
+     */
+    const val RESTING_AMPLITUDE = PillLayout.MARK_AMPLITUDE_DP / (PillLayout.MARK_BOX_HEIGHT_DP / 2f)
 
     /** Maps a 0..1 audio level to waveform amplitude, as a fraction of the available half-height. */
     fun amplitudeFor(audioLevel: Float): Float {
@@ -149,9 +199,9 @@ object PillDock {
     }
 
     /**
-     * The resting pill's static shape: the same centre-node packet frozen at phase 0 — one big, one
-     * medium and one tiny lobe each side, positive on the left and negative on the right, fading into
-     * a flat line at the pill's edges.
+     * The resting mark's static shape: two lobes a side with a flat envelope across `u in [-1, 1]`.
+     * `y(u) = -RESTING_AMPLITUDE * sin(2 * PI * u)`. Four equal humps, alternating sign, zero at
+     * the centre and at both edges.
      */
     fun restingSamples(segments: Int = SEGMENTS): FloatArray {
         require(segments > 0) { "segments must be positive" }
@@ -159,7 +209,7 @@ object PillDock {
         val out = FloatArray(segments + 1)
         for (i in 0..segments) {
             val u = 2f * i / segments - 1f
-            out[i] = -RESTING_AMPLITUDE * envelope(u) * sin(k * u)
+            out[i] = -RESTING_AMPLITUDE * sin(k * u)
         }
         return out
     }
