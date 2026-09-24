@@ -64,6 +64,9 @@ object ColorRoles {
     val BadDark = Color(0xFFFF6766)
     val BadLight = Color(0xFFE5484D)
 
+    val BorderDark = Color(0xFF191919)
+    val BorderLight = Color(0xFFAFAFAF)
+
     val NeutralDark = Color(0xFFBEBAB8)
     val NeutralLight = Color(0xFF5C6368)
 

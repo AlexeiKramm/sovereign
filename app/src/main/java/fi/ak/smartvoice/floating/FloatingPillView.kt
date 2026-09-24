@@ -427,6 +427,12 @@ fun MinimizedPillView(
         color = container,
         contentColor = borderColor,
     ) {
+        val waveColor = if (darkTheme) {
+            Color(PillLayout.COLOR_WAVEFORM_DARK)
+        } else {
+            Color(PillLayout.COLOR_WAVEFORM_LIGHT)
+        }
+
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -441,7 +447,7 @@ fun MinimizedPillView(
                     ) {
                         drawWaterSurface(
                             values = WaterSurface.restingSamples(),
-                            color = borderColor,
+                            color = waveColor,
                             strokeWidth = PillLayout.MARK_STROKE_DP.dp,
                         )
                     }
@@ -449,7 +455,7 @@ fun MinimizedPillView(
 
                 MinimizedPillPhase.READY -> {
                     ReadyWave(
-                        color = borderColor,
+                        color = waveColor,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
@@ -458,11 +464,6 @@ fun MinimizedPillView(
                 }
 
                 MinimizedPillPhase.RECORDING -> {
-                    val waveColor = if (darkTheme) {
-                        Color(PillLayout.COLOR_WAVEFORM_DARK)
-                    } else {
-                        Color(PillLayout.COLOR_WAVEFORM_LIGHT)
-                    }
                     RecordingWave(
                         audioLevel = audioLevel,
                         color = waveColor,

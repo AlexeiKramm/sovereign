@@ -327,18 +327,18 @@ class PillGeometryTest {
         assertEquals(35f, PillLayout.WIDTH_DP, 0f)
         assertEquals(55.65f, PillLayout.HEIGHT_DP, 0f)
         assertEquals(PillLayout.WIDTH_DP / 2f, PillLayout.RADIUS_DP, 0f)
-        assertEquals(0.5f, PillLayout.BORDER_WIDTH_DP, 0f)
+        assertEquals(1.75f, PillLayout.BORDER_WIDTH_DP, 0f)
 
         assertEquals(24f, PillLayout.MARK_WIDTH_DP, 0f)
         assertEquals(2.17f, PillLayout.MARK_BOX_HEIGHT_DP, 0f)
         assertEquals(1.95f, PillLayout.MARK_PEAK_TO_PEAK_DP, 0f)
         assertEquals(0.975f, PillLayout.MARK_AMPLITUDE_DP, 0f)
-        assertEquals(0.49f, PillLayout.MARK_STROKE_DP, 0f)
+        assertEquals(1.75f, PillLayout.MARK_STROKE_DP, 0f)
 
         assertEquals(0xFF0F1416L, PillLayout.COLOR_FILL_DARK)
         assertEquals(0xFFFFFFFFL, PillLayout.COLOR_FILL_LIGHT)
-        assertEquals(0xFFBEBAB8L, PillLayout.COLOR_BORDER_DARK)
-        assertEquals(0xFF5C6368L, PillLayout.COLOR_BORDER_LIGHT)
+        assertEquals(0xFF191919L, PillLayout.COLOR_BORDER_DARK)
+        assertEquals(0xFFAFAFAFL, PillLayout.COLOR_BORDER_LIGHT)
 
         assertEquals(4.44f, PillLayout.RECORDING_HALF_HEIGHT_DP, 0f)
         assertEquals(8.88f, PillLayout.RECORDING_BOX_HEIGHT_DP, 0f)

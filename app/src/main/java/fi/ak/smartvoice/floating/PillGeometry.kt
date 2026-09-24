@@ -31,7 +31,7 @@ object PillLayout {
     const val RADIUS_DP = 17.5f
 
     /** Border thickness around the stadium. */
-    const val BORDER_WIDTH_DP = 0.5f
+    const val BORDER_WIDTH_DP = 1.75f
 
     /** Width of the mark (resting waveform / icon canvas) in dp. */
     const val MARK_WIDTH_DP = 24f
@@ -46,7 +46,7 @@ object PillLayout {
     const val MARK_AMPLITUDE_DP = MARK_PEAK_TO_PEAK_DP / 2f
 
     /** Stroke width of the resting mark in dp. */
-    const val MARK_STROKE_DP = 0.49f
+    const val MARK_STROKE_DP = 1.75f
 
     /** Half-height of the recording mark's bounding box in dp. */
     const val RECORDING_HALF_HEIGHT_DP = 4.44f
@@ -66,11 +66,11 @@ object PillLayout {
     /** Light theme container fill color (#FFFFFF). */
     const val COLOR_FILL_LIGHT = 0xFFFFFFFFL
 
-    /** Dark theme border and neutral role color (#BEBAB8). */
-    const val COLOR_BORDER_DARK = 0xFFBEBAB8L
+    /** Dark theme border role color (#191919). */
+    const val COLOR_BORDER_DARK = 0xFF191919L
 
-    /** Light theme border and neutral role color (#5C6368). */
-    const val COLOR_BORDER_LIGHT = 0xFF5C6368L
+    /** Light theme border role color (#AFAFAF). */
+    const val COLOR_BORDER_LIGHT = 0xFFAFAFAFL
 
     /** Dark theme accent role color (#FF9248). */
     const val COLOR_ACCENT_DARK = 0xFFFF9248L
