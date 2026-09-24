@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -121,24 +122,28 @@ enum class FloatingUiState {
 }
 
 /**
- * How the minimized pill looks. The resting pill and the quick-capture pill are one composable
- * driven by this phase, on purpose: switching composables mid-hold would dispose the pointer node
- * and cancel the gesture that is still waiting for the finger to lift.
+ * The six visual states of the minimized pill, as locked in the visual design spec (PLAN.md):
+ * - [COLD]: resting mark, static, neutral colour.
+ * - [READY]: resting mark, drifting at 2.77 rad/s (0.44 crests/s), neutral colour.
+ * - [RECORDING]: travelling wave (3 lobes tapered), height following voice level, 85% accent.
+ * - [CLEANING]: three dots cycling at 420ms each, accent colour.
+ * - [RESULT]: check mark (9dp half-size, 0.49dp stroke), ok colour, holds ~1.7s.
+ * - [ERROR]: cross mark (9dp half-size, 0.49dp stroke), bad colour, holds until next attempt.
  */
 enum class MinimizedPillPhase {
-    RESTING,
-    LISTENING,
-    PROCESSING,
+    COLD,
+    READY,
+    RECORDING,
+    CLEANING,
     RESULT,
+    ERROR,
 }
 
 /**
- * The recording wave's phase speed, in radians per second — deliberately a **constant**. Modulating
- * it with the level was the source of the "accelerates to max then slams down" feel: speed is the
- * integral of the signal, so level wobble becomes visible position wobble. Only the *amplitude*
- * reacts to the voice (see `VoiceLevel`).
+ * The recording wave's phase speed, in radians per second — locked at [WaterSurface.OMEGA_RECORDING]
+ * (1.2 crests/second).
  */
-private const val RIPPLE_RADIANS_PER_SECOND = 4.5f
+private const val RIPPLE_RADIANS_PER_SECOND = WaterSurface.OMEGA_RECORDING
 
 /**
  * Fast level follower: two cascaded one-poles (≈ critically damped, no overshoot) with a prompt
@@ -256,6 +261,8 @@ fun FloatingDictationOverlay(
     hostsCard: Boolean = true,
     /** Whether this window renders the minimized pill. The mirror of [hostsCard]. */
     hostsPill: Boolean = true,
+    /** Debug override for testing/inspecting the minimized pill's six states. */
+    debugPillPhase: MinimizedPillPhase? = null,
     /** True while the card is collapsing: the container fades out over the last third so the pill
      * window already visible underneath is revealed, instead of an empty shrinking rectangle. */
     cardClosing: Boolean = false,
@@ -325,16 +332,18 @@ fun FloatingDictationOverlay(
             // blink at the start of a card session — the pill is still drawn while the card's first
             // frame composes, and vanishes only when the card is on screen.
             if (hostsPill) {
+                val effectivePhase = debugPillPhase ?: when {
+                    // A backdrop pill is the resting pill, whatever the session is doing.
+                    pillBackdrop -> if (modelReady) MinimizedPillPhase.READY else MinimizedPillPhase.COLD
+                    uiState == FloatingUiState.RESTING_PILL ->
+                        if (modelReady) MinimizedPillPhase.READY else MinimizedPillPhase.COLD
+                    uiState == FloatingUiState.QUICK_CAPTURE && quickStatus != null ->
+                        if (quickStatusIsError) MinimizedPillPhase.ERROR else MinimizedPillPhase.RESULT
+                    isProcessing -> MinimizedPillPhase.CLEANING
+                    else -> MinimizedPillPhase.RECORDING
+                }
                 MinimizedPillView(
-                    phase = when {
-                        // A backdrop pill is the resting pill, whatever the session is doing.
-                        pillBackdrop -> MinimizedPillPhase.RESTING
-                        uiState == FloatingUiState.RESTING_PILL -> MinimizedPillPhase.RESTING
-                        uiState == FloatingUiState.QUICK_CAPTURE && quickStatus != null ->
-                            MinimizedPillPhase.RESULT
-                        isProcessing -> MinimizedPillPhase.PROCESSING
-                        else -> MinimizedPillPhase.LISTENING
-                    },
+                    phase = effectivePhase,
                     modelReady = modelReady,
                     audioLevel = audioLevel,
                     statusText = quickStatus,
@@ -382,9 +391,7 @@ fun MinimizedPillView(
     onDragCancel: () -> Unit,
     darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
-    val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current.density
-    val showError = phase == MinimizedPillPhase.RESULT && statusIsError
     val container = if (darkTheme) {
         Color(PillLayout.COLOR_FILL_DARK)
     } else {
@@ -394,11 +401,6 @@ fun MinimizedPillView(
         Color(PillLayout.COLOR_BORDER_DARK)
     } else {
         Color(PillLayout.COLOR_BORDER_LIGHT)
-    }
-    val content = when {
-        showError -> scheme.error
-        phase == MinimizedPillPhase.LISTENING -> scheme.primary
-        else -> borderColor
     }
 
     Surface(
@@ -423,54 +425,261 @@ fun MinimizedPillView(
                 onDragCancel = onDragCancel,
             ),
         color = container,
-        contentColor = content,
+        contentColor = borderColor,
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             when (phase) {
-                MinimizedPillPhase.RESTING -> {
+                MinimizedPillPhase.COLD -> {
                     Canvas(
-                        modifier = Modifier
-                            .size(
-                                width = PillLayout.MARK_WIDTH_DP.dp,
-                                height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
-                            ),
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
+                        ),
                     ) {
                         drawWaterSurface(
                             values = WaterSurface.restingSamples(),
-                            color = content,
+                            color = borderColor,
                             strokeWidth = PillLayout.MARK_STROKE_DP.dp,
                         )
                     }
                 }
 
-                MinimizedPillPhase.LISTENING -> WaterSurfaceWave(
-                    audioLevel = audioLevel,
-                    color = content,
-                    modifier = Modifier
-                        .size(
+                MinimizedPillPhase.READY -> {
+                    ReadyWave(
+                        color = borderColor,
+                        modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
                         ),
-                )
+                    )
+                }
 
-                MinimizedPillPhase.PROCESSING -> CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = content,
-                )
+                MinimizedPillPhase.RECORDING -> {
+                    val waveColor = if (darkTheme) {
+                        Color(PillLayout.COLOR_WAVEFORM_DARK)
+                    } else {
+                        Color(PillLayout.COLOR_WAVEFORM_LIGHT)
+                    }
+                    RecordingWave(
+                        audioLevel = audioLevel,
+                        color = waveColor,
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = PillLayout.RECORDING_BOX_HEIGHT_DP.dp,
+                        ),
+                    )
+                }
 
-                MinimizedPillPhase.RESULT -> Text(
-                    text = statusText.orEmpty(),
-                    color = content,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                )
+                MinimizedPillPhase.CLEANING -> {
+                    val accentColor = if (darkTheme) {
+                        Color(PillLayout.COLOR_ACCENT_DARK)
+                    } else {
+                        Color(PillLayout.COLOR_ACCENT_LIGHT)
+                    }
+                    CleaningDots(
+                        color = accentColor,
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = 18.dp,
+                        ),
+                    )
+                }
+
+                MinimizedPillPhase.RESULT -> {
+                    val okColor = if (darkTheme) {
+                        Color(PillLayout.COLOR_OK_DARK)
+                    } else {
+                        Color(PillLayout.COLOR_OK_LIGHT)
+                    }
+                    PillCheckMark(
+                        color = okColor,
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = 18.dp,
+                        ),
+                    )
+                }
+
+                MinimizedPillPhase.ERROR -> {
+                    val badColor = if (darkTheme) {
+                        Color(PillLayout.COLOR_BAD_DARK)
+                    } else {
+                        Color(PillLayout.COLOR_BAD_LIGHT)
+                    }
+                    PillCrossMark(
+                        color = badColor,
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = 18.dp,
+                        ),
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ReadyWave(
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val phase = remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+            lastNanos = nowNanos
+            phase.floatValue = (phase.floatValue + dtSeconds * WaterSurface.OMEGA_READY) % TWO_PI
+        }
+    }
+
+    Canvas(modifier) {
+        drawWaterSurface(
+            values = WaterSurface.readySamples(phase = phase.floatValue),
+            color = color,
+            strokeWidth = PillLayout.MARK_STROKE_DP.dp,
+        )
+    }
+}
+
+@Composable
+private fun RecordingWave(
+    audioLevel: () -> Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val phase = remember { mutableFloatStateOf(0f) }
+    val stagedLevel = remember { mutableFloatStateOf(0f) }
+    val fastLevel = remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+            lastNanos = nowNanos
+
+            // Perceptual level (dB window), followed by two-pole filter (0.08s attack / 0.30s release)
+            val target = VoiceLevel.perceptual(audioLevel())
+            val tau = (if (target > stagedLevel.floatValue) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
+                TWO_POLE_CORRECTION
+            val follow = 1f - exp(-dtSeconds / tau)
+            stagedLevel.floatValue += (target - stagedLevel.floatValue) * follow
+            fastLevel.floatValue += (stagedLevel.floatValue - fastLevel.floatValue) * follow
+
+            // Constant phase speed 7.5398 rad/s (1.2 crests/s)
+            phase.floatValue = (phase.floatValue + dtSeconds * WaterSurface.OMEGA_RECORDING) % TWO_PI
+        }
+    }
+
+    Canvas(modifier) {
+        drawWaterSurface(
+            values = WaterSurface.samples(
+                phase = phase.floatValue,
+                amplitude = WaterSurface.amplitudeFor(fastLevel.floatValue),
+            ),
+            color = color,
+            strokeWidth = PillLayout.MARK_STROKE_DP.dp,
+            glowAlpha = 0f,
+        )
+    }
+}
+
+@Composable
+private fun CleaningDots(
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val elapsedSeconds = remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+            lastNanos = nowNanos
+            elapsedSeconds.floatValue += dtSeconds
+        }
+    }
+
+    Canvas(modifier) {
+        val activeDot = ((elapsedSeconds.floatValue / 0.420f).toInt()) % 3
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val gapPx = 5.dp.toPx()
+        val baseRadiusPx = 1.15.dp.toPx()
+
+        for (i in 0 until 3) {
+            val x = cx + (i - 1) * gapPx
+            val isActive = i == activeDot
+            val radius = if (isActive) baseRadiusPx * 1.5f else baseRadiusPx
+            val alpha = if (isActive) 1f else 0.45f
+
+            drawCircle(
+                color = color.copy(alpha = alpha),
+                radius = radius,
+                center = Offset(x, cy),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PillCheckMark(
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier) {
+        val s = 9.dp.toPx()
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val path = Path().apply {
+            moveTo(cx - s * 0.55f, cy + s * 0.05f)
+            lineTo(cx - s * 0.12f, cy + s * 0.50f)
+            lineTo(cx + s * 0.62f, cy - s * 0.50f)
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(
+                width = PillLayout.MARK_STROKE_DP.dp.toPx(),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun PillCrossMark(
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier) {
+        val s = 9.dp.toPx()
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val strokePx = PillLayout.MARK_STROKE_DP.dp.toPx()
+        drawLine(
+            color = color,
+            start = Offset(cx - s * 0.45f, cy - s * 0.45f),
+            end = Offset(cx + s * 0.45f, cy + s * 0.45f),
+            strokeWidth = strokePx,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = color,
+            start = Offset(cx + s * 0.45f, cy - s * 0.45f),
+            end = Offset(cx - s * 0.45f, cy + s * 0.45f),
+            strokeWidth = strokePx,
+            cap = StrokeCap.Round,
+        )
     }
 }
 
@@ -1299,32 +1508,32 @@ fun WaterSurfaceWave(
 
             // Perceptual level (dB window), then two cascaded one-poles for a soft, damped swell...
             val target = VoiceLevel.perceptual(audioLevel())
-            val tau = (if (target > stagedLevel.value) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
+            val tau = (if (target > stagedLevel.floatValue) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
                 TWO_POLE_CORRECTION
             val follow = 1f - exp(-dtSeconds / tau)
-            stagedLevel.value += (target - stagedLevel.value) * follow
-            fastLevel.value += (stagedLevel.value - fastLevel.value) * follow
+            stagedLevel.floatValue += (target - stagedLevel.floatValue) * follow
+            fastLevel.floatValue += (stagedLevel.floatValue - fastLevel.floatValue) * follow
 
             // ...plus a much slower follower that the visual mixes in, so the wave breathes.
             val swellFollow = 1f - exp(-dtSeconds / SWELL_SECONDS)
-            swellLevel.value += (fastLevel.value - swellLevel.value) * swellFollow
+            swellLevel.floatValue += (fastLevel.floatValue - swellLevel.floatValue) * swellFollow
 
             // Constant speed: the wave's tempo never reacts to the voice, only its height does.
-            phase.value = (phase.value + dtSeconds * RIPPLE_RADIANS_PER_SECOND) % TWO_PI
+            phase.floatValue = (phase.floatValue + dtSeconds * RIPPLE_RADIANS_PER_SECOND) % TWO_PI
         }
     }
 
     Canvas(modifier) {
         // Read the states inside the draw lambda so a frame invalidates drawing only.
-        val level = fastLevel.value * (1f - SWELL_MIX) + swellLevel.value * SWELL_MIX
+        val level = fastLevel.floatValue * (1f - SWELL_MIX) + swellLevel.floatValue * SWELL_MIX
         drawWaterSurface(
             values = WaterSurface.samples(
-                phase = phase.value,
+                phase = phase.floatValue,
                 amplitude = WaterSurface.amplitudeFor(level),
             ),
             color = color,
             // The halo follows the slow swell, so it breathes rather than flickers.
-            glowAlpha = swellLevel.value * 0.9f,
+            glowAlpha = swellLevel.floatValue * 0.9f,
         )
     }
 }

@@ -2,6 +2,7 @@ package fi.ak.smartvoice.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -44,4 +45,28 @@ object Motion {
 
     /** Accelerate — for something leaving. */
     val exit: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
+}
+
+/**
+ * Shared colour roles from the locked visual design specification (PLAN.md).
+ * Role-based language: Accent, Ok, Bad, Neutral, and Waveform (at 85% accent).
+ */
+object ColorRoles {
+    val AccentDark = Color(0xFFFF9248)
+    val AccentLight = Color(0xFFEA580C)
+
+    val WaveformDark = Color(0xFFDB7F40)
+    val WaveformLight = Color(0xFFD55A1A)
+
+    val OkDark = Color(0xFF4ADE80)
+    val OkLight = Color(0xFF16A34A)
+
+    val BadDark = Color(0xFFFF6766)
+    val BadLight = Color(0xFFE5484D)
+
+    val NeutralDark = Color(0xFFBEBAB8)
+    val NeutralLight = Color(0xFF5C6368)
+
+    val FillDark = Color(0xFF0F1416)
+    val FillLight = Color(0xFFFFFFFF)
 }

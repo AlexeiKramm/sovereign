@@ -132,6 +132,26 @@ class FloatingOverlayService : Service() {
     private var quickStatus by mutableStateOf<String?>(null)
     /** True when [quickStatus] is a failure. */
     private var quickStatusIsError by mutableStateOf(false)
+    /** Debug override for testing/inspecting the minimized pill's six states. */
+    private var debugPillPhase by mutableStateOf<MinimizedPillPhase?>(null)
+
+    private val debugReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            intent?.getStringExtra("phase")?.let { phaseName ->
+                debugPillPhase = when (phaseName.uppercase()) {
+                    "COLD" -> MinimizedPillPhase.COLD
+                    "READY" -> MinimizedPillPhase.READY
+                    "RECORDING" -> MinimizedPillPhase.RECORDING
+                    "CLEANING" -> MinimizedPillPhase.CLEANING
+                    "RESULT" -> MinimizedPillPhase.RESULT
+                    "ERROR" -> MinimizedPillPhase.ERROR
+                    "RESET", "CLEAR", "NONE" -> null
+                    else -> null
+                }
+                Log.i(TAG, "debug receiver set phase: $debugPillPhase")
+            }
+        }
+    }
 
     /** The word the user long-pressed in the review transcript, or null when none is selected. */
     private var wordSelection by mutableStateOf<WordSelection?>(null)
@@ -411,12 +431,31 @@ class FloatingOverlayService : Service() {
         refreshProfiles()
         setupEngines()
         registerScreenOffReceiver()
+        ContextCompat.registerReceiver(
+            this,
+            debugReceiver,
+            IntentFilter("fi.ak.smartvoice.DEBUG_PILL_PHASE"),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
         setupOverlayView()
         updateOverlayVisibility()
         Log.i(TAG, "FloatingOverlayService initialized")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.getStringExtra("debug_phase")?.let { phaseName ->
+            debugPillPhase = when (phaseName.uppercase()) {
+                "COLD" -> MinimizedPillPhase.COLD
+                "READY" -> MinimizedPillPhase.READY
+                "RECORDING" -> MinimizedPillPhase.RECORDING
+                "CLEANING" -> MinimizedPillPhase.CLEANING
+                "RESULT" -> MinimizedPillPhase.RESULT
+                "ERROR" -> MinimizedPillPhase.ERROR
+                "RESET", "CLEAR", "NONE" -> null
+                else -> null
+            }
+            Log.i(TAG, "debug_phase set to: $debugPillPhase")
+        }
         updateOverlayVisibility()
         return START_STICKY
     }
@@ -453,6 +492,7 @@ class FloatingOverlayService : Service() {
             runCatching { unregisterReceiver(screenOffReceiver) }
             screenOffReceiverRegistered = false
         }
+        runCatching { unregisterReceiver(debugReceiver) }
         stopIdleUnload()
         stopKeyboardCloseUnload()
         abandonCapture()
@@ -582,7 +622,11 @@ class FloatingOverlayService : Service() {
                     // Quick capture swallows new presses while it flushes and injects; the tap path
                     // must not start a card session under it.
                     onPillClicked = {
-                        if (uiState == FloatingUiState.RESTING_PILL) startOrResumeRecording(fresh = true)
+                        if (uiState == FloatingUiState.RESTING_PILL) {
+                            startOrResumeRecording(fresh = true)
+                        } else if (uiState == FloatingUiState.QUICK_CAPTURE && quickStatusIsError) {
+                            resetToResting()
+                        }
                     },
                     onCancel = ::cancelSession,
                     onToggleRecording = ::toggleRecording,
@@ -612,6 +656,7 @@ class FloatingOverlayService : Service() {
                     onDragCancel = ::endDragWithoutFling,
                     hostsCard = hostsCard,
                     hostsPill = hostsPill,
+                    debugPillPhase = debugPillPhase,
                     cardClosing = cardClosing,
                     pillBackdrop = cardWindowShown || cardClosing,
                 )
@@ -1876,11 +1921,12 @@ class FloatingOverlayService : Service() {
         }
         performHaptic()
 
-        // Let the result read, then rest. A new session resets the state first, and the guard means
-        // a late timer cannot clobber it.
-        delay(QUICK_STATUS_MS)
-        if (uiState == FloatingUiState.QUICK_CAPTURE && !isProcessing) {
-            resetToResting()
+        // Result holds ~1.7s then returns to rest; Error holds until the next attempt.
+        if (!quickStatusIsError) {
+            delay(QUICK_STATUS_MS)
+            if (uiState == FloatingUiState.QUICK_CAPTURE && !isProcessing) {
+                resetToResting()
+            }
         }
     }
 
@@ -2337,8 +2383,8 @@ class FloatingOverlayService : Service() {
         /** Below this release speed a fling is not worth starting; the pill just settles. */
         private const val FLING_MIN_VELOCITY_PX_PER_SECOND = 120f
 
-        /** How long the minimized pill shows a quick-capture result before returning to rest. */
-        private const val QUICK_STATUS_MS = 1600L
+        /** How long the minimized pill shows a quick-capture result before returning to rest (~1.7s). */
+        private const val QUICK_STATUS_MS = 1700L
 
         /**
          * Grace after the keyboard closes before the engines are released. A tuned constant, not a

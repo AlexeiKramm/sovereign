@@ -48,6 +48,18 @@ object PillLayout {
     /** Stroke width of the resting mark in dp. */
     const val MARK_STROKE_DP = 0.49f
 
+    /** Half-height of the recording mark's bounding box in dp. */
+    const val RECORDING_HALF_HEIGHT_DP = 4.44f
+
+    /** Full height of the recording mark's bounding box in dp. */
+    const val RECORDING_BOX_HEIGHT_DP = RECORDING_HALF_HEIGHT_DP * 2f
+
+    /** Peak-to-peak amplitude at the silence floor (level 0) in dp. Equal to resting mark (1.95dp). */
+    const val RECORDING_SILENCE_PEAK_TO_PEAK_DP = 2f * 0.22f * RECORDING_HALF_HEIGHT_DP
+
+    /** Peak-to-peak amplitude at full voice (level 1) in dp (8.0dp). */
+    const val RECORDING_FULL_VOICE_PEAK_TO_PEAK_DP = 2f * 0.90f * RECORDING_HALF_HEIGHT_DP
+
     /** Dark theme container fill color (#0F1416). */
     const val COLOR_FILL_DARK = 0xFF0F1416L
 
@@ -59,6 +71,30 @@ object PillLayout {
 
     /** Light theme border and neutral role color (#5C6368). */
     const val COLOR_BORDER_LIGHT = 0xFF5C6368L
+
+    /** Dark theme accent role color (#FF9248). */
+    const val COLOR_ACCENT_DARK = 0xFFFF9248L
+
+    /** Light theme accent role color (#EA580C). */
+    const val COLOR_ACCENT_LIGHT = 0xFFEA580CL
+
+    /** Dark theme waveform color at 85% accent (#DB7F40). */
+    const val COLOR_WAVEFORM_DARK = 0xFFDB7F40L
+
+    /** Light theme waveform color at 85% accent (#D55A1A). */
+    const val COLOR_WAVEFORM_LIGHT = 0xFFD55A1AL
+
+    /** Dark theme OK / success role color (#4ADE80). */
+    const val COLOR_OK_DARK = 0xFF4ADE80L
+
+    /** Light theme OK / success role color (#16A34A). */
+    const val COLOR_OK_LIGHT = 0xFF16A34AL
+
+    /** Dark theme BAD / failure role color (#FF6766). */
+    const val COLOR_BAD_DARK = 0xFFFF6766L
+
+    /** Light theme BAD / failure role color (#E5484D). */
+    const val COLOR_BAD_LIGHT = 0xFFE5484DL
 }
 
 /**
@@ -139,11 +175,10 @@ object PillDock {
     const val MAX_AMPLITUDE = 0.90f
 
     /**
-     * Lobes (half-cycles) each side of the centre for the recording wave. The wave is a *centre-node*
-     * packet — the centre is always zero and the halves mirror with opposite sign — so this is the
-     * lobe count on one side only. Six, after the user asked to double the previous three.
+     * Lobes (half-cycles) each side of the centre for the recording wave. Three lobes each side
+     * as locked in the visual design spec (PLAN.md).
      */
-    const val RECORDING_LOBES = 6f
+    const val RECORDING_LOBES = 3f
 
     /**
      * Lobes each side for the resting mark. Two gives four humps across the width.
@@ -151,11 +186,16 @@ object PillDock {
     const val RESTING_LOBES = 2f
 
     /**
-     * How much the recording wave's amplitude is offset from zero, so the standing wave never
-     * collapses to a flat line at the moment the oscillation crosses zero. `0.3` keeps a visible wave
-     * at all times while still letting the lobes swing and invert.
+     * Constant angular speed of the recording wave in radians per second.
+     * Equivalent to 1.2 crests/second (2 * PI * 1.2 ≈ 7.5398 rad/s).
      */
-    const val WAVE_FLOOR = 0.3f
+    const val OMEGA_RECORDING = 7.5398f
+
+    /**
+     * Constant angular speed of the ready wave in radians per second.
+     * Equivalent to 0.44 crests/second (2 * PI * 0.44 ≈ 2.77 rad/s).
+     */
+    const val OMEGA_READY = 2.77f
 
     /**
      * Tapering window exponent: `cos(πu/2)` raised to this. Above 1 keeps zero slope at the edges (no
@@ -176,24 +216,34 @@ object PillDock {
     }
 
     /**
-     * [segments] + 1 vertical offsets in `-amplitude..amplitude` (negative is *up*). The wave is a
-     * **centre-node packet**: `env(u) · (−sin(k·u)) · swing(phase)`, so the centre is always exactly
-     * zero and the halves mirror with opposite signs (positive on the left, negative on the right).
-     * The `swing` floor stops it collapsing to a flat line as the oscillation crosses zero.
-     *
-     * This is a standing wave — the antisymmetric mode of a rope pinned at the middle. An
-     * outward-travelling wave was tried and rejected: an outward source is *symmetric* about the
-     * centre, so it cannot also mirror with opposite signs.
+     * [segments] + 1 vertical offsets in `-amplitude..amplitude` (negative is *up*).
+     * The locked recording wave travels right at [OMEGA_RECORDING] (1.2 crests/s):
+     * `y(u) = -amp * envelope(u) * sin(3 * PI * u - phase)`.
      */
     fun samples(phase: Float, amplitude: Float, segments: Int = SEGMENTS): FloatArray {
         require(segments > 0) { "segments must be positive" }
         val amp = amplitude.coerceIn(0f, 1f)
         val k = RECORDING_LOBES * PI_F
-        val swing = WAVE_FLOOR + (1f - WAVE_FLOOR) * cos(phase)
         val out = FloatArray(segments + 1)
         for (i in 0..segments) {
             val u = 2f * i / segments - 1f
-            out[i] = amp * envelope(u) * (-sin(k * u) * swing)
+            out[i] = -amp * envelope(u) * sin(k * u - phase)
+        }
+        return out
+    }
+
+    /**
+     * Vertical offsets for the Ready wave across `u in [-1, 1]`.
+     * Resting glyph drifting right at [OMEGA_READY] with flat envelope:
+     * `y(u) = -RESTING_AMPLITUDE * sin(2 * PI * u - phase)`.
+     */
+    fun readySamples(phase: Float, segments: Int = SEGMENTS): FloatArray {
+        require(segments > 0) { "segments must be positive" }
+        val k = RESTING_LOBES * PI_F
+        val out = FloatArray(segments + 1)
+        for (i in 0..segments) {
+            val u = 2f * i / segments - 1f
+            out[i] = -RESTING_AMPLITUDE * sin(k * u - phase)
         }
         return out
     }
@@ -201,18 +251,9 @@ object PillDock {
     /**
      * The resting mark's static shape: two lobes a side with a flat envelope across `u in [-1, 1]`.
      * `y(u) = -RESTING_AMPLITUDE * sin(2 * PI * u)`. Four equal humps, alternating sign, zero at
-     * the centre and at both edges.
+     * the centre and at both edges. Identical to [readySamples] at phase 0.
      */
-    fun restingSamples(segments: Int = SEGMENTS): FloatArray {
-        require(segments > 0) { "segments must be positive" }
-        val k = RESTING_LOBES * PI_F
-        val out = FloatArray(segments + 1)
-        for (i in 0..segments) {
-            val u = 2f * i / segments - 1f
-            out[i] = -RESTING_AMPLITUDE * sin(k * u)
-        }
-        return out
-    }
+    fun restingSamples(segments: Int = SEGMENTS): FloatArray = readySamples(phase = 0f, segments = segments)
 
     /**
      * Tapering window over `u in [-1, 1]`: `cos(πu/2)` to [ENVELOPE_POWER]. One at the centre, zero

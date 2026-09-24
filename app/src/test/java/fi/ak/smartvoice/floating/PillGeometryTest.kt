@@ -201,27 +201,84 @@ class PillGeometryTest {
     }
 
     @Test
-    fun `the recording wave is a centre-node antisymmetric packet at every phase`() {
-        val n = WaterSurface.SEGMENTS
-        for (phase in 0..12) {
-            val samples = WaterSurface.samples(phase = phase * 0.52f, amplitude = 1f)
-            assertEquals("centre must stay a node", 0f, samples[n / 2], 1e-6f)
-            assertEquals(0f, samples.first(), 1e-6f)
-            assertEquals(0f, samples.last(), 1e-6f)
-            // The halves mirror with OPPOSITE sign — the look the user preferred.
-            for (i in samples.indices) {
-                assertEquals(-samples[n - i], samples[i], 1e-5f)
-            }
-        }
+    fun `the recording wave travels right and advances 1 point 2 crests per second`() {
+        assertEquals(3f, WaterSurface.RECORDING_LOBES, 0f)
+        // 1.2 crests/second = 2 * PI * 1.2 rad/s ≈ 7.5398 rad/s
+        val expectedOmega = (2.0 * kotlin.math.PI * 1.2).toFloat()
+        assertEquals(expectedOmega, WaterSurface.OMEGA_RECORDING, 1e-3f)
+
+        // As phase increases, a crest moves in the positive u direction (left to right)
+        val phase0 = 0f
+        val phase1 = 0.5f
+        val s0 = WaterSurface.samples(phase = phase0, amplitude = 1f)
+        val s1 = WaterSurface.samples(phase = phase1, amplitude = 1f)
+
+        val peakIndex0 = s0.indices.maxByOrNull { s0[it] } ?: 0
+        val peakIndex1 = s1.indices.maxByOrNull { s1[it] } ?: 0
+        assertTrue("peak must travel right (higher index) as phase advances", peakIndex1 >= peakIndex0)
     }
 
     @Test
-    fun `the recording wave keeps a visible wave at all times`() {
-        // The `swing` floor stops it collapsing to a flat line as the standing wave crosses zero.
-        assertTrue(WaterSurface.RECORDING_LOBES >= 5f)
-        assertTrue(WaterSurface.RESTING_LOBES >= 1f)
-        assertTrue(WaterSurface.WAVE_FLOOR in 0f..1f)
-        assertTrue("the wave must never fully collapse", WaterSurface.WAVE_FLOOR > 0.1f)
+    fun `recording packet peak-to-peak equals 1 point 95dp at silence floor and 8 point 0dp at full voice`() {
+        // At level 0 (silence floor): frac = MIN_AMPLITUDE = 0.22
+        val silenceAmp = WaterSurface.amplitudeFor(0f)
+        assertEquals(0.22f, silenceAmp, 1e-5f)
+        // In a box of half-height 4.44dp:
+        val silenceP2pDp = 2f * silenceAmp * PillLayout.RECORDING_HALF_HEIGHT_DP
+        assertEquals(1.95f, silenceP2pDp, 0.01f)
+        assertEquals(PillLayout.MARK_PEAK_TO_PEAK_DP, silenceP2pDp, 0.01f)
+
+        // At level 1 (full voice): frac = MAX_AMPLITUDE = 0.90
+        val voiceAmp = WaterSurface.amplitudeFor(1f)
+        assertEquals(0.90f, voiceAmp, 1e-5f)
+        // In a box of half-height 4.44dp:
+        val voiceP2pDp = 2f * voiceAmp * PillLayout.RECORDING_HALF_HEIGHT_DP
+        assertEquals(8.0f, voiceP2pDp, 0.01f)
+
+        // The maximum envelope extent across space-time reaches +/-amp
+        var maxPosSilence = 0f
+        var maxNegSilence = 0f
+        for (step in 0..100) {
+            val phase = step * (2f * kotlin.math.PI.toFloat() / 100f)
+            val sSilence = WaterSurface.samples(phase = phase, amplitude = silenceAmp)
+            maxPosSilence = maxOf(maxPosSilence, sSilence.maxOrNull()!!)
+            maxNegSilence = minOf(maxNegSilence, sSilence.minOrNull()!!)
+        }
+        assertEquals(silenceAmp, maxPosSilence, 0.01f)
+        assertEquals(-silenceAmp, maxNegSilence, 0.01f)
+        val envelopeP2pSilence = (maxPosSilence - maxNegSilence) * PillLayout.RECORDING_HALF_HEIGHT_DP
+        assertEquals(1.95f, envelopeP2pSilence, 0.02f)
+    }
+
+    @Test
+    fun `ready wave travels right at 0 point 44 crests per second with flat envelope`() {
+        assertEquals(2f, WaterSurface.RESTING_LOBES, 0f)
+        val expectedOmega = (2.0 * kotlin.math.PI * 0.44).toFloat()
+        assertEquals(expectedOmega, WaterSurface.OMEGA_READY, 0.01f)
+
+        // At phase 0, readySamples equals restingSamples
+        val atRest = WaterSurface.restingSamples()
+        val atReady0 = WaterSurface.readySamples(phase = 0f)
+        for (i in atRest.indices) {
+            assertEquals(atRest[i], atReady0[i], 1e-6f)
+        }
+
+        // As phase advances, peaks travel right (higher index)
+        val atReady1 = WaterSurface.readySamples(phase = 0.5f)
+        val peak0 = atReady0.indices.maxByOrNull { atReady0[it] } ?: 0
+        val peak1 = atReady1.indices.maxByOrNull { atReady1[it] } ?: 0
+        assertTrue("ready peak must travel right as phase advances", peak1 > peak0)
+    }
+
+    @Test
+    fun `the recording wave keeps a visible wave at silence floor`() {
+        assertTrue(WaterSurface.RECORDING_LOBES == 3f)
+        assertTrue(WaterSurface.RESTING_LOBES == 2f)
+        assertTrue("silence amplitude must be positive", WaterSurface.MIN_AMPLITUDE > 0.15f)
+        // At silence floor, amplitudeFor(0f) is MIN_AMPLITUDE (0.22f) so wave never collapses
+        val silenceSamples = WaterSurface.samples(phase = 1.0f, amplitude = WaterSurface.amplitudeFor(0f))
+        val peak = silenceSamples.maxOf { abs(it) }
+        assertTrue("wave must remain visible at silence", peak >= WaterSurface.MIN_AMPLITUDE * 0.9f)
     }
 
     @Test
@@ -282,6 +339,18 @@ class PillGeometryTest {
         assertEquals(0xFFFFFFFFL, PillLayout.COLOR_FILL_LIGHT)
         assertEquals(0xFFBEBAB8L, PillLayout.COLOR_BORDER_DARK)
         assertEquals(0xFF5C6368L, PillLayout.COLOR_BORDER_LIGHT)
+
+        assertEquals(4.44f, PillLayout.RECORDING_HALF_HEIGHT_DP, 0f)
+        assertEquals(8.88f, PillLayout.RECORDING_BOX_HEIGHT_DP, 0f)
+
+        assertEquals(0xFFFF9248L, PillLayout.COLOR_ACCENT_DARK)
+        assertEquals(0xFFEA580CL, PillLayout.COLOR_ACCENT_LIGHT)
+        assertEquals(0xFFDB7F40L, PillLayout.COLOR_WAVEFORM_DARK)
+        assertEquals(0xFFD55A1AL, PillLayout.COLOR_WAVEFORM_LIGHT)
+        assertEquals(0xFF4ADE80L, PillLayout.COLOR_OK_DARK)
+        assertEquals(0xFF16A34AL, PillLayout.COLOR_OK_LIGHT)
+        assertEquals(0xFFFF6766L, PillLayout.COLOR_BAD_DARK)
+        assertEquals(0xFFE5484DL, PillLayout.COLOR_BAD_LIGHT)
     }
 
     @Test
