@@ -40,7 +40,7 @@ object Motion {
     const val fastMs = 150
     const val standardMs = 250
 
-    /** Emphasised decelerate — the default for something entering the screen. */
+    /** M3 standard / emphasized — the default for standard transitions. */
     val standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
     /** Accelerate — for something leaving. */
