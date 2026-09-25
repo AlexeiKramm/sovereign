@@ -324,21 +324,21 @@ class PillGeometryTest {
 
     @Test
     fun `pill layout tokens match the locked visual design spec`() {
-        assertEquals(35f, PillLayout.WIDTH_DP, 0f)
-        assertEquals(55.65f, PillLayout.HEIGHT_DP, 0f)
-        assertEquals(PillLayout.WIDTH_DP / 2f, PillLayout.RADIUS_DP, 0f)
-        assertEquals(1.75f, PillLayout.BORDER_WIDTH_DP, 0f)
+        assertEquals(40f, PillLayout.WIDTH_DP, 0f)
+        assertEquals(60f, PillLayout.HEIGHT_DP, 0f)
+        assertEquals(15f, PillLayout.RADIUS_DP, 0f)
+        assertEquals(2f, PillLayout.BORDER_WIDTH_DP, 0f)
 
         assertEquals(24f, PillLayout.MARK_WIDTH_DP, 0f)
         assertEquals(2.17f, PillLayout.MARK_BOX_HEIGHT_DP, 0f)
         assertEquals(1.95f, PillLayout.MARK_PEAK_TO_PEAK_DP, 0f)
         assertEquals(0.975f, PillLayout.MARK_AMPLITUDE_DP, 0f)
-        assertEquals(1.75f, PillLayout.MARK_STROKE_DP, 0f)
+        assertEquals(2f, PillLayout.MARK_STROKE_DP, 0f)
 
-        assertEquals(0xFF0F1416L, PillLayout.COLOR_FILL_DARK)
+        assertEquals(0xFF1A120DL, PillLayout.COLOR_FILL_DARK)
         assertEquals(0xFFFFFFFFL, PillLayout.COLOR_FILL_LIGHT)
-        assertEquals(0xFF191919L, PillLayout.COLOR_BORDER_DARK)
-        assertEquals(0xFFAFAFAFL, PillLayout.COLOR_BORDER_LIGHT)
+        assertEquals(0xFF4D3627L, PillLayout.COLOR_BORDER_DARK)
+        assertEquals(0xFFCBCBCBL, PillLayout.COLOR_BORDER_LIGHT)
 
         assertEquals(4.44f, PillLayout.RECORDING_HALF_HEIGHT_DP, 0f)
         assertEquals(8.88f, PillLayout.RECORDING_BOX_HEIGHT_DP, 0f)
@@ -576,33 +576,38 @@ class PillGeometryTest {
         assertEquals(210f, CardLayout.HEIGHT_DP, 0f)
         assertEquals(24f, CardLayout.RADIUS_DP, 0f)
         assertEquals(16f, CardLayout.PADDING_DP, 0f)
-        assertEquals(28f, CardLayout.HEADER_HEIGHT_DP, 0f)
+        assertEquals(20f, CardLayout.HEADER_HEIGHT_DP, 0f)
+        assertEquals(0f, CardLayout.STATUS_OFFSET_X_DP, 0f)
+        assertEquals(0f, CardLayout.STATUS_OFFSET_Y_DP, 0f)
+        assertEquals(15f, CardLayout.STATUS_FONT_SP, 0f)
         assertEquals(8f, CardLayout.STATUS_DOT_SIZE_DP, 0f)
         assertEquals(7f, CardLayout.STATUS_GAP_DP, 0f)
         assertEquals(28f, CardLayout.MORE_TOUCH_SIZE_DP, 0f)
         assertEquals(20f, CardLayout.MORE_GLYPH_SIZE_DP, 0f)
-        assertEquals(2f, CardLayout.GAP_TOP_DP, 0f)
-        assertEquals(6f, CardLayout.GAP_BOTTOM_DP, 0f)
-        assertEquals(44f, CardLayout.ACTION_ROW_HEIGHT_DP, 0f)
-        assertEquals(44f, CardLayout.ACTION_CIRCLE_SIZE_DP, 0f)
+        assertEquals(8f, CardLayout.GAP_TOP_DP, 0f)
+        assertEquals(14f, CardLayout.GAP_BOTTOM_DP, 0f)
+        assertEquals(16f, CardLayout.TRANSCRIPT_FONT_SP, 0f)
+        assertEquals(19f, CardLayout.TRANSCRIPT_LINE_HEIGHT_SP, 0f)
+        assertEquals(36f, CardLayout.ACTION_ROW_HEIGHT_DP, 0f)
+        assertEquals(41f, CardLayout.ACTION_CIRCLE_SIZE_DP, 0f)
         assertEquals(26f, CardLayout.ACTION_GLYPH_SIZE_DP, 0f)
         assertEquals(8f, CardLayout.CAPSULE_MARGIN_DP, 0f)
         assertEquals(1f, CardLayout.CAPSULE_OUTLINE_WIDTH_DP, 0f)
 
         // Vertical space calculation:
-        // total (210) - padding (2 * 16) - header (28) - gapTop (2) - gapBot (6) - actionRow (44) = 98dp
+        // total (210) - padding (2 * 16) - header (20) - gapTop (8) - gapBot (14) - actionRow (36) = 100dp
         val availableBodyHeight = CardLayout.HEIGHT_DP -
             (2f * CardLayout.PADDING_DP) -
             CardLayout.HEADER_HEIGHT_DP -
             CardLayout.GAP_TOP_DP -
             CardLayout.GAP_BOTTOM_DP -
             CardLayout.ACTION_ROW_HEIGHT_DP
-        assertEquals(98f, availableBodyHeight, 0.01f)
+        assertEquals(100f, availableBodyHeight, 0.01f)
         assertEquals(CardLayout.TRANSCRIPT_HEIGHT_DP, availableBodyHeight, 0.01f)
 
-        // 4 lines of 24sp line height require 96dp <= 98dp available
-        val fourLinesHeight = 4f * 24f
-        assertTrue("4 full transcript lines must fit without clipping", fourLinesHeight <= availableBodyHeight)
+        // 5 lines of 19sp line height require 95dp <= 100dp available
+        val fiveLinesHeight = 5f * CardLayout.TRANSCRIPT_LINE_HEIGHT_SP
+        assertTrue("5 full transcript lines must fit without clipping", fiveLinesHeight <= availableBodyHeight)
     }
 
     @Test

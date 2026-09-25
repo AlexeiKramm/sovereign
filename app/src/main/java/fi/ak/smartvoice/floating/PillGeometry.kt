@@ -22,16 +22,16 @@ data class PillPoint(val x: Int, val y: Int)
 object PillLayout {
 
     /** Pill container width in density-independent pixels. */
-    const val WIDTH_DP = 35f
+    const val WIDTH_DP = 40f
 
     /** Pill container height in density-independent pixels. */
-    const val HEIGHT_DP = 55.65f
+    const val HEIGHT_DP = 60f
 
-    /** Corner radius of the stadium (WIDTH_DP / 2). */
-    const val RADIUS_DP = 17.5f
+    /** Corner radius of the stadium (15dp squircle/stadium). */
+    const val RADIUS_DP = 15f
 
-    /** Border thickness around the stadium. */
-    const val BORDER_WIDTH_DP = 1.75f
+    /** Border thickness around the stadium (2dp for both dark and light). */
+    const val BORDER_WIDTH_DP = 2f
 
     /** Width of the mark (resting waveform / icon canvas) in dp. */
     const val MARK_WIDTH_DP = 24f
@@ -46,7 +46,7 @@ object PillLayout {
     const val MARK_AMPLITUDE_DP = MARK_PEAK_TO_PEAK_DP / 2f
 
     /** Stroke width of the resting mark in dp. */
-    const val MARK_STROKE_DP = 1.75f
+    const val MARK_STROKE_DP = 2f
 
     /** Half-height of the recording mark's bounding box in dp. */
     const val RECORDING_HALF_HEIGHT_DP = 4.44f
@@ -60,17 +60,17 @@ object PillLayout {
     /** Peak-to-peak amplitude at full voice (level 1) in dp (8.0dp). */
     const val RECORDING_FULL_VOICE_PEAK_TO_PEAK_DP = 2f * 0.90f * RECORDING_HALF_HEIGHT_DP
 
-    /** Dark theme container fill color (#0F1416). */
-    const val COLOR_FILL_DARK = 0xFF0F1416L
+    /** Dark theme container fill color (#1A120D). */
+    const val COLOR_FILL_DARK = 0xFF1A120DL
 
     /** Light theme container fill color (#FFFFFF). */
     const val COLOR_FILL_LIGHT = 0xFFFFFFFFL
 
-    /** Dark theme border role color (#191919). */
-    const val COLOR_BORDER_DARK = 0xFF191919L
+    /** Dark theme border role color (#4D3627). */
+    const val COLOR_BORDER_DARK = 0xFF4D3627L
 
-    /** Light theme border role color (#AFAFAF). */
-    const val COLOR_BORDER_LIGHT = 0xFFAFAFAFL
+    /** Light theme border role color (#CBCBCB). */
+    const val COLOR_BORDER_LIGHT = 0xFFCBCBCBL
 
     /** Dark theme accent role color (#FF9248). */
     const val COLOR_ACCENT_DARK = 0xFFFF9248L
@@ -118,7 +118,16 @@ object CardLayout {
     const val PADDING_DP = 16f
 
     /** Height of the header row in dp. */
-    const val HEADER_HEIGHT_DP = 28f
+    const val HEADER_HEIGHT_DP = 20f
+
+    /** Horizontal offset of the header row in dp. */
+    const val STATUS_OFFSET_X_DP = 0f
+
+    /** Vertical offset of the header row in dp. */
+    const val STATUS_OFFSET_Y_DP = 0f
+
+    /** Status label font size in sp. */
+    const val STATUS_FONT_SP = 15f
 
     /** Diameter of the status dot in dp. */
     const val STATUS_DOT_SIZE_DP = 8f
@@ -133,19 +142,25 @@ object CardLayout {
     const val MORE_GLYPH_SIZE_DP = 20f
 
     /** Compensated vertical gap between header and transcript in dp (locked variant C). */
-    const val GAP_TOP_DP = 2f
+    const val GAP_TOP_DP = 8f
 
     /** Compensated vertical gap between transcript and action row in dp (locked variant C). */
-    const val GAP_BOTTOM_DP = 6f
+    const val GAP_BOTTOM_DP = 14f
 
-    /** Total height of the transcript viewing area in dp (210 - 32 padding - 28 header - 2 gap - 6 gap - 44 row = 98dp). */
-    const val TRANSCRIPT_HEIGHT_DP = 98f
+    /** Transcript font size in sp. */
+    const val TRANSCRIPT_FONT_SP = 16f
+
+    /** Transcript line height in sp. */
+    const val TRANSCRIPT_LINE_HEIGHT_SP = 19f
+
+    /** Total height of the transcript viewing area in dp (210 - 32 padding - 20 header - 8 gap - 14 gap - 36 row = 100dp). */
+    const val TRANSCRIPT_HEIGHT_DP = 100f
 
     /** Height of the bottom action row in dp. */
-    const val ACTION_ROW_HEIGHT_DP = 44f
+    const val ACTION_ROW_HEIGHT_DP = 36f
 
     /** Diameter of the circular action buttons in dp. */
-    const val ACTION_CIRCLE_SIZE_DP = 44f
+    const val ACTION_CIRCLE_SIZE_DP = 41f
 
     /** Glyph size inside the circular action buttons in dp. */
     const val ACTION_GLYPH_SIZE_DP = 26f
@@ -171,8 +186,8 @@ object CardLayout {
     /** Peak-to-peak amplitude of the card waveform at full voice (level 1) in dp (28.8dp). */
     const val WAVEFORM_FULL_VOICE_PEAK_TO_PEAK_DP = 2f * 0.90f * (WAVEFORM_HEIGHT_DP / 2f)
 
-    /** Card fill color (Dark): #0F1416. */
-    const val COLOR_FILL_DARK = 0xFF0F1416L
+    /** Card fill color (Dark): #1A120D. */
+    const val COLOR_FILL_DARK = 0xFF1A120DL
 
     /** Card fill color (Light): #FFFFFF. */
     const val COLOR_FILL_LIGHT = 0xFFFFFFFFL

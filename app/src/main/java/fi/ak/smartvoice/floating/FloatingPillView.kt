@@ -25,7 +25,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -66,6 +68,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -936,11 +939,12 @@ private fun DictationCard(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(CardLayout.PADDING_DP.dp)) {
-        // Header row: 28dp, status dot 8dp + gap 7dp + status text 15sp/22sp, more_horiz 20dp
+        // Header row: status dot 8dp + gap 7dp + status text, more_horiz 20dp
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(CardLayout.HEADER_HEIGHT_DP.dp),
+                .height(CardLayout.HEADER_HEIGHT_DP.dp)
+                .offset(x = CardLayout.STATUS_OFFSET_X_DP.dp, y = CardLayout.STATUS_OFFSET_Y_DP.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
@@ -969,8 +973,8 @@ private fun DictationCard(
                 Text(
                     text = statusTitle,
                     color = if (darkTheme) Color(CardLayout.COLOR_TEXT_SECONDARY_DARK) else Color(CardLayout.COLOR_TEXT_SECONDARY_LIGHT),
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
+                    fontSize = CardLayout.STATUS_FONT_SP.sp,
+                    lineHeight = CardLayout.HEADER_HEIGHT_DP.sp,
                 )
             }
             Icon(
@@ -978,10 +982,9 @@ private fun DictationCard(
                 contentDescription = "Quick settings",
                 tint = Color(CardLayout.COLOR_TEXT_TERTIARY),
                 modifier = Modifier
-                    .size(CardLayout.MORE_TOUCH_SIZE_DP.dp)
+                    .size(CardLayout.MORE_GLYPH_SIZE_DP.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onOpenSettings)
-                    .padding(4.dp), // 20dp glyph inside 28dp touch area
+                    .clickable(onClick = onOpenSettings),
             )
         }
 
@@ -1007,7 +1010,12 @@ private fun DictationCard(
             }
         } else {
             // Live preview — cleaned text only, unless cleanup failed. Fills the fixed-height card.
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clipToBounds(),
+            ) {
                 // The scroller is a child of this Box so the action bar can be pinned to the
                 // transcript's bottom edge instead of scrolling away with the text.
                 Column(
@@ -1019,9 +1027,9 @@ private fun DictationCard(
                         Text(
                             text = transcript,
                             color = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT),
-                            fontSize = 16.sp,
+                            fontSize = CardLayout.TRANSCRIPT_FONT_SP.sp,
                             fontWeight = FontWeight.Medium,
-                            lineHeight = 24.sp,
+                            lineHeight = CardLayout.TRANSCRIPT_LINE_HEIGHT_SP.sp,
                             onTextLayout = { transcriptLayout.value = it },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1409,7 +1417,7 @@ private fun CircleAction(
 
     Surface(
         modifier = Modifier
-            .size(CardLayout.ACTION_CIRCLE_SIZE_DP.dp)
+            .requiredSize(CardLayout.ACTION_CIRCLE_SIZE_DP.dp)
             .clip(CircleShape)
             .then(borderModifier)
             .clickable(enabled = enabled, onClick = onClick),
@@ -1420,7 +1428,7 @@ private fun CircleAction(
             Icon(
                 imageVector = icon,
                 contentDescription = description,
-                modifier = Modifier.size(CardLayout.ACTION_GLYPH_SIZE_DP.dp),
+                modifier = Modifier.requiredSize(CardLayout.ACTION_GLYPH_SIZE_DP.dp),
                 tint = finalContent,
             )
         }
