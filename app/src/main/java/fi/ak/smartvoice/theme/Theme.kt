@@ -10,6 +10,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
 
 private val DarkColorScheme = darkColorScheme(
@@ -98,17 +99,33 @@ fun SmartVoiceTheme(
      */
     dynamicColor: Boolean = false,
     colorScheme: ColorScheme? = null,
+    seedColor: Int? = null,
+    paletteStyle: String? = null,
+    useSystemDynamic: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = appThemeIsDark(themeMode)
+    val context = LocalContext.current
 
-    val resolvedColorScheme = colorScheme ?: when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
+    val resolvedColorScheme = colorScheme ?: run {
+        val effectiveUseSystem = useSystemDynamic ?: dynamicColor
+        if (effectiveUseSystem && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        } else if (seedColor != null) {
+            val style = ThemePaletteStyle.fromId(paletteStyle)
+            DynamicThemeEngine.createColorScheme(
+                seedColor = androidx.compose.ui.graphics.Color(seedColor or -0x1000000),
+                isDark = darkTheme,
+                paletteStyle = style,
+            )
+        } else {
+            val settings = runCatching { AppSettings(context) }.getOrNull()
+            if (settings != null) {
+                DynamicThemeEngine.resolveColorScheme(context, settings, darkTheme)
+            } else {
+                if (darkTheme) DarkColorScheme else LightColorScheme
+            }
         }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
     }
 
     MaterialTheme(colorScheme = resolvedColorScheme, typography = Typography, content = content)

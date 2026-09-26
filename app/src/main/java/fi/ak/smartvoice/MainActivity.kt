@@ -32,6 +32,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val themeSeedColor by viewModel.themeSeedColor.collectAsStateWithLifecycle()
+            val themePaletteStyle by viewModel.themePaletteStyle.collectAsStateWithLifecycle()
+            val themeUseSystemDynamic by viewModel.themeUseSystemDynamic.collectAsStateWithLifecycle()
             val darkTheme = appThemeIsDark(themeMode)
 
             // `enableEdgeToEdge` chooses the status/navigation bar icon colour from the *system*
@@ -54,7 +57,12 @@ class MainActivity : ComponentActivity() {
             } ?: fi.ak.smartvoice.ui.onboarding.OnboardingStep.MICROPHONE
 
             var showWizard by rememberSaveable { mutableStateOf(forceWizard || viewModel.shouldShowOnboarding()) }
-            SmartVoiceTheme(themeMode = themeMode) {
+            SmartVoiceTheme(
+                themeMode = themeMode,
+                seedColor = themeSeedColor,
+                paletteStyle = themePaletteStyle,
+                useSystemDynamic = themeUseSystemDynamic,
+            ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (showWizard) {
                         OnboardingScreen(

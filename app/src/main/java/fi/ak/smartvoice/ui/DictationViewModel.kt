@@ -355,9 +355,34 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _themeMode = MutableStateFlow(settings.themeMode)
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
 
+    private val _themeSeedColor = MutableStateFlow(settings.themeSeedColor)
+    val themeSeedColor: StateFlow<Int> = _themeSeedColor.asStateFlow()
+
+    private val _themePaletteStyle = MutableStateFlow(settings.themePaletteStyle)
+    val themePaletteStyle: StateFlow<String> = _themePaletteStyle.asStateFlow()
+
+    private val _themeUseSystemDynamic = MutableStateFlow(settings.themeUseSystemDynamic)
+    val themeUseSystemDynamic: StateFlow<Boolean> = _themeUseSystemDynamic.asStateFlow()
+
     fun setThemeMode(mode: AppThemeMode) {
         settings.themeMode = mode
         _themeMode.value = mode
+    }
+
+    fun setThemeSeedColor(color: Int) {
+        val argb = color or -0x1000000
+        settings.themeSeedColor = argb
+        _themeSeedColor.value = argb
+    }
+
+    fun setThemePaletteStyle(style: String) {
+        settings.themePaletteStyle = style
+        _themePaletteStyle.value = style
+    }
+
+    fun setThemeUseSystemDynamic(useSystem: Boolean) {
+        settings.themeUseSystemDynamic = useSystem
+        _themeUseSystemDynamic.value = useSystem
     }
 
     // ------------------------------------------------------------------ settings
@@ -641,6 +666,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshProfiles()
         refreshHistory()
         _themeMode.value = settings.themeMode
+        _themeSeedColor.value = settings.themeSeedColor
+        _themePaletteStyle.value = settings.themePaletteStyle
+        _themeUseSystemDynamic.value = settings.themeUseSystemDynamic
         _pauseField.value = field(settings.pauseSilenceSeconds)
         _stopField.value = field(settings.stopAfterSilenceSeconds)
         _healingSentencesCount.value = settings.healingSentencesCount
@@ -1311,9 +1339,16 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshLitertInstalled()
         probeHardwareCompatibility()
         observeModelDownloads()
+        settings.observeTheme {
+            _themeMode.value = settings.themeMode
+            _themeSeedColor.value = settings.themeSeedColor
+            _themePaletteStyle.value = settings.themePaletteStyle
+            _themeUseSystemDynamic.value = settings.themeUseSystemDynamic
+        }
     }
 
     override fun onCleared() {
+        settings.removeThemeModeObserver()
         ticker?.cancel()
         // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
         cleanupEngine?.unload()

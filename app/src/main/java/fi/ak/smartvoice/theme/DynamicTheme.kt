@@ -33,7 +33,9 @@ enum class ThemePaletteStyle(
  * Curated preset seed colors for quick one-tap selection.
  */
 object ThemePresets {
-    data class Preset(val name: String, val color: Color, val hex: String)
+    data class Preset(val name: String, val color: Color, val hex: String) {
+        val argb: Int get() = hex.removePrefix("#").let { ("FF$it").toLong(16).toInt() }
+    }
 
     val SIGNATURE_ORANGE = Preset("Signature Orange", Color(0xFFFF9248), "#FF9248")
     val PIXEL_BLUE = Preset("Pixel Blue", Color(0xFF1A73E8), "#1A73E8")

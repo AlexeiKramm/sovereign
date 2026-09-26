@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -13,16 +14,33 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import fi.ak.smartvoice.theme.ThemePaletteStyle
+import fi.ak.smartvoice.theme.ThemePresets
+import kotlin.math.roundToInt
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -196,6 +214,9 @@ fun SettingsScreen(
 
     val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val themeSeedColor by viewModel.themeSeedColor.collectAsStateWithLifecycle()
+    val themePaletteStyle by viewModel.themePaletteStyle.collectAsStateWithLifecycle()
+    val themeUseSystemDynamic by viewModel.themeUseSystemDynamic.collectAsStateWithLifecycle()
     val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
     val floatingPillOnlyWhenKeyboardOpen by viewModel.floatingPillOnlyWhenKeyboardOpen.collectAsStateWithLifecycle()
@@ -242,6 +263,12 @@ fun SettingsScreen(
         AppearanceCard(
             themeMode = themeMode,
             onThemeModeChange = viewModel::setThemeMode,
+            seedColor = themeSeedColor,
+            onSeedColorChange = viewModel::setThemeSeedColor,
+            paletteStyle = themePaletteStyle,
+            onPaletteStyleChange = viewModel::setThemePaletteStyle,
+            useSystemDynamic = themeUseSystemDynamic,
+            onUseSystemDynamicChange = viewModel::setThemeUseSystemDynamic,
         )
 
         // --- DICTATION (Basic) ---
@@ -503,11 +530,17 @@ fun SettingsScreen(
 private fun AppearanceCard(
     themeMode: AppThemeMode,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    seedColor: Int,
+    onSeedColorChange: (Int) -> Unit,
+    paletteStyle: String,
+    onPaletteStyleChange: (String) -> Unit,
+    useSystemDynamic: Boolean,
+    onUseSystemDynamicChange: (Boolean) -> Unit,
 ) {
     SettingsGroupCard {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SettingsIconBadge(
@@ -519,18 +552,25 @@ private fun AppearanceCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "App Theme",
+                        text = "Appearance",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Choose light, dark, or follow your system Android theme",
+                        text = "Theme mode, seed color, and M3 palette style",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+
+            Text(
+                text = "Mode",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
 
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 AppThemeMode.entries.forEachIndexed { index, mode ->
@@ -541,6 +581,153 @@ private fun AppearanceCard(
                         label = { Text(mode.label) },
                     )
                 }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                SettingsToggleRow(
+                    title = "Material You dynamic colors",
+                    subtitle = "Derive colors from your system wallpaper instead of a custom seed",
+                    checked = useSystemDynamic,
+                    onCheckedChange = onUseSystemDynamicChange,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Accent Color",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    val activeHex = remember(seedColor) {
+                        String.format(java.util.Locale.US, "#%06X", seedColor and 0x00FFFFFF)
+                    }
+                    Text(
+                        text = if (useSystemDynamic) "System Dynamic" else activeHex,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
+                    items(ThemePresets.ALL) { preset ->
+                        val isSelected = !useSystemDynamic && (seedColor and 0x00FFFFFF) == (preset.argb and 0x00FFFFFF)
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(preset.color)
+                                .border(
+                                    width = if (isSelected) 3.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    shape = CircleShape,
+                                )
+                                .clickable {
+                                    onUseSystemDynamicChange(false)
+                                    onSeedColorChange(preset.argb)
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = if (preset.color.luminance() > 0.5f) Color.Black else Color.White,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val hsv = remember(seedColor) {
+                    val arr = FloatArray(3)
+                    android.graphics.Color.colorToHSV(seedColor, arr)
+                    arr
+                }
+                var currentHue by remember(seedColor) { mutableFloatStateOf(hsv[0]) }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = String.format(java.util.Locale.US, "Custom Hue Spectrum (%d°)", currentHue.roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color.Red,
+                                        Color.Yellow,
+                                        Color.Green,
+                                        Color.Cyan,
+                                        Color.Blue,
+                                        Color.Magenta,
+                                        Color.Red,
+                                    )
+                                )
+                            )
+                    )
+                    Slider(
+                        value = currentHue,
+                        onValueChange = { hue ->
+                            currentHue = hue
+                            val newColor = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 0.95f))
+                            onUseSystemDynamicChange(false)
+                            onSeedColorChange(newColor)
+                        },
+                        valueRange = 0f..360f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "M3 Palette Variant",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    ThemePaletteStyle.entries.forEachIndexed { index, style ->
+                        SegmentedButton(
+                            selected = paletteStyle.equals(style.id, ignoreCase = true),
+                            onClick = { onPaletteStyleChange(style.id) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = ThemePaletteStyle.entries.size),
+                            label = { Text(style.label) },
+                        )
+                    }
+                }
+                Text(
+                    text = ThemePaletteStyle.fromId(paletteStyle).description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
