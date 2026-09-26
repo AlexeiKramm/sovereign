@@ -89,7 +89,7 @@ object DynamicThemeEngine {
         if (settings.themeUseSystemDynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             return if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        val seed = Color(settings.themeSeedColor)
+        val seed = Color(settings.themeSeedColor or -0x1000000)
         val style = ThemePaletteStyle.fromId(settings.themePaletteStyle)
         return createColorScheme(seedColor = seed, isDark = isDark, paletteStyle = style)
     }

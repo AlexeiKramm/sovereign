@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -193,6 +194,7 @@ internal val OVERLAY_INSET = 8.dp
 @Composable
 fun FloatingDictationOverlay(
     darkTheme: Boolean,
+    colorScheme: ColorScheme? = null,
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
@@ -279,7 +281,10 @@ fun FloatingDictationOverlay(
 ) {
     // The overlay lives in a service window, so it does not inherit the Activity's theme: the
     // service resolves the app's theme mode (falling back to the system) and passes it in.
-    SmartVoiceTheme(themeMode = if (darkTheme) AppThemeMode.DARK else AppThemeMode.LIGHT) {
+    SmartVoiceTheme(
+        themeMode = if (darkTheme) AppThemeMode.DARK else AppThemeMode.LIGHT,
+        colorScheme = colorScheme,
+    ) {
         Box(
             modifier = Modifier
                 .wrapContentSize()
@@ -395,17 +400,10 @@ fun MinimizedPillView(
     onDragCancel: () -> Unit,
     darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
+    val cs = MaterialTheme.colorScheme
     val density = LocalDensity.current.density
-    val container = if (darkTheme) {
-        Color(PillLayout.COLOR_FILL_DARK)
-    } else {
-        Color(PillLayout.COLOR_FILL_LIGHT)
-    }
-    val borderColor = if (darkTheme) {
-        Color(PillLayout.COLOR_BORDER_DARK)
-    } else {
-        Color(PillLayout.COLOR_BORDER_LIGHT)
-    }
+    val container = cs.surfaceContainer
+    val borderColor = cs.outlineVariant
 
     Surface(
         modifier = Modifier
@@ -431,11 +429,7 @@ fun MinimizedPillView(
         color = container,
         contentColor = borderColor,
     ) {
-        val waveColor = if (darkTheme) {
-            Color(PillLayout.COLOR_WAVEFORM_DARK)
-        } else {
-            Color(PillLayout.COLOR_WAVEFORM_LIGHT)
-        }
+        val waveColor = cs.primary
 
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -479,13 +473,8 @@ fun MinimizedPillView(
                 }
 
                 MinimizedPillPhase.CLEANING -> {
-                    val accentColor = if (darkTheme) {
-                        Color(PillLayout.COLOR_ACCENT_DARK)
-                    } else {
-                        Color(PillLayout.COLOR_ACCENT_LIGHT)
-                    }
                     CleaningDots(
-                        color = accentColor,
+                        color = cs.primary,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = 18.dp,
@@ -494,13 +483,8 @@ fun MinimizedPillView(
                 }
 
                 MinimizedPillPhase.RESULT -> {
-                    val okColor = if (darkTheme) {
-                        Color(PillLayout.COLOR_OK_DARK)
-                    } else {
-                        Color(PillLayout.COLOR_OK_LIGHT)
-                    }
                     PillCheckMark(
-                        color = okColor,
+                        color = cs.primary,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = 18.dp,
@@ -509,13 +493,8 @@ fun MinimizedPillView(
                 }
 
                 MinimizedPillPhase.ERROR -> {
-                    val badColor = if (darkTheme) {
-                        Color(PillLayout.COLOR_BAD_DARK)
-                    } else {
-                        Color(PillLayout.COLOR_BAD_LIGHT)
-                    }
                     PillCrossMark(
-                        color = badColor,
+                        color = cs.error,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = 18.dp,
@@ -820,8 +799,9 @@ fun ExpandedCardView(
     onWordFormSubmit: (String) -> Unit,
     onWordDismiss: () -> Unit,
 ) {
-    val cardFill = if (darkTheme) Color(CardLayout.COLOR_FILL_DARK) else Color(CardLayout.COLOR_FILL_LIGHT)
-    val cardText = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT)
+    val cs = MaterialTheme.colorScheme
+    val cardFill = cs.surfaceContainer
+    val cardText = cs.onSurface
 
     Surface(
         modifier = Modifier
@@ -933,7 +913,8 @@ private fun DictationCard(
     val canFixWords = uiState == FloatingUiState.REVIEW && !failed && !isProcessing &&
         displayText.isNotBlank()
     val transcriptLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
-    val accentColor = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT)
+    val cs = MaterialTheme.colorScheme
+    val accentColor = cs.primary
     val transcript = remember(displayText, wordSelection, accentColor) {
         highlightedTranscript(displayText, wordSelection, accentColor)
     }
@@ -951,11 +932,7 @@ private fun DictationCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f),
             ) {
-                val dotColor = if (failed) {
-                    if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT)
-                } else {
-                    if (darkTheme) Color(CardLayout.COLOR_OK_DARK) else Color(CardLayout.COLOR_OK_LIGHT)
-                }
+                val dotColor = if (failed) cs.error else cs.primary
                 Box(
                     modifier = Modifier
                         .size(CardLayout.STATUS_DOT_SIZE_DP.dp)
@@ -972,7 +949,7 @@ private fun DictationCard(
                 }
                 Text(
                     text = statusTitle,
-                    color = if (darkTheme) Color(CardLayout.COLOR_TEXT_SECONDARY_DARK) else Color(CardLayout.COLOR_TEXT_SECONDARY_LIGHT),
+                    color = cs.onSurfaceVariant,
                     fontSize = CardLayout.STATUS_FONT_SP.sp,
                     lineHeight = CardLayout.HEADER_HEIGHT_DP.sp,
                 )
@@ -980,7 +957,7 @@ private fun DictationCard(
             Icon(
                 imageVector = Icons.Default.MoreHoriz,
                 contentDescription = "Quick settings",
-                tint = Color(CardLayout.COLOR_TEXT_TERTIARY),
+                tint = cs.onSurfaceVariant.copy(alpha = 0.8f),
                 modifier = Modifier
                     .size(CardLayout.MORE_GLYPH_SIZE_DP.dp)
                     .clip(CircleShape)
@@ -1079,7 +1056,7 @@ private fun DictationCard(
                     Spacer(modifier = Modifier.width(Spacing.xs))
                     Text(
                         text = errorMessage.orEmpty(),
-                        color = if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT),
+                        color = cs.error,
                         fontSize = 12.sp,
                     )
                 }
@@ -1089,7 +1066,7 @@ private fun DictationCard(
                 Spacer(modifier = Modifier.height(Spacing.xs))
                 Text(
                     text = statusNote,
-                    color = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT),
+                    color = cs.primary,
                     fontSize = 11.sp,
                 )
             }
@@ -1108,7 +1085,7 @@ private fun DictationCard(
                     icon = Icons.Default.Close,
                     description = "Cancel dictation",
                     filled = false,
-                    color = if (darkTheme) Color(CardLayout.COLOR_BAD_DARK) else Color(CardLayout.COLOR_BAD_LIGHT),
+                    color = cs.error,
                     onClick = onCancel,
                 )
 
@@ -1121,12 +1098,12 @@ private fun DictationCard(
                         .clip(CircleShape)
                         .border(
                             width = CardLayout.CAPSULE_OUTLINE_WIDTH_DP.dp,
-                            color = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT),
+                            color = cs.outlineVariant,
                             shape = CircleShape,
                         )
                         .clickable(enabled = !isProcessing, onClick = onToggleRecording),
                     color = Color.Transparent,
-                    contentColor = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT),
+                    contentColor = cs.outline,
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -1141,12 +1118,12 @@ private fun DictationCard(
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),
                                         strokeWidth = 2.dp,
-                                        color = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT),
+                                        color = cs.primary,
                                     )
                                     Spacer(modifier = Modifier.width(Spacing.sm))
                                     Text(
                                         text = "Polishing…",
-                                        color = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT),
+                                        color = cs.onSurface,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
                                     )
@@ -1156,7 +1133,7 @@ private fun DictationCard(
                             uiState == FloatingUiState.RECORDING -> {
                                 CardWaveform(
                                     audioLevel = audioLevel,
-                                    color = if (darkTheme) Color(CardLayout.COLOR_WAVEFORM_DARK) else Color(CardLayout.COLOR_WAVEFORM_LIGHT),
+                                    color = cs.primary,
                                     modifier = Modifier.size(
                                         width = CardLayout.WAVEFORM_WIDTH_DP.dp,
                                         height = CardLayout.WAVEFORM_HEIGHT_DP.dp,
@@ -1173,12 +1150,12 @@ private fun DictationCard(
                                         imageVector = Icons.Default.Mic,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
-                                        tint = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT),
+                                        tint = cs.onSurfaceVariant,
                                     )
                                     Spacer(modifier = Modifier.width(Spacing.xs))
                                     Text(
                                         text = "Speak again",
-                                        color = if (darkTheme) Color(CardLayout.COLOR_TEXT_SECONDARY_DARK) else Color(CardLayout.COLOR_TEXT_SECONDARY_LIGHT),
+                                        color = cs.onSurfaceVariant,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
@@ -1189,7 +1166,7 @@ private fun DictationCard(
                 }
 
                 // Refresh (reprocess)
-                val refreshColor = if (darkTheme) Color(CardLayout.COLOR_LINE_DARK) else Color(CardLayout.COLOR_LINE_LIGHT)
+                val refreshColor = cs.onSurfaceVariant
                 CircleAction(
                     icon = Icons.Default.Refresh,
                     description = "Reprocess full text with AI",
@@ -1202,14 +1179,12 @@ private fun DictationCard(
                 Spacer(modifier = Modifier.width(CardLayout.CAPSULE_MARGIN_DP.dp))
 
                 // Accept (commit)
-                val acceptAccent = if (darkTheme) Color(CardLayout.COLOR_ACCENT_DARK) else Color(CardLayout.COLOR_ACCENT_LIGHT)
-                val acceptGlyph = if (darkTheme) Color(CardLayout.COLOR_ACCEPT_GLYPH_DARK) else Color(CardLayout.COLOR_ACCEPT_GLYPH_LIGHT)
                 CircleAction(
                     icon = Icons.Default.Check,
                     description = "Insert text",
                     filled = true,
-                    containerColor = acceptAccent,
-                    contentColor = acceptGlyph,
+                    containerColor = cs.primary,
+                    contentColor = cs.onPrimary,
                     enabled = previewText.isNotBlank() || rawText.isNotBlank(),
                     onClick = onCommit,
                 )

@@ -2,6 +2,7 @@ package fi.ak.smartvoice.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -96,11 +97,12 @@ fun SmartVoiceTheme(
      * only if we deliberately want wallpaper-driven colours.
      */
     dynamicColor: Boolean = false,
+    colorScheme: ColorScheme? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = appThemeIsDark(themeMode)
 
-    val colorScheme = when {
+    val resolvedColorScheme = colorScheme ?: when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -109,5 +111,5 @@ fun SmartVoiceTheme(
         else -> LightColorScheme
     }
 
-    MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+    MaterialTheme(colorScheme = resolvedColorScheme, typography = Typography, content = content)
 }

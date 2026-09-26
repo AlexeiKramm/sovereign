@@ -29,6 +29,7 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import fi.ak.smartvoice.R
+import fi.ak.smartvoice.theme.DynamicThemeEngine
+import android.os.Handler
+import android.os.Looper
 import fi.ak.smartvoice.asr.LocalAsrEngine
 import fi.ak.smartvoice.asr.LocalAsrSession
 import fi.ak.smartvoice.audio.WavRecorder
@@ -123,6 +127,7 @@ class FloatingOverlayService : Service() {
     /** Mirrors `AppSettings.cleanupEnabled` so the settings view reflects the toggle immediately. */
     private var cleanupEnabled by mutableStateOf(true)
     private var darkTheme by mutableStateOf(false)
+    private var dynamicColorScheme by mutableStateOf<ColorScheme?>(null)
     private var profiles by mutableStateOf(emptyList<CleaningProfile>())
     private var activeProfileId by mutableStateOf("")
 
@@ -149,6 +154,19 @@ class FloatingOverlayService : Service() {
                     else -> null
                 }
                 Log.i(TAG, "debug receiver set phase: $debugPillPhase")
+            }
+            intent?.getStringExtra("seed")?.let { seedStr ->
+                val clean = seedStr.removePrefix("#")
+                val fullHex = if (clean.length == 6) "FF$clean" else clean
+                val argb = fullHex.toLongOrNull(16)?.toInt()
+                if (argb != null) {
+                    settings.themeSeedColor = argb or -0x1000000
+                    Log.i(TAG, "debug receiver set seedColor: $seedStr -> $argb")
+                }
+            }
+            intent?.getStringExtra("style")?.let { styleName ->
+                settings.themePaletteStyle = styleName.uppercase()
+                Log.i(TAG, "debug receiver set paletteStyle: $styleName")
             }
             intent?.getStringExtra("card")?.let { cardAction ->
                 when (cardAction.uppercase()) {
@@ -445,16 +463,26 @@ class FloatingOverlayService : Service() {
         startForegroundWithNotification()
 
         darkTheme = resolveDarkTheme()
-        // The pill is its own window, so the app changing its theme mode does not reach it by itself.
-        settings.observeThemeMode { darkTheme = resolveDarkTheme() }
+        dynamicColorScheme = resolveColorScheme()
+        // The pill is its own window, so the app changing theme does not reach it by itself.
+        settings.observeTheme {
+            Handler(Looper.getMainLooper()).post {
+                darkTheme = resolveDarkTheme()
+                dynamicColorScheme = resolveColorScheme()
+            }
+        }
         cleanupEnabled = settings.cleanupEnabled
         refreshProfiles()
         setupEngines()
         registerScreenOffReceiver()
+        val debugFilter = IntentFilter().apply {
+            addAction("fi.ak.smartvoice.DEBUG_PILL_PHASE")
+            addAction("fi.ak.smartvoice.DEBUG_THEME")
+        }
         ContextCompat.registerReceiver(
             this,
             debugReceiver,
-            IntentFilter("fi.ak.smartvoice.DEBUG_PILL_PHASE"),
+            debugFilter,
             ContextCompat.RECEIVER_EXPORTED,
         )
         setupOverlayView()
@@ -485,6 +513,7 @@ class FloatingOverlayService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         darkTheme = resolveDarkTheme()
+        dynamicColorScheme = resolveColorScheme()
         // A display change cannot be animated into: abandon any arrival, put the window back at its
         // rest position, then re-clamp so the pill cannot be stranded off-screen.
         cancelEntry(restore = true)
@@ -617,6 +646,7 @@ class FloatingOverlayService : Service() {
             setContent {
                 FloatingDictationOverlay(
                     darkTheme = darkTheme,
+                    colorScheme = dynamicColorScheme,
                     uiState = uiState,
                     previewText = previewText,
                     rawText = rawText,
@@ -1177,6 +1207,9 @@ class FloatingOverlayService : Service() {
         AppThemeMode.SYSTEM -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
     }
+
+    private fun resolveColorScheme(): ColorScheme =
+        DynamicThemeEngine.resolveColorScheme(this, settings, resolveDarkTheme())
 
     private fun refreshProfiles() {
         profiles = profileStore.allProfiles()
