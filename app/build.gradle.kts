@@ -101,6 +101,8 @@ dependencies {
   implementation(libs.androidx.compose.material3)
   implementation("androidx.compose.material:material-icons-core")
   implementation("androidx.compose.material:material-icons-extended")
+  // M3 Dynamic Color generation from arbitrary seed colors (D-063)
+  implementation("com.materialkolor:material-kolor:2.0.2")
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests

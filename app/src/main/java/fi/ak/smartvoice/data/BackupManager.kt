@@ -67,6 +67,9 @@ object BackupManager {
             litertProcessor = settings.litertProcessor.id,
             litertSpeculativeDecoding = settings.litertSpeculativeDecoding,
             themeMode = settings.themeMode.id,
+            themeSeedColor = settings.themeSeedColor,
+            themePaletteStyle = settings.themePaletteStyle,
+            themeUseSystemDynamic = settings.themeUseSystemDynamic,
             unloadOnScreenOff = settings.unloadOnScreenOff,
             keepScreenOnWhileRecording = settings.keepScreenOnWhileRecording,
             unloadOnKeyboardClose = settings.unloadOnKeyboardClose,
@@ -158,6 +161,9 @@ object BackupManager {
             AppThemeMode.DARK.id -> AppThemeMode.DARK
             else -> AppThemeMode.SYSTEM
         }
+        settings.themeSeedColor = s.themeSeedColor
+        settings.themePaletteStyle = s.themePaletteStyle
+        settings.themeUseSystemDynamic = s.themeUseSystemDynamic
         settings.unloadOnScreenOff = s.unloadOnScreenOff
         settings.keepScreenOnWhileRecording = s.keepScreenOnWhileRecording
         settings.unloadOnKeyboardClose = s.unloadOnKeyboardClose

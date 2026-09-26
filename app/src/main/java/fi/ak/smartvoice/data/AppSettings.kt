@@ -151,18 +151,42 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putString(KEY_THEME_MODE, value.id) }
 
     /**
-     * Calls [onChange] whenever the app's theme mode changes. The floating pill is its own window
-     * with its own `SmartVoiceTheme`, so nothing re-resolves its colours when the user picks a new
-     * theme in the app — this is that signal. Re-subscribing replaces the previous observer.
+     * The primary seed ARGB color for Material 3 dynamic color generation (default #FF9248).
      */
-    fun observeThemeMode(onChange: () -> Unit) {
+    var themeSeedColor: Int
+        get() = prefs.getInt(KEY_THEME_SEED_COLOR, DEFAULT_THEME_SEED_COLOR)
+        set(value) = prefs.edit { putInt(KEY_THEME_SEED_COLOR, value) }
+
+    /**
+     * The M3 palette style variant ("VIBRANT", "TONAL_SPOT", "FIDELITY").
+     */
+    var themePaletteStyle: String
+        get() = prefs.getString(KEY_THEME_PALETTE_STYLE, DEFAULT_THEME_PALETTE_STYLE).orEmpty()
+        set(value) = prefs.edit { putString(KEY_THEME_PALETTE_STYLE, value) }
+
+    /**
+     * Whether to extract the dynamic color scheme from system wallpaper (Material You on API 31+).
+     */
+    var themeUseSystemDynamic: Boolean
+        get() = prefs.getBoolean(KEY_THEME_USE_SYSTEM_DYNAMIC, DEFAULT_THEME_USE_SYSTEM_DYNAMIC)
+        set(value) = prefs.edit { putBoolean(KEY_THEME_USE_SYSTEM_DYNAMIC, value) }
+
+    /**
+     * Calls [onChange] whenever any theme preference (mode, seed color, palette style, or dynamic flag)
+     * changes. The floating pill is its own window with its own theme, so this signal updates it
+     * immediately in real time.
+     */
+    fun observeTheme(onChange: () -> Unit) {
         removeThemeModeObserver()
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_THEME_MODE) onChange()
+            if (key in THEME_KEYS) onChange()
         }
         themeModeObserver = listener
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }
+
+    /** Compatibility alias for [observeTheme]. */
+    fun observeThemeMode(onChange: () -> Unit) = observeTheme(onChange)
 
     fun removeThemeModeObserver() {
         themeModeObserver?.let { prefs.unregisterOnSharedPreferenceChangeListener(it) }
@@ -295,6 +319,20 @@ class AppSettings(context: Context) {
         private const val KEY_LITERT_COMPAT_NOTE = "litert_compat_note"
         private const val KEY_LITERT_SPECULATIVE_DECODING = "litert_speculative_decoding"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_THEME_SEED_COLOR = "theme_seed_color"
+        private const val KEY_THEME_PALETTE_STYLE = "theme_palette_style"
+        private const val KEY_THEME_USE_SYSTEM_DYNAMIC = "theme_use_system_dynamic"
+
+        private val THEME_KEYS = setOf(
+            KEY_THEME_MODE,
+            KEY_THEME_SEED_COLOR,
+            KEY_THEME_PALETTE_STYLE,
+            KEY_THEME_USE_SYSTEM_DYNAMIC,
+        )
+
+        const val DEFAULT_THEME_SEED_COLOR: Int = 0xFFFF9248.toInt()
+        const val DEFAULT_THEME_PALETTE_STYLE: String = "VIBRANT"
+        const val DEFAULT_THEME_USE_SYSTEM_DYNAMIC: Boolean = false
         // Seconds-valued keys, deliberately new names: the earlier millisecond keys hold Ints, and
         // reading one of those back as a Float throws. The old keys are simply abandoned.
         private const val KEY_PAUSE_SILENCE_S = "pause_silence_s"
