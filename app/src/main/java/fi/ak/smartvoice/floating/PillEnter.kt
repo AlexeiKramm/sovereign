@@ -211,6 +211,9 @@ object PillSpring {
     /** Compose's `Spring.StiffnessMedium`. With unit mass, `w = sqrt(this) ~ 38.7 rad/s`. */
     const val STIFFNESS = 1500f
 
+    /** Natural frequency in rad/s (`sqrt(STIFFNESS)`). */
+    const val NATURAL_FREQUENCY = 38.729835f
+
     /** Within this much of the target (in fraction of the travel) the motion is over. */
     const val DISPLACEMENT_THRESHOLD = 0.01f
 

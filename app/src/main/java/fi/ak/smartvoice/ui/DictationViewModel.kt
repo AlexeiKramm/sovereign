@@ -489,6 +489,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _floatingPillAutoCommit = MutableStateFlow(settings.floatingPillAutoCommit)
     val floatingPillAutoCommit: StateFlow<Boolean> = _floatingPillAutoCommit.asStateFlow()
 
+    private val _floatingPillEdgeAnchoring = MutableStateFlow(settings.floatingPillEdgeAnchoring)
+    val floatingPillEdgeAnchoring: StateFlow<Boolean> = _floatingPillEdgeAnchoring.asStateFlow()
+
     private val _quickDictateOnHold = MutableStateFlow(settings.quickDictateOnHold)
     val quickDictateOnHold: StateFlow<Boolean> = _quickDictateOnHold.asStateFlow()
 
@@ -675,6 +678,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _floatingPillEnabled.value = settings.floatingPillEnabled
         _floatingPillOnlyWhenKeyboardOpen.value = settings.floatingPillOnlyWhenKeyboardOpen
         _floatingPillAutoCommit.value = settings.floatingPillAutoCommit
+        _floatingPillEdgeAnchoring.value = settings.floatingPillEdgeAnchoring
         _quickDictateOnHold.value = settings.quickDictateOnHold
         _pillFlickFriction.value = settings.pillFlickFriction
         _enginePreference.value = settings.enginePreference
@@ -820,6 +824,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setFloatingPillAutoCommit(enabled: Boolean) {
         settings.floatingPillAutoCommit = enabled
         _floatingPillAutoCommit.value = enabled
+    }
+
+    fun setFloatingPillEdgeAnchoring(enabled: Boolean) {
+        settings.floatingPillEdgeAnchoring = enabled
+        _floatingPillEdgeAnchoring.value = enabled
     }
 
     /**

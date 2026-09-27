@@ -221,6 +221,7 @@ fun SettingsScreen(
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
     val floatingPillOnlyWhenKeyboardOpen by viewModel.floatingPillOnlyWhenKeyboardOpen.collectAsStateWithLifecycle()
     val floatingPillAutoCommit by viewModel.floatingPillAutoCommit.collectAsStateWithLifecycle()
+    val floatingPillEdgeAnchoring by viewModel.floatingPillEdgeAnchoring.collectAsStateWithLifecycle()
     val quickDictateOnHold by viewModel.quickDictateOnHold.collectAsStateWithLifecycle()
 
     // The user's choice: Advanced is always collapsed on arrival, never remembered. Declared after
@@ -325,6 +326,15 @@ fun SettingsScreen(
                     subtitle = "Press and hold the pill to dictate and insert automatically",
                     checked = quickDictateOnHold,
                     onCheckedChange = viewModel::setQuickDictateOnHold,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsToggleRow(
+                    title = "Snap pill to screen edges",
+                    subtitle = "Snaps the resting pill to the nearest edge so it doesn't block content",
+                    checked = floatingPillEdgeAnchoring,
+                    onCheckedChange = viewModel::setFloatingPillEdgeAnchoring,
                 )
             }
         }

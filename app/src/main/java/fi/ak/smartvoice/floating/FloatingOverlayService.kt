@@ -240,6 +240,18 @@ class FloatingOverlayService : Service() {
     private var flingStartX = 0f
     private var flingStartY = 0f
 
+    // Edge snap: smoothly springs the resting pill into the nearer screen edge with optional Y momentum follow-through.
+    private var snapRunning = false
+    private var snapStartX = 0f
+    private var snapTargetX = 0f
+    private var snapProgressX = 0f
+    private var snapVelocityX = 0f
+    private var snapStartY = 0f
+    private var snapTargetY = 0f
+    private var snapProgressY = 0f
+    private var snapVelocityY = 0f
+    private var snapLastNanos = 0L
+
     // Entering and leaving: the pill's fraction plus its velocity, stepped per frame by [entryTick]
     // — the same shape as the fling above. `entryValue` is the transition fraction where `1f` is the
     // pill at its rest dock and `0f` is fully off screen (`PillEnter`), so the spring's units are
@@ -334,7 +346,58 @@ class FloatingOverlayService : Service() {
                 val elapsedMs = (System.nanoTime() - flingStartedAtNanos) / 1_000_000
                 Log.i(TAG, "Fling settled: travelled %.0f px in %d ms".format(travelled, elapsedMs))
                 stopFling()
+                if (settings.floatingPillEdgeAnchoring) {
+                    startSnap()
+                } else {
+                    persistPillPosition()
+                }
+                return
+            }
+            composeView?.postOnAnimation(this)
+        }
+    }
+
+    /**
+     * One frame of the edge-snap motion: smoothly glides the pill into the nearer screen edge
+     * using [PillSpring] while carrying attenuated vertical flick momentum (Chat Heads style).
+     */
+    private val snapTick = object : Runnable {
+        override fun run() {
+            if (!snapRunning) return
+            val startedAt = snapLastNanos
+            if (startedAt == 0L) return
+            val now = System.nanoTime()
+            val dtSeconds = ((now - startedAt) / 1_000_000_000f).coerceIn(0f, PillSpring.MAX_STEP_SECONDS)
+            snapLastNanos = now
+
+            val stepX = PillSnap.step(snapProgressX, snapVelocityX, 1f, dtSeconds)
+            snapProgressX = stepX.value
+            snapVelocityX = stepX.velocity
+
+            val currentX = snapStartX + (snapTargetX - snapStartX) * snapProgressX.coerceIn(0f, 1f)
+            dragOffsetX = currentX
+
+            val currentY = if (snapTargetY != snapStartY) {
+                val stepY = PillSnap.step(snapProgressY, snapVelocityY, 1f, dtSeconds)
+                snapProgressY = stepY.value
+                snapVelocityY = stepY.velocity
+                snapStartY + (snapTargetY - snapStartY) * snapProgressY.coerceIn(0f, 1f)
+            } else {
+                snapStartY
+            }
+            dragOffsetY = currentY
+            pushWindowPosition()
+
+            val atRestX = PillSnap.isAtRest(snapProgressX, snapVelocityX, 1f)
+            val atRestY = snapTargetY == snapStartY || PillSnap.isAtRest(snapProgressY, snapVelocityY, 1f)
+
+            if (atRestX && atRestY) {
+                dragOffsetX = snapTargetX
+                dragOffsetY = snapTargetY
+                applyWindowPosition()
                 persistPillPosition()
+                stopSnap()
+                Log.i(TAG, "Pill snap settled at ($snapTargetX, $snapTargetY)")
                 return
             }
             composeView?.postOnAnimation(this)
@@ -537,6 +600,8 @@ class FloatingOverlayService : Service() {
             instance = null
         }
         settings.removeThemeModeObserver()
+        settings.removeEdgeAnchoringObserver()
+        stopSnap()
         if (screenOffReceiverRegistered) {
             runCatching { unregisterReceiver(screenOffReceiver) }
             screenOffReceiverRegistered = false
@@ -792,7 +857,7 @@ class FloatingOverlayService : Service() {
             // Never while a drag, a fling, an arrival or the card window owns the position: those
             // writes are unclamped on purpose, and this clamp would drag the pill back on screen
             // mid-slide or fight the expansion's own geometry.
-            if (!isDragging && flingLastNanos == 0L && !entryRunning && !cardWindowShown) {
+            if (!isDragging && flingLastNanos == 0L && !entryRunning && !cardWindowShown && !snapRunning) {
                 applyWindowPosition(clampVertical = false)
             }
         }
@@ -805,6 +870,7 @@ class FloatingOverlayService : Service() {
         }
 
         setupCardWindow()
+        settings.observeEdgeAnchoring { onEdgeAnchoringChanged() }
     }
 
     /**
@@ -873,6 +939,7 @@ class FloatingOverlayService : Service() {
 
     private fun removeOverlayView() {
         stopFling()
+        stopSnap()
         stopCardExpand()
         cardWindowShown = false
         cardHoldsScreen = false
@@ -1050,6 +1117,7 @@ class FloatingOverlayService : Service() {
 
     private fun beginDrag() {
         stopFling()
+        stopSnap()
         // The drag takes over: stop any arrival and drop the entry state **without** writing a
         // position — the drag's own base is the current `params.x/y`, which already includes the
         // entry offset, and its release clamps and persists as it does today.
@@ -1092,9 +1160,15 @@ class FloatingOverlayService : Service() {
 
     private fun endDrag() {
         isDragging = false
-        val view = composeView
+        val view = composeView ?: return
         val velocity = dragVelocity.velocity()
-        if (view == null || velocity.speed < FLING_MIN_VELOCITY_PX_PER_SECOND) {
+
+        if (settings.floatingPillEdgeAnchoring) {
+            startSnap(velocity)
+            return
+        }
+
+        if (velocity.speed < FLING_MIN_VELOCITY_PX_PER_SECOND) {
             applyWindowPosition()
             persistPillPosition()
             return
@@ -1122,14 +1196,88 @@ class FloatingOverlayService : Service() {
     private fun endDragWithoutFling() {
         isDragging = false
         stopFling()
-        applyWindowPosition()
-        persistPillPosition()
+        if (settings.floatingPillEdgeAnchoring) {
+            startSnap()
+        } else {
+            applyWindowPosition()
+            persistPillPosition()
+        }
     }
 
     private fun stopFling() {
         flingVelocityX = 0f
         flingVelocityY = 0f
         flingLastNanos = 0L
+    }
+
+    private fun startSnap(velocity: PillVelocity = PillVelocity(0f, 0f)) {
+        val view = composeView ?: return
+        val margin = (PillDock.DRAG_MARGIN_DP * resources.displayMetrics.density).toInt()
+        val screen = windowManager.currentWindowMetrics.bounds
+        val targetPoint = PillSnap.snapPosition(
+            current = desiredPoint(),
+            screenWidthPx = screen.width(),
+            screenHeightPx = screen.height(),
+            viewWidthPx = view.width,
+            viewHeightPx = view.height,
+            marginPx = margin,
+            isRtl = false,
+            velocity = velocity,
+        )
+
+        val targetX = targetPoint.x.toFloat()
+        val targetY = targetPoint.y.toFloat()
+        // If already within 1px on both axes or animators are disabled, settle immediately
+        val isAtTarget = kotlin.math.abs(dragOffsetX - targetX) < 1f &&
+            kotlin.math.abs(dragOffsetY - targetY) < 1f
+        if (isAtTarget || !ValueAnimator.areAnimatorsEnabled()) {
+            dragOffsetX = targetX
+            dragOffsetY = targetY
+            applyWindowPosition()
+            persistPillPosition()
+            stopSnap()
+            return
+        }
+
+        snapStartX = dragOffsetX
+        snapStartY = dragOffsetY
+        snapTargetX = targetX
+        snapTargetY = targetY
+        snapProgressX = 0f
+        snapVelocityX = 0f
+        if (snapTargetY != snapStartY) {
+            snapProgressY = 0f
+            snapVelocityY = 0f
+        } else {
+            snapProgressY = 1f
+            snapVelocityY = 0f
+        }
+        snapRunning = true
+        snapLastNanos = System.nanoTime()
+        view.postOnAnimation(snapTick)
+        Log.i(
+            TAG,
+            "Pill snap started: (%.0f, %.0f) -> (%.0f, %.0f) v=(%.0f, %.0f)".format(
+                snapStartX, snapStartY, snapTargetX, snapTargetY, velocity.x, velocity.y
+            ),
+        )
+    }
+
+    private fun stopSnap() {
+        snapRunning = false
+        snapLastNanos = 0L
+        snapProgressX = 0f
+        snapVelocityX = 0f
+        snapProgressY = 0f
+        snapVelocityY = 0f
+    }
+
+    private fun onEdgeAnchoringChanged() {
+        composeView?.post {
+            if (settings.floatingPillEdgeAnchoring && !isDragging && flingLastNanos == 0L && !entryRunning && !cardWindowShown) {
+                startSnap()
+            }
+        }
     }
 
     /**
@@ -1761,6 +1909,7 @@ class FloatingOverlayService : Service() {
      * symmetric.
      */
     private fun openCard() {
+        stopSnap()
         val card = cardView
         val params = cardParams
         val pillView = composeView

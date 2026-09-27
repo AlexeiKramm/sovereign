@@ -54,6 +54,7 @@ class BackupManagerTest {
             floatingPillEnabled = true,
             floatingPillOnlyWhenKeyboardOpen = false,
             floatingPillAutoCommit = true,
+            floatingPillEdgeAnchoring = false,
             quickDictateOnHold = false,
             pillFlickFriction = 42f,
             historyEnabled = true,

@@ -33,6 +33,7 @@ data class SettingsBackup(
     val floatingPillEnabled: Boolean = AppSettings.DEFAULT_FLOATING_PILL_ENABLED,
     val floatingPillOnlyWhenKeyboardOpen: Boolean = AppSettings.DEFAULT_FLOATING_PILL_ONLY_KEYBOARD,
     val floatingPillAutoCommit: Boolean = AppSettings.DEFAULT_FLOATING_PILL_AUTO_COMMIT,
+    val floatingPillEdgeAnchoring: Boolean = AppSettings.DEFAULT_FLOATING_PILL_EDGE_ANCHORING,
     val quickDictateOnHold: Boolean = AppSettings.DEFAULT_QUICK_DICTATE_ON_HOLD,
     val pillFlickFriction: Float = AppSettings.DEFAULT_PILL_FLICK_FRICTION,
     val historyEnabled: Boolean = AppSettings.DEFAULT_HISTORY_ENABLED,

@@ -78,6 +78,7 @@ object BackupManager {
             floatingPillEnabled = settings.floatingPillEnabled,
             floatingPillOnlyWhenKeyboardOpen = settings.floatingPillOnlyWhenKeyboardOpen,
             floatingPillAutoCommit = settings.floatingPillAutoCommit,
+            floatingPillEdgeAnchoring = settings.floatingPillEdgeAnchoring,
             quickDictateOnHold = settings.quickDictateOnHold,
             pillFlickFriction = settings.pillFlickFriction,
             historyEnabled = settings.historyEnabled,
@@ -172,6 +173,7 @@ object BackupManager {
         settings.floatingPillEnabled = s.floatingPillEnabled
         settings.floatingPillOnlyWhenKeyboardOpen = s.floatingPillOnlyWhenKeyboardOpen
         settings.floatingPillAutoCommit = s.floatingPillAutoCommit
+        settings.floatingPillEdgeAnchoring = s.floatingPillEdgeAnchoring
         settings.quickDictateOnHold = s.quickDictateOnHold
         settings.pillFlickFriction = s.pillFlickFriction
         settings.historyEnabled = s.historyEnabled

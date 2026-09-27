@@ -196,6 +196,25 @@ class AppSettings(context: Context) {
     /** Held strongly: `SharedPreferences` keeps its listeners in a `WeakHashMap`. */
     private var themeModeObserver: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
+    /**
+     * Calls [onChange] whenever the edge anchoring preference changes.
+     */
+    fun observeEdgeAnchoring(onChange: () -> Unit) {
+        removeEdgeAnchoringObserver()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_FLOATING_PILL_EDGE_ANCHORING) onChange()
+        }
+        edgeAnchoringObserver = listener
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun removeEdgeAnchoringObserver() {
+        edgeAnchoringObserver?.let { prefs.unregisterOnSharedPreferenceChangeListener(it) }
+        edgeAnchoringObserver = null
+    }
+
+    private var edgeAnchoringObserver: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"
 
@@ -248,6 +267,11 @@ class AppSettings(context: Context) {
     var floatingPillAutoCommit: Boolean
         get() = prefs.getBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, DEFAULT_FLOATING_PILL_AUTO_COMMIT)
         set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_AUTO_COMMIT, value) }
+
+    /** Whether the resting pill snaps horizontally to hug the nearest screen edge. */
+    var floatingPillEdgeAnchoring: Boolean
+        get() = prefs.getBoolean(KEY_FLOATING_PILL_EDGE_ANCHORING, DEFAULT_FLOATING_PILL_EDGE_ANCHORING)
+        set(value) = prefs.edit { putBoolean(KEY_FLOATING_PILL_EDGE_ANCHORING, value) }
 
     /**
      * Whether pressing and holding the resting pill starts a quick capture that is injected at the
@@ -350,6 +374,7 @@ class AppSettings(context: Context) {
         private const val KEY_PILL_FLICK_FRICTION = "pill_flick_friction"
         private const val KEY_FLOATING_PILL_X = "floating_pill_x"
         private const val KEY_FLOATING_PILL_Y = "floating_pill_y"
+        private const val KEY_FLOATING_PILL_EDGE_ANCHORING = "floating_pill_edge_anchoring"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_HISTORY_ENABLED = "history_enabled"
         private const val KEY_HISTORY_CAPACITY = "history_capacity"
@@ -359,6 +384,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_FLOATING_PILL_ENABLED = true
         const val DEFAULT_FLOATING_PILL_ONLY_KEYBOARD = true
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
+        const val DEFAULT_FLOATING_PILL_EDGE_ANCHORING = true
         const val DEFAULT_QUICK_DICTATE_ON_HOLD = true
 
         /** Stored pill position meaning "never dragged — use the default corner dock". */
