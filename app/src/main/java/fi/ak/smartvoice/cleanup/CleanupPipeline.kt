@@ -31,6 +31,8 @@ class CleanupPipeline(
     private val dispatcher: CoroutineDispatcher,
     /** Read per unit, so a settings change applies without a rebuild. */
     private val rules: () -> CleanupPrompt.Variant,
+    /** Number of sentences to rewrite across pause boundaries for seam healing. */
+    private val healingSentencesCount: () -> Int = { 0 },
     /** Called on [dispatcher], in order, once per unit. */
     private val onCommitted: suspend (CleanupCommit) -> Unit,
 ) {
@@ -68,7 +70,10 @@ class CleanupPipeline(
         worker = scope.launch(dispatcher) {
             for (request in channel) {
                 val unit = request.text
-                val seam = request.seam
+                val healingCount = healingSentencesCount()
+                val seam = request.seam ?: if (healingCount > 0 && state.carriedTail.isNotBlank()) {
+                    SeamHealer.split(state.carriedTail, healingCount)
+                } else null
                 val hasOverlap = seam != null && seam.strippedOverlap.isNotBlank()
                 val textToClean = if (hasOverlap) "${seam.strippedOverlap} ${unit.trim()}" else unit
                 val contextForClean = if (hasOverlap) {

@@ -251,6 +251,8 @@ class FloatingOverlayService : Service() {
     private var snapProgressY = 0f
     private var snapVelocityY = 0f
     private var snapLastNanos = 0L
+    private var snapStiffness = PillSnap.SNAP_STIFFNESS
+    private var snapDampingRatio = PillSnap.SNAP_DAMPING_RATIO
 
     // Entering and leaving: the pill's fraction plus its velocity, stepped per frame by [entryTick]
     // — the same shape as the fling above. `entryValue` is the transition fraction where `1f` is the
@@ -370,7 +372,14 @@ class FloatingOverlayService : Service() {
             val dtSeconds = ((now - startedAt) / 1_000_000_000f).coerceIn(0f, PillSpring.MAX_STEP_SECONDS)
             snapLastNanos = now
 
-            val stepX = PillSnap.step(snapProgressX, snapVelocityX, 1f, dtSeconds)
+            val stepX = PillSnap.step(
+                value = snapProgressX,
+                velocity = snapVelocityX,
+                target = 1f,
+                dtSeconds = dtSeconds,
+                stiffness = snapStiffness,
+                dampingRatio = snapDampingRatio,
+            )
             snapProgressX = stepX.value
             snapVelocityX = stepX.velocity
 
@@ -378,7 +387,14 @@ class FloatingOverlayService : Service() {
             dragOffsetX = currentX
 
             val currentY = if (snapTargetY != snapStartY) {
-                val stepY = PillSnap.step(snapProgressY, snapVelocityY, 1f, dtSeconds)
+                val stepY = PillSnap.step(
+                    value = snapProgressY,
+                    velocity = snapVelocityY,
+                    target = 1f,
+                    dtSeconds = dtSeconds,
+                    stiffness = snapStiffness,
+                    dampingRatio = snapDampingRatio,
+                )
                 snapProgressY = stepY.value
                 snapVelocityY = stepY.velocity
                 snapStartY + (snapTargetY - snapStartY) * snapProgressY.coerceIn(0f, 1f)
@@ -685,14 +701,13 @@ class FloatingOverlayService : Service() {
                 val active = profileStore.activeProfile()
                 CleanupPrompt.Variant.fromId(active.id)
             },
+            healingSentencesCount = { settings.healingSentencesCount },
             onCommitted = { commit ->
-                scope.launch(Dispatchers.Main.immediate) {
+                withContext(Dispatchers.Main.immediate) {
                     if (commit.overlapToDelete.isNotEmpty() && committedText.endsWith(commit.overlapToDelete)) {
                         committedText.setLength(committedText.length - commit.overlapToDelete.length)
                     }
-                    if (committedText.isNotEmpty() && !committedText.endsWith(" ") && !commit.text.startsWith(" ")) {
-                        committedText.append(" ")
-                    }
+                    committedText.append(commit.prefix)
                     committedText.append(commit.text)
                     previewText = committedText.toString()
                 }
@@ -1214,6 +1229,8 @@ class FloatingOverlayService : Service() {
         val view = composeView ?: return
         val margin = (PillDock.DRAG_MARGIN_DP * resources.displayMetrics.density).toInt()
         val screen = windowManager.currentWindowMetrics.bounds
+        snapStiffness = settings.pillSnapStiffness
+        snapDampingRatio = settings.pillSnapDamping
         val targetPoint = PillSnap.snapPosition(
             current = desiredPoint(),
             screenWidthPx = screen.width(),
@@ -1223,6 +1240,8 @@ class FloatingOverlayService : Service() {
             marginPx = margin,
             isRtl = false,
             velocity = velocity,
+            attenuation = settings.pillSnapAttenuation,
+            stiffness = snapStiffness,
         )
 
         val targetX = targetPoint.x.toFloat()
@@ -2436,10 +2455,7 @@ class FloatingOverlayService : Service() {
                         cleanupPipeline.begin(committedText.toString())
                         cleanupEngaged = true
                     }
-                    val seam = if (settings.healingSentencesCount > 0 && committedText.isNotEmpty()) {
-                        SeamHealer.split(committedText.toString(), settings.healingSentencesCount)
-                    } else null
-                    cleanupPipeline.submit(unit, seam)
+                    cleanupPipeline.submit(unit)
                     return@launch
                 }
             }

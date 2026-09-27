@@ -255,4 +255,64 @@ class PillSnapTest {
         assertEquals(0f, velocity, 0.001f)
         assertTrue(PillSnap.isAtRest(progress, velocity, 1f))
     }
+
+    @Test
+    fun `PillSnap step with high stiffness settles faster than low stiffness`() {
+        val dt = 0.016f
+
+        // Run low stiffness (100f) for 10 frames (~160ms)
+        var pLow = 0f
+        var vLow = 0f
+        for (i in 1..10) {
+            val sample = PillSnap.step(pLow, vLow, 1f, dt, stiffness = 100f, dampingRatio = 1f)
+            pLow = sample.value
+            vLow = sample.velocity
+        }
+
+        // Run high stiffness (1500f) for 10 frames (~160ms)
+        var pHigh = 0f
+        var vHigh = 0f
+        for (i in 1..10) {
+            val sample = PillSnap.step(pHigh, vHigh, 1f, dt, stiffness = 1500f, dampingRatio = 1f)
+            pHigh = sample.value
+            vHigh = sample.velocity
+        }
+
+        // High stiffness spring moves much further towards target in 160ms than low stiffness
+        assertTrue("High stiffness should make more progress than low stiffness", pHigh > pLow)
+        assertTrue("High stiffness progress should be near completion", pHigh > 0.9f)
+        assertTrue("Low stiffness progress should be under 0.6", pLow < 0.6f)
+    }
+
+    @Test
+    fun `snapPosition with custom attenuation scales vertical momentum proportionally`() {
+        val current = PillPoint(x = 100, y = 500)
+        val velocity = PillVelocity(x = 0f, y = 2000f)
+
+        val snappedZero = PillSnap.snapPosition(
+            current = current,
+            screenWidthPx = screenWidth,
+            screenHeightPx = screenHeight,
+            viewWidthPx = viewWidth,
+            viewHeightPx = viewHeight,
+            marginPx = margin,
+            velocity = velocity,
+            attenuation = 0.0f,
+        )
+        // With attenuation 0.0, vertical position is strictly unchanged
+        assertEquals(500, snappedZero.y)
+
+        val snappedHalf = PillSnap.snapPosition(
+            current = current,
+            screenWidthPx = screenWidth,
+            screenHeightPx = screenHeight,
+            viewWidthPx = viewWidth,
+            viewHeightPx = viewHeight,
+            marginPx = margin,
+            velocity = velocity,
+            attenuation = 0.5f,
+        )
+        // 2000 / 20 * 0.5 = 50px delta -> y = 550
+        assertEquals(550, snappedHalf.y)
+    }
 }

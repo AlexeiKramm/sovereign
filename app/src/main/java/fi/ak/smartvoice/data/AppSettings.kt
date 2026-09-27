@@ -291,6 +291,30 @@ class AppSettings(context: Context) {
         get() = prefs.getFloat(KEY_PILL_FLICK_FRICTION, DEFAULT_PILL_FLICK_FRICTION)
         set(value) = prefs.edit { putFloat(KEY_PILL_FLICK_FRICTION, value) }
 
+    /**
+     * Vertical momentum follow-through attenuation during edge snap (0.0 .. 1.0).
+     * 0.0 means horizontal-only snap; 1.0 means unattenuated momentum carryover.
+     */
+    var pillSnapAttenuation: Float
+        get() = prefs.getFloat(KEY_PILL_SNAP_ATTENUATION, DEFAULT_PILL_SNAP_ATTENUATION)
+        set(value) = prefs.edit { putFloat(KEY_PILL_SNAP_ATTENUATION, value) }
+
+    /**
+     * Stiffness for the edge snap spring (100f .. 1500f).
+     * Lower is softer and accelerates more gently; higher snaps faster.
+     */
+    var pillSnapStiffness: Float
+        get() = prefs.getFloat(KEY_PILL_SNAP_STIFFNESS, DEFAULT_PILL_SNAP_STIFFNESS)
+        set(value) = prefs.edit { putFloat(KEY_PILL_SNAP_STIFFNESS, value) }
+
+    /**
+     * Damping ratio for the edge snap spring (0.5 .. 1.5).
+     * 1.0 = critically damped (no bounce/overshoot); < 1.0 bounces; > 1.0 overdamped.
+     */
+    var pillSnapDamping: Float
+        get() = prefs.getFloat(KEY_PILL_SNAP_DAMPING, DEFAULT_PILL_SNAP_DAMPING)
+        set(value) = prefs.edit { putFloat(KEY_PILL_SNAP_DAMPING, value) }
+
     /** Whether dictation history transcripts are saved locally. Default is true. */
     var historyEnabled: Boolean
         get() = prefs.getBoolean(KEY_HISTORY_ENABLED, DEFAULT_HISTORY_ENABLED)
@@ -372,6 +396,9 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
         private const val KEY_QUICK_DICTATE_ON_HOLD = "quick_dictate_on_hold"
         private const val KEY_PILL_FLICK_FRICTION = "pill_flick_friction"
+        private const val KEY_PILL_SNAP_ATTENUATION = "pill_snap_attenuation"
+        private const val KEY_PILL_SNAP_STIFFNESS = "pill_snap_stiffness"
+        private const val KEY_PILL_SNAP_DAMPING = "pill_snap_damping"
         private const val KEY_FLOATING_PILL_X = "floating_pill_x"
         private const val KEY_FLOATING_PILL_Y = "floating_pill_y"
         private const val KEY_FLOATING_PILL_EDGE_ANCHORING = "floating_pill_edge_anchoring"
@@ -398,6 +425,18 @@ class AppSettings(context: Context) {
         const val DEFAULT_PILL_FLICK_FRICTION = 30f
         const val MIN_PILL_FLICK_FRICTION = 5f
         const val MAX_PILL_FLICK_FRICTION = 60f
+
+        const val DEFAULT_PILL_SNAP_ATTENUATION = 0.25f
+        const val MIN_PILL_SNAP_ATTENUATION = 0.0f
+        const val MAX_PILL_SNAP_ATTENUATION = 1.0f
+
+        const val DEFAULT_PILL_SNAP_STIFFNESS = 400f
+        const val MIN_PILL_SNAP_STIFFNESS = 100f
+        const val MAX_PILL_SNAP_STIFFNESS = 1500f
+
+        const val DEFAULT_PILL_SNAP_DAMPING = 1.0f
+        const val MIN_PILL_SNAP_DAMPING = 0.5f
+        const val MAX_PILL_SNAP_DAMPING = 1.5f
         const val DEFAULT_HEALING_SENTENCES_COUNT = 3
         const val DEFAULT_ONBOARDING_COMPLETED = false
 

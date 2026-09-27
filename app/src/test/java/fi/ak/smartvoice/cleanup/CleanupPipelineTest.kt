@@ -121,4 +121,43 @@ class CleanupPipelineTest {
         assertEquals("driving to the supermarket.", commit.overlapToDelete)
         org.junit.Assert.assertTrue(commit.cleaned)
     }
+
+    @Test
+    fun `queued units during continuous dictation do not repeat earlier sentences`() = runBlocking {
+        val engine = FakeEngine()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val committedText = StringBuilder()
+
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            healingSentencesCount = { 2 },
+            onCommitted = { commit ->
+                if (commit.overlapToDelete.isNotEmpty() && committedText.endsWith(commit.overlapToDelete)) {
+                    committedText.setLength(committedText.length - commit.overlapToDelete.length)
+                }
+                committedText.append(commit.prefix)
+                committedText.append(commit.text)
+            },
+        )
+
+        pipeline.begin()
+
+        val u1 = "Well, just sit with it, you know, just sit with it."
+        val u2 = "It's just the temporary feeling, what not and don't respond to it."
+        val u3 = "And I don't know precisely why, but there's just something really dissatisfying."
+
+        pipeline.submit(u1)
+        pipeline.submit(u2)
+        pipeline.submit(u3)
+
+        pipeline.drain()
+
+        val fullText = committedText.toString()
+        val occurrences = Regex("Well, just sit with it").findAll(fullText).count()
+        assertEquals("Sentence should appear exactly once in final text, but appeared $occurrences times: $fullText", 1, occurrences)
+    }
 }
+

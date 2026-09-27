@@ -1091,6 +1091,9 @@ private fun LegacySettingsScreen(viewModel: DictationViewModel) {
     val context = LocalContext.current
     val floatingPillEnabled by viewModel.floatingPillEnabled.collectAsStateWithLifecycle()
     val pillFlickFriction by viewModel.pillFlickFriction.collectAsStateWithLifecycle()
+    val pillSnapAttenuation by viewModel.pillSnapAttenuation.collectAsStateWithLifecycle()
+    val pillSnapStiffness by viewModel.pillSnapStiffness.collectAsStateWithLifecycle()
+    val pillSnapDamping by viewModel.pillSnapDamping.collectAsStateWithLifecycle()
     val isOverlayPermissionGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
     val isAccessibilityPermissionGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
@@ -1156,6 +1159,42 @@ private fun LegacySettingsScreen(viewModel: DictationViewModel) {
                         valueRange = AppSettings.MIN_PILL_FLICK_FRICTION..AppSettings.MAX_PILL_FLICK_FRICTION,
                         steps = 54,
                         onValueChange = viewModel::setPillFlickFriction,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsSliderRow(
+                        title = "Snap vertical momentum attenuation",
+                        subtitle = "Vertical momentum follow-through during edge snap (0.00 = horizontal only, 1.00 = full carryover).",
+                        value = pillSnapAttenuation,
+                        valueLabel = String.format(Locale.US, "%.2f", pillSnapAttenuation),
+                        valueRange = AppSettings.MIN_PILL_SNAP_ATTENUATION..AppSettings.MAX_PILL_SNAP_ATTENUATION,
+                        steps = 19,
+                        onValueChange = viewModel::setPillSnapAttenuation,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsSliderRow(
+                        title = "Snap spring stiffness",
+                        subtitle = "Spring tension during edge snap. Lower accelerates more gently; higher snaps faster.",
+                        value = pillSnapStiffness,
+                        valueLabel = String.format(Locale.US, "%.0f", pillSnapStiffness),
+                        valueRange = AppSettings.MIN_PILL_SNAP_STIFFNESS..AppSettings.MAX_PILL_SNAP_STIFFNESS,
+                        steps = 27,
+                        onValueChange = viewModel::setPillSnapStiffness,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsSliderRow(
+                        title = "Snap damping ratio",
+                        subtitle = "1.00 = critically damped (no overshoot/bounce). < 1.00 bounces, > 1.00 is sluggish.",
+                        value = pillSnapDamping,
+                        valueLabel = String.format(Locale.US, "%.2f", pillSnapDamping),
+                        valueRange = AppSettings.MIN_PILL_SNAP_DAMPING..AppSettings.MAX_PILL_SNAP_DAMPING,
+                        steps = 19,
+                        onValueChange = viewModel::setPillSnapDamping,
                     )
                 }
             }

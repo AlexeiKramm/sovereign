@@ -498,6 +498,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _pillFlickFriction = MutableStateFlow(settings.pillFlickFriction)
     val pillFlickFriction: StateFlow<Float> = _pillFlickFriction.asStateFlow()
 
+    private val _pillSnapAttenuation = MutableStateFlow(settings.pillSnapAttenuation)
+    val pillSnapAttenuation: StateFlow<Float> = _pillSnapAttenuation.asStateFlow()
+
+    private val _pillSnapStiffness = MutableStateFlow(settings.pillSnapStiffness)
+    val pillSnapStiffness: StateFlow<Float> = _pillSnapStiffness.asStateFlow()
+
+    private val _pillSnapDamping = MutableStateFlow(settings.pillSnapDamping)
+    val pillSnapDamping: StateFlow<Float> = _pillSnapDamping.asStateFlow()
+
     private val _isOverlayPermissionGranted = MutableStateFlow(Settings.canDrawOverlays(app))
     val isOverlayPermissionGranted: StateFlow<Boolean> = _isOverlayPermissionGranted.asStateFlow()
 
@@ -681,6 +690,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _floatingPillEdgeAnchoring.value = settings.floatingPillEdgeAnchoring
         _quickDictateOnHold.value = settings.quickDictateOnHold
         _pillFlickFriction.value = settings.pillFlickFriction
+        _pillSnapAttenuation.value = settings.pillSnapAttenuation
+        _pillSnapStiffness.value = settings.pillSnapStiffness
+        _pillSnapDamping.value = settings.pillSnapDamping
         _enginePreference.value = settings.enginePreference
         _serverUrl.value = settings.serverUrl
         _litertProcessor.value = settings.litertProcessor
@@ -851,6 +863,33 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         )
         settings.pillFlickFriction = clamped
         _pillFlickFriction.value = clamped
+    }
+
+    fun setPillSnapAttenuation(attenuation: Float) {
+        val clamped = attenuation.coerceIn(
+            AppSettings.MIN_PILL_SNAP_ATTENUATION,
+            AppSettings.MAX_PILL_SNAP_ATTENUATION,
+        )
+        settings.pillSnapAttenuation = clamped
+        _pillSnapAttenuation.value = clamped
+    }
+
+    fun setPillSnapStiffness(stiffness: Float) {
+        val clamped = stiffness.coerceIn(
+            AppSettings.MIN_PILL_SNAP_STIFFNESS,
+            AppSettings.MAX_PILL_SNAP_STIFFNESS,
+        )
+        settings.pillSnapStiffness = clamped
+        _pillSnapStiffness.value = clamped
+    }
+
+    fun setPillSnapDamping(damping: Float) {
+        val clamped = damping.coerceIn(
+            AppSettings.MIN_PILL_SNAP_DAMPING,
+            AppSettings.MAX_PILL_SNAP_DAMPING,
+        )
+        settings.pillSnapDamping = clamped
+        _pillSnapDamping.value = clamped
     }
 
     fun checkServer() {

@@ -62,7 +62,9 @@ class UtteranceCleanupState {
 
         if (pass.cleaned && seam != null && seam.overlapText.isNotEmpty()) {
             val overlapLen = seam.overlapText.length
-            if (committed.length >= overlapLen) {
+            if (committed.endsWith(seam.overlapText)) {
+                committed.setLength(committed.length - overlapLen)
+            } else if (committed.length >= overlapLen) {
                 committed.setLength(committed.length - overlapLen)
             }
             val prefix = if (committed.isEmpty()) "" else PanelText.unitPrefix(committed.toString(), body)

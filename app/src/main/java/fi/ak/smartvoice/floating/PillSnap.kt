@@ -46,17 +46,20 @@ object PillSnap {
     }
 
     /**
-     * One frame of the snap spring integration using [SNAP_STIFFNESS] and [SNAP_DAMPING_RATIO].
+     * One frame of the snap spring integration using [stiffness] and [dampingRatio].
      */
     fun step(
         value: Float,
         velocity: Float,
         target: Float = 1f,
         dtSeconds: Float,
+        stiffness: Float = SNAP_STIFFNESS,
+        dampingRatio: Float = SNAP_DAMPING_RATIO,
     ): PillMotionSample {
         val dt = dtSeconds.coerceIn(0f, PillSpring.MAX_STEP_SECONDS)
-        val damping = 2f * SNAP_DAMPING_RATIO * SNAP_NATURAL_FREQUENCY
-        val accel = -SNAP_STIFFNESS * (value - target) - damping * velocity
+        val frequency = if (stiffness > 0f) kotlin.math.sqrt(stiffness) else SNAP_NATURAL_FREQUENCY
+        val damping = 2f * dampingRatio * frequency
+        val accel = -stiffness * (value - target) - damping * velocity
         val nextVelocity = velocity + accel * dt
         val nextValue = value + nextVelocity * dt
         if (isAtRest(nextValue, nextVelocity, target)) return PillMotionSample(target, 0f)
@@ -72,7 +75,7 @@ object PillSnap {
      * Determines whether [currentX] (with optional horizontal release velocity [velocityX]) is nearer
      * to the START or END horizontal edge.
      *
-     * When [velocityX] is significant, the projection `currentX + velocityX / omega` allows a flick
+     * When [velocityX] is significant, the projection `currentX + velocityX / frequency` allows a flick
      * towards the opposite side to target that edge even before the pill crosses the midpoint.
      * Uses [PillEnter.pillCentreX] and [PillEnter.edgeFor] to ensure exact alignment with
      * arrival/departure and card expansion geometry.
@@ -83,9 +86,10 @@ object PillSnap {
         viewWidthPx: Int,
         isRtl: Boolean = false,
         velocityX: Float = 0f,
+        frequency: Float = SNAP_NATURAL_FREQUENCY,
     ): PillEdge {
-        val projectedOffset = if (abs(velocityX) >= 100f) {
-            (currentX + velocityX / SNAP_NATURAL_FREQUENCY).roundToInt()
+        val projectedOffset = if (abs(velocityX) >= 100f && frequency > 0f) {
+            (currentX + velocityX / frequency).roundToInt()
         } else {
             currentX
         }
@@ -142,13 +146,16 @@ object PillSnap {
         isRtl: Boolean = false,
         velocity: PillVelocity = PillVelocity(0f, 0f),
         attenuation: Float = DEFAULT_ATTENUATION,
+        stiffness: Float = SNAP_STIFFNESS,
     ): PillPoint {
+        val frequency = if (stiffness > 0f) kotlin.math.sqrt(stiffness) else SNAP_NATURAL_FREQUENCY
         val edge = targetEdge(
             currentX = current.x,
             screenWidthPx = screenWidthPx,
             viewWidthPx = viewWidthPx,
             isRtl = isRtl,
             velocityX = velocity.x,
+            frequency = frequency,
         )
         val targetX = snapTargetX(
             edge = edge,
@@ -157,7 +164,7 @@ object PillSnap {
             marginPx = marginPx,
             isRtl = isRtl,
         )
-        val deltaY = projectedDeltaY(velocity.y, attenuation)
+        val deltaY = projectedDeltaY(velocity.y, attenuation, frequency)
         val maxY = (screenHeightPx - viewHeightPx - marginPx).coerceAtLeast(0)
         val minY = marginPx.coerceAtMost(maxY)
         val targetY = (current.y + deltaY).roundToInt().coerceIn(minY, maxY)
