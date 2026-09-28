@@ -1,15 +1,14 @@
 package fi.ak.smartvoice.ui.profile
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,7 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -32,11 +31,14 @@ import androidx.compose.material.icons.filled.Spellcheck
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,7 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,22 +61,18 @@ import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.data.CleaningProfile
 import fi.ak.smartvoice.data.DictionaryRow
 import fi.ak.smartvoice.data.DictionaryRows
-import fi.ak.smartvoice.theme.BadgeRose
-import fi.ak.smartvoice.theme.BadgeViolet
-import fi.ak.smartvoice.theme.Radius
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.ui.DictationViewModel
+import fi.ak.smartvoice.ui.backup.BackupScreen
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
-import fi.ak.smartvoice.ui.components.SettingsItemRow
 import fi.ak.smartvoice.ui.components.SubScreenHost
 
 /**
- * The Profiles tab: a list of cleaning profiles (tap a card to make it active, its button
- * opens the detail), and the one shared dictionary every profile uses.
+ * The Profiles tab: contextual styles, cleanup rules, personal dictionary preview, and backup.
  */
-private enum class ProfilesDestination { LIST, DETAIL, DICTIONARY }
+private enum class ProfilesDestination { LIST, DETAIL, DICTIONARY, BACKUP }
 
 @Composable
 fun ProfilesScreen(
@@ -84,8 +82,6 @@ fun ProfilesScreen(
     var destination by remember { mutableStateOf(ProfilesDestination.LIST) }
     var detailProfileId by remember { mutableStateOf<String?>(null) }
 
-    // The pill can switch the active profile while this tab is backgrounded, so re-read on resume
-    // (same reason Home does). One source of truth: the ViewModel's stores.
     LifecycleResumeEffect(Unit) {
         viewModel.refreshProfiles()
         viewModel.refreshDictionary()
@@ -94,6 +90,12 @@ fun ProfilesScreen(
 
     val openProfileId = detailProfileId
     when {
+        destination == ProfilesDestination.BACKUP -> BackupScreen(
+            viewModel = viewModel,
+            modifier = modifier,
+            onNavigateUp = { destination = ProfilesDestination.LIST },
+        )
+
         destination == ProfilesDestination.DICTIONARY -> DictionarySubScreen(
             viewModel = viewModel,
             modifier = modifier,
@@ -118,12 +120,13 @@ fun ProfilesScreen(
                 destination = ProfilesDestination.DETAIL
             },
             onOpenDictionary = { destination = ProfilesDestination.DICTIONARY },
+            onOpenBackup = { destination = ProfilesDestination.BACKUP },
         )
     }
 }
 
 // ----------------------------------------------------------------------------
-// Profile list
+// Profiles list screen
 // ----------------------------------------------------------------------------
 
 @Composable
@@ -132,6 +135,7 @@ private fun ProfilesListScreen(
     modifier: Modifier = Modifier,
     onOpenProfile: (String) -> Unit,
     onOpenDictionary: () -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val activeProfileId by viewModel.activeProfileId.collectAsStateWithLifecycle()
@@ -157,7 +161,8 @@ private fun ProfilesListScreen(
         )
     }
 
-    val correctionCount = DictionaryRows.of(dictionaryEntries).size
+    val rows = remember(dictionaryEntries) { DictionaryRows.of(dictionaryEntries) }
+    val correctionCount = rows.size
 
     LazyColumn(
         modifier = modifier
@@ -165,176 +170,361 @@ private fun ProfilesListScreen(
             .padding(horizontal = Spacing.screen, vertical = Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
+        // --- HEADER ---
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "Profiles",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "Choose how AI polishes your speech, and teach it the words you use.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = "Profiles",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Contextual styles, cleanup rules & custom dictionary",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                IconButton(
+                    onClick = { showNewProfileDialog = true },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "New profile",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
 
+        // --- DICTATION PROFILES ---
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                SectionHeading("Cleaning profiles")
-                SettingsGroupCard {
-                    profiles.forEachIndexed { index, profile ->
-                        ProfileRow(
-                            profile = profile,
-                            isActive = profile.id == activeProfileId,
-                            onSelect = { viewModel.setActiveProfile(profile.id) },
-                            onOpenDetail = { onOpenProfile(profile.id) },
-                        )
-                        SettingsDivider(startIndent = 56.dp)
-                    }
-                    SettingsItemRow(
-                        title = "New profile",
-                        subtitle = "Start from the standard rules and adjust them",
-                        badge = {
-                            SettingsIconBadge(
-                                icon = Icons.Default.Add,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = { showNewProfileDialog = true },
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "DICTATION PROFILES",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "Tap to activate",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
                 }
+
+                profiles.forEach { profile ->
+                    val isActive = profile.id == activeProfileId
+                    Card(
+                        onClick = { viewModel.setActiveProfile(profile.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(26.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isActive) MaterialTheme.colorScheme.surfaceContainerHigh
+                            else MaterialTheme.colorScheme.surfaceContainer,
+                        ),
+                        border = BorderStroke(
+                            width = if (isActive) 2.dp else 1.dp,
+                            color = if (isActive) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        ),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        text = profile.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    if (profile.isBuiltin) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        ) {
+                                            Text(
+                                                text = "System default",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            )
+                                        }
+                                    }
+                                    if (isActive) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                        ) {
+                                            Text(
+                                                text = "Active",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                                            )
+                                        }
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { onOpenProfile(profile.id) },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = if (profile.isBuiltin) Icons.Default.Lock else Icons.Default.Edit,
+                                        contentDescription = if (profile.isBuiltin) "View ${profile.name}" else "Edit ${profile.name}",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+
+                            if (profile.description.isNotBlank()) {
+                                Text(
+                                    text = profile.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 18.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (profiles.isEmpty()) {
                     Text(
                         text = "No profiles yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp),
                     )
                 }
             }
         }
 
+        // --- PERSONAL DICTIONARY ---
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                SectionHeading("Dictionary")
-                SettingsGroupCard {
-                    SettingsItemRow(
-                        title = "Shared dictionary",
-                        subtitle = when (correctionCount) {
-                            0 -> "Teach names and words it mishears"
-                            1 -> "1 correction · used by every profile"
-                            else -> "$correctionCount corrections · used by every profile"
-                        },
-                        badge = {
-                            SettingsIconBadge(
-                                icon = Icons.Default.Spellcheck,
-                                badgeColor = BadgeRose,
-                                contentDescription = null,
-                            )
-                        },
-                        trailing = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "PERSONAL DICTIONARY",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = if (correctionCount == 0) "No terms" else "$correctionCount terms",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                Card(
+                    onClick = onOpenDictionary,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                SettingsIconBadge(
+                                    icon = Icons.Default.Spellcheck,
+                                    badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                    iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    contentDescription = null,
+                                )
+                                Column {
+                                    Text(
+                                        text = "Personal dictionary",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "Teaches custom words, acronyms, and names",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
+                                contentDescription = "Open personal dictionary",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        },
-                        onClick = onOpenDictionary,
-                    )
+                        }
+
+                        // Unboxed minimal preview pills
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            val samplePills = if (rows.isNotEmpty()) {
+                                rows.take(3).map { if (it.incorrect != null) "${it.incorrect} → ${it.correct}" else it.correct }
+                            } else {
+                                listOf("Kubernetes", "sherpa-onnx", "LiteRT-LM")
+                            }
+                            samplePills.forEach { term ->
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                ) {
+                                    Text(
+                                        text = term,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                }
+                            }
+                            if (rows.size > 3) {
+                                Text(
+                                    text = "+${rows.size - 3} more",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Tap to open dictionary and manage terms →",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun ProfileRow(
-    profile: CleaningProfile,
-    isActive: Boolean,
-    onSelect: () -> Unit,
-    onOpenDetail: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                else Color.Transparent,
-            )
-            .clickable(onClick = onSelect)
-            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(if (isActive) BadgeViolet else Color.Transparent)
-                .border(
-                    width = if (isActive) 0.dp else 1.5.dp,
-                    color = if (isActive) Color.Transparent else MaterialTheme.colorScheme.outline,
-                    shape = CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (isActive) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = "Active profile",
-                    tint = Color.White,
-                    modifier = Modifier.size(15.dp),
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = profile.name,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (profile.description.isNotBlank()) {
+        // --- BACKUP & RESTORE ---
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 Text(
-                    text = profile.description,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "BACKUP & RESTORE",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
+
+                Card(
+                    onClick = onOpenBackup,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            SettingsIconBadge(
+                                icon = Icons.Default.Backup,
+                                badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                contentDescription = null,
+                            )
+                            Column {
+                                Text(
+                                    text = "Backup & restore",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Export or import your dictionary, profiles, and settings as a file",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "Open backup and restore",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-        }
-
-        if (profile.isBuiltin) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = "Built-in profile",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 8.dp)
-                    .size(16.dp),
-            )
-        }
-
-        IconButton(onClick = onOpenDetail) {
-            Icon(
-                imageVector = if (profile.isBuiltin) Icons.Default.ChevronRight else Icons.Default.Edit,
-                contentDescription = if (profile.isBuiltin) "View ${profile.name}" else "Edit ${profile.name}",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
         }
     }
 }
 
 // ----------------------------------------------------------------------------
-// Profile detail
+// Profile detail screen
 // ----------------------------------------------------------------------------
 
 @Composable
@@ -351,7 +541,6 @@ private fun ProfileDetailScreen(
 
     SubScreenHost(onNavigateUp = onNavigateUp, modifier = modifier) {
         if (profile == null) {
-            // Deleted from under us; nothing to edit.
             return@SubScreenHost
         }
 
@@ -400,9 +589,9 @@ private fun ProfileDetailScreen(
                 BuiltInNote()
             }
 
-            SettingsGroupCard {
+            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
                 Column(
-                    modifier = Modifier.padding(Spacing.lg),
+                    modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
                     DetailField(
@@ -444,7 +633,7 @@ private fun ProfileDetailScreen(
                             onNavigateUp()
                         },
                         enabled = name.isNotBlank() && rules.isNotBlank(),
-                        shape = RoundedCornerShape(Radius.sm),
+                        shape = CircleShape,
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Save", fontWeight = FontWeight.SemiBold)
@@ -473,9 +662,9 @@ private fun BuiltInNote() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(Radius.sm))
+            .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(Spacing.md),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -509,12 +698,12 @@ private fun DetailField(
         singleLine = minLines == 1,
         minLines = minLines,
         maxLines = if (minLines == 1) 1 else 10,
-        shape = RoundedCornerShape(Radius.sm),
+        shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-            focusedBorderColor = BadgeViolet,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
         ),
         modifier = Modifier.fillMaxWidth(),
@@ -529,13 +718,13 @@ private fun DeleteProfileDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(Radius.md),
+        shape = RoundedCornerShape(26.dp),
         title = { Text("Delete profile?", fontWeight = FontWeight.Bold) },
         text = { Text("\"$name\" will be removed. The shared dictionary is not affected.") },
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                shape = RoundedCornerShape(Radius.sm),
+                shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError,
@@ -551,7 +740,7 @@ private fun DeleteProfileDialog(
 }
 
 // ----------------------------------------------------------------------------
-// Shared dictionary
+// Shared dictionary screen
 // ----------------------------------------------------------------------------
 
 @Composable
@@ -597,9 +786,9 @@ private fun DictionarySubScreen(
             }
 
             item {
-                SettingsGroupCard {
+                SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
                     Column(
-                        modifier = Modifier.padding(Spacing.lg),
+                        modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(Spacing.md),
                     ) {
                         Text(
@@ -614,7 +803,7 @@ private fun DictionarySubScreen(
                             label = { Text("What did it hear?") },
                             placeholder = { Text("e.g. gee mail") },
                             singleLine = true,
-                            shape = RoundedCornerShape(Radius.sm),
+                            shape = RoundedCornerShape(16.dp),
                             colors = dictionaryFieldColors(),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -624,7 +813,7 @@ private fun DictionarySubScreen(
                             label = { Text("What should it say instead?") },
                             placeholder = { Text("e.g. Gmail") },
                             singleLine = true,
-                            shape = RoundedCornerShape(Radius.sm),
+                            shape = RoundedCornerShape(16.dp),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = { submit() }),
                             colors = dictionaryFieldColors(),
@@ -642,11 +831,7 @@ private fun DictionarySubScreen(
                             Button(
                                 onClick = { submit() },
                                 enabled = correct.isNotBlank(),
-                                shape = RoundedCornerShape(Radius.sm),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = BadgeRose,
-                                    contentColor = Color.White,
-                                ),
+                                shape = CircleShape,
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -659,7 +844,14 @@ private fun DictionarySubScreen(
 
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    SectionHeading("Corrections")
+                    Text(
+                        text = "CORRECTIONS",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
                     if (rows.isEmpty()) {
                         Text(
                             text = "Nothing here yet. Add a name or a word it keeps getting wrong.",
@@ -668,7 +860,7 @@ private fun DictionarySubScreen(
                             modifier = Modifier.padding(start = 4.dp, top = Spacing.sm),
                         )
                     } else {
-                        SettingsGroupCard {
+                        SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
                             rows.forEachIndexed { index, row ->
                                 DictionaryRowItem(
                                     row = row,
@@ -695,7 +887,7 @@ private fun DictionarySubScreen(
 private fun dictionaryFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    focusedBorderColor = BadgeRose,
+    focusedBorderColor = MaterialTheme.colorScheme.primary,
     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
 )
 
@@ -723,7 +915,7 @@ private fun DictionaryRowItem(
                 Text(
                     text = "Always spell",
                     style = MaterialTheme.typography.labelSmall,
-                    color = BadgeRose,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.6.sp,
                 )
@@ -758,21 +950,6 @@ private fun DictionaryRowItem(
     }
 }
 
-// ----------------------------------------------------------------------------
-// Shared bits
-// ----------------------------------------------------------------------------
-
-@Composable
-private fun SectionHeading(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 4.dp),
-    )
-}
-
 @Composable
 private fun NewProfileDialog(
     onDismiss: () -> Unit,
@@ -791,7 +968,7 @@ private fun NewProfileDialog(
                 fontWeight = FontWeight.Bold,
             )
         },
-        shape = RoundedCornerShape(Radius.md),
+        shape = RoundedCornerShape(26.dp),
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -800,7 +977,7 @@ private fun NewProfileDialog(
                     label = { Text("Profile name") },
                     placeholder = { Text("e.g. Email / Formal") },
                     singleLine = true,
-                    shape = RoundedCornerShape(Radius.sm),
+                    shape = RoundedCornerShape(16.dp),
                     colors = dictionaryFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -810,17 +987,17 @@ private fun NewProfileDialog(
                     label = { Text("Short description") },
                     placeholder = { Text("e.g. Formal sentences without contractions") },
                     singleLine = true,
-                    shape = RoundedCornerShape(Radius.sm),
+                    shape = RoundedCornerShape(16.dp),
                     colors = dictionaryFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = rules,
                     onValueChange = { rules = it },
-                    label = { Text("Cleanup instructions (prefilled from Standard)") },
+                    label = { Text("Cleanup instructions") },
                     minLines = 4,
                     maxLines = 8,
-                    shape = RoundedCornerShape(Radius.sm),
+                    shape = RoundedCornerShape(16.dp),
                     colors = dictionaryFieldColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -830,11 +1007,7 @@ private fun NewProfileDialog(
             Button(
                 onClick = { onSave(name.trim(), description.trim(), rules.trim()) },
                 enabled = name.isNotBlank() && rules.isNotBlank(),
-                shape = RoundedCornerShape(Radius.sm),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = BadgeViolet,
-                    contentColor = Color.White,
-                ),
+                shape = CircleShape,
             ) {
                 Text("Save")
             }
