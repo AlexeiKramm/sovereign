@@ -552,6 +552,20 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _historyEnabled = MutableStateFlow(settings.historyEnabled)
     val historyEnabled: StateFlow<Boolean> = _historyEnabled.asStateFlow()
 
+    private val _cleanupEnabled = MutableStateFlow(settings.cleanupEnabled)
+    val cleanupEnabled: StateFlow<Boolean> = _cleanupEnabled.asStateFlow()
+
+    fun toggleCleanupEnabled() {
+        val updated = !settings.cleanupEnabled
+        settings.cleanupEnabled = updated
+        _cleanupEnabled.value = updated
+    }
+
+    fun setCleanupEnabled(enabled: Boolean) {
+        settings.cleanupEnabled = enabled
+        _cleanupEnabled.value = enabled
+    }
+
     /** The shared dictionary, exposed reactively so Profiles and the pill never disagree. */
     private val _dictionaryEntries = MutableStateFlow(dictionaryStore.getEntries())
     val dictionaryEntries: StateFlow<List<DictionaryEntry>> = _dictionaryEntries.asStateFlow()
@@ -570,6 +584,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshInstalledPresets()
         refreshDictionary()
         refreshHistory()
+        _cleanupEnabled.value = settings.cleanupEnabled
     }
 
     fun refreshHistory() {
@@ -703,6 +718,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _keepScreenOnWhileRecording.value = settings.keepScreenOnWhileRecording
         _unloadOnKeyboardClose.value = settings.unloadOnKeyboardClose
         _modelIdleTimeoutMinutes.value = settings.modelIdleTimeoutMinutes
+        _cleanupEnabled.value = settings.cleanupEnabled
     }
 
     fun refreshUsageStats() {

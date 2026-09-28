@@ -39,12 +39,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
+import fi.ak.smartvoice.ui.history.HistoryScreen
 import fi.ak.smartvoice.ui.home.HomeScreen
 import fi.ak.smartvoice.ui.models.ModelsScreen
 import fi.ak.smartvoice.ui.onboarding.OnboardingScreen
 import fi.ak.smartvoice.ui.onboarding.OnboardingStep
 import fi.ak.smartvoice.ui.profile.ProfilesScreen
 import fi.ak.smartvoice.ui.settings.SettingsScreen
+import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
 
 enum class NavTab(
     val title: String,
@@ -86,12 +88,30 @@ fun MainScreen(
     // It covers the whole screen, and finishing simply uncovers the tab that launched it.
     var showOnboarding by rememberSaveable { mutableStateOf(false) }
     var onboardingStart by rememberSaveable { mutableStateOf(OnboardingStep.MICROPHONE) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
+    var showTranscribe by rememberSaveable { mutableStateOf(false) }
 
     if (showOnboarding) {
         OnboardingScreen(
             viewModel = viewModel,
             initialStep = onboardingStart,
             onFinished = { showOnboarding = false },
+        )
+        return
+    }
+
+    if (showHistory) {
+        HistoryScreen(
+            viewModel = viewModel,
+            onNavigateUp = { showHistory = false },
+        )
+        return
+    }
+
+    if (showTranscribe) {
+        TranscribeHubScreen(
+            viewModel = viewModel,
+            onNavigateUp = { showTranscribe = false },
         )
         return
     }
@@ -176,6 +196,16 @@ fun MainScreen(
             when (tabs[selectedTabIndex]) {
                 NavTab.HOME -> HomeScreen(
                     viewModel = viewModel,
+                    onNavigateToModels = {
+                        focusManager.clearFocus(force = true)
+                        selectedTabIndex = tabs.indexOf(NavTab.MODELS).coerceAtLeast(0)
+                    },
+                    onNavigateToProfiles = {
+                        focusManager.clearFocus(force = true)
+                        selectedTabIndex = tabs.indexOf(NavTab.PROFILES).coerceAtLeast(0)
+                    },
+                    onOpenHistory = { showHistory = true },
+                    onOpenTranscribe = { showTranscribe = true },
                     onSetUpModels = {
                         onboardingStart = OnboardingStep.MODELS
                         showOnboarding = true

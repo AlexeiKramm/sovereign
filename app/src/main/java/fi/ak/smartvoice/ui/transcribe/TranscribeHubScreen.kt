@@ -9,9 +9,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
-import fi.ak.smartvoice.cleanup.CleanupPrompt
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import fi.ak.smartvoice.cleanup.CleanupPrompt
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -89,7 +91,11 @@ fun TranscribeHubScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState? = null,
+    onNavigateUp: (() -> Unit)? = null,
 ) {
+    if (onNavigateUp != null) {
+        BackHandler { onNavigateUp() }
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -139,11 +145,24 @@ fun TranscribeHubScreen(
     ) {
         // --- HEADER & MODEL BADGES ---
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "Transcribe Hub",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (onNavigateUp != null) {
+                    IconButton(onClick = onNavigateUp) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                        )
+                    }
+                }
+                Text(
+                    text = "Transcribe Hub",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             Text(
                 text = "Private on-device voice dictation and AI cleanup",
                 style = MaterialTheme.typography.bodyMedium,
