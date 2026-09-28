@@ -231,53 +231,58 @@ fun HomeScreen(
 @Composable
 private fun BrandHero(modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.padding(top = 12.dp, bottom = 8.dp),
+        modifier = modifier.padding(top = 8.dp, bottom = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Waveform Brand Mark: 4 vertical rounded bars
         Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            val primary = MaterialTheme.colorScheme.primary
-            Box(
-                modifier = Modifier
-                    .size(width = 4.dp, height = 16.dp)
-                    .clip(CircleShape)
-                    .background(primary),
-            )
-            Box(
-                modifier = Modifier
-                    .size(width = 4.dp, height = 28.dp)
-                    .clip(CircleShape)
-                    .background(primary),
-            )
-            Box(
-                modifier = Modifier
-                    .size(width = 4.dp, height = 12.dp)
-                    .clip(CircleShape)
-                    .background(primary),
-            )
-            Box(
-                modifier = Modifier
-                    .size(width = 4.dp, height = 20.dp)
-                    .clip(CircleShape)
-                    .background(primary),
+            // Waveform Brand Mark: 4 vertical rounded bars
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val primary = MaterialTheme.colorScheme.primary
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 15.dp)
+                        .clip(CircleShape)
+                        .background(primary),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 26.dp)
+                        .clip(CircleShape)
+                        .background(primary),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 11.dp)
+                        .clip(CircleShape)
+                        .background(primary),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 19.dp)
+                        .clip(CircleShape)
+                        .background(primary),
+                )
+            }
+
+            Text(
+                text = "Smart Voice",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.5).sp,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
 
         Text(
-            text = "Smart Voice",
-            fontSize = 30.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = (-0.5).sp,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-
-        Text(
             text = "On-device voice dictation with LLM cleanup",
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

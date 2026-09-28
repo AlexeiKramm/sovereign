@@ -22,6 +22,8 @@ import fi.ak.smartvoice.theme.SmartVoiceTheme
 import fi.ak.smartvoice.theme.appThemeIsDark
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.MainScreen
+import android.os.Build
+import androidx.activity.SystemBarStyle
 import fi.ak.smartvoice.ui.onboarding.OnboardingScreen
 
 class MainActivity : ComponentActivity() {
@@ -29,7 +31,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val themeSeedColor by viewModel.themeSeedColor.collectAsStateWithLifecycle()
@@ -44,6 +55,12 @@ class MainActivity : ComponentActivity() {
             if (!view.isInEditMode) {
                 SideEffect {
                     val window = (view.context as Activity).window
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        window.isStatusBarContrastEnforced = false
+                        window.isNavigationBarContrastEnforced = false
+                    }
                     WindowCompat.getInsetsController(window, view).apply {
                         isAppearanceLightStatusBars = !darkTheme
                         isAppearanceLightNavigationBars = !darkTheme

@@ -119,24 +119,22 @@ fun MainScreen(
     val primary = MaterialTheme.colorScheme.primary
     val surface = MaterialTheme.colorScheme.surface
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
+    val surfaceContainerLow = MaterialTheme.colorScheme.surfaceContainerLow
     val isDark = surface.luminance() < 0.5f
 
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
             .drawBehind {
-                val centerOffset = if (isDark) {
-                    Offset(x = size.width * 0.5f, y = size.height * 0.08f)
-                } else {
-                    Offset(x = size.width * 0.5f, y = size.height * 0.06f)
-                }
-                val radius = size.maxDimension * 0.85f
+                val centerOffset = Offset(x = size.width * 0.5f, y = size.height * 0.02f)
+                val radius = size.maxDimension * 0.75f
 
                 val brush = if (isDark) {
                     Brush.radialGradient(
                         colorStops = arrayOf(
-                            0.0f to primary.copy(alpha = 0.12f),
-                            0.40f to surfaceContainer.copy(alpha = 0.92f),
+                            0.0f to primary.copy(alpha = 0.38f),
+                            0.28f to primary.copy(alpha = 0.18f),
+                            0.58f to surfaceContainer.copy(alpha = 0.95f),
                             1.0f to surface,
                         ),
                         center = centerOffset,
@@ -145,8 +143,9 @@ fun MainScreen(
                 } else {
                     Brush.radialGradient(
                         colorStops = arrayOf(
-                            0.0f to primary.copy(alpha = 0.08f),
-                            0.32f to Color.White,
+                            0.0f to primary.copy(alpha = 0.28f),
+                            0.28f to primary.copy(alpha = 0.12f),
+                            0.62f to surfaceContainerLow,
                             1.0f to surface,
                         ),
                         center = centerOffset,
