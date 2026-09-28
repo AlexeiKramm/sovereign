@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
+import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
 import fi.ak.smartvoice.ui.history.HistoryScreen
 import fi.ak.smartvoice.ui.home.HomeScreen
 import fi.ak.smartvoice.ui.models.ModelsScreen
@@ -90,6 +91,7 @@ fun MainScreen(
     var onboardingStart by rememberSaveable { mutableStateOf(OnboardingStep.MICROPHONE) }
     var showHistory by rememberSaveable { mutableStateOf(false) }
     var showTranscribe by rememberSaveable { mutableStateOf(false) }
+    var showBenchmark by rememberSaveable { mutableStateOf(false) }
 
     if (showOnboarding) {
         OnboardingScreen(
@@ -112,6 +114,13 @@ fun MainScreen(
         TranscribeHubScreen(
             viewModel = viewModel,
             onNavigateUp = { showTranscribe = false },
+        )
+        return
+    }
+
+    if (showBenchmark) {
+        BenchmarkScreen(
+            onNavigateUp = { showBenchmark = false },
         )
         return
     }
@@ -211,7 +220,10 @@ fun MainScreen(
                     },
                 )
 
-                NavTab.MODELS -> ModelsScreen(viewModel = viewModel)
+                NavTab.MODELS -> ModelsScreen(
+                    viewModel = viewModel,
+                    onOpenBenchmark = { showBenchmark = true },
+                )
                 NavTab.PROFILES -> ProfilesScreen(viewModel = viewModel)
                 NavTab.SETTINGS -> SettingsScreen(
                     viewModel = viewModel,

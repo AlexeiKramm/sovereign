@@ -8,29 +8,26 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,15 +35,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,35 +50,45 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.asr.AsrModelSpec
 import fi.ak.smartvoice.asr.AsrModelType
+import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.cleanup.LiteRtLmModelSpec
+import fi.ak.smartvoice.cleanup.LiteRtLmModels
 import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
+import fi.ak.smartvoice.theme.BadgeOrange
 import fi.ak.smartvoice.theme.BadgeViolet
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.ModelStatus
-import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import java.util.Locale
 
+/**
+ * Tab 2: Models Screen matching SPEC.md Section 3.2:
+ * - Header with "Models" title, subtitle, and [⚡ Benchmark] pill trigger.
+ * - Storage Summary Card: Segmented bar showing Speech ASR vs LLM Cleanup disk usage.
+ * - TRANSCRIPTION MODELS: 3 practical tiers (Fast & Streaming, Lightweight, Highest Accuracy)
+ *   with standardized Latency · Quality · RAM attribute pills, active indicators, and [ⓘ] specs.
+ * - LLM CLEANUP MODELS: LiteRT-LM tiers (Good Polish / Gemma 4 E2B) with hardware attribution.
+ * - Model Technical Specifications dialog for detailed technical architectures and trade-offs.
+ */
 @Composable
 fun ModelsScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
+    onOpenBenchmark: () -> Unit = {},
 ) {
+    val context = LocalContext.current
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
-    // Read in this scope on purpose: "installed" is decided from the filesystem, which Compose
-    // cannot observe. The selected model's status is the observable proxy, and reading it here is
-    // what makes this screen recompose when a background download finishes.
     val asrStatus by viewModel.modelStatus.collectAsStateWithLifecycle()
     val selectedAsrModel by viewModel.selectedAsrModel.collectAsStateWithLifecycle()
-    val context = LocalContext.current
 
     val cleanupLoadNote by viewModel.cleanupLoad.collectAsStateWithLifecycle()
     val cleanupBusy by viewModel.cleanupBusy.collectAsStateWithLifecycle()
@@ -93,8 +96,8 @@ fun ModelsScreen(
     val litertCatalog = viewModel.litertCatalog
     val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
     val litertInstalled by viewModel.litertInstalled.collectAsStateWithLifecycle()
-    // Live cleanup downloads per model, mirroring the speech list; null means "not downloading".
     val litertDownloads by viewModel.litertDownloads.collectAsStateWithLifecycle()
+    val asrDownloads by viewModel.asrDownloads.collectAsStateWithLifecycle()
 
     // Confirmation dialog states
     var pendingAsrDownload by remember { mutableStateOf<AsrModelSpec?>(null) }
@@ -102,15 +105,12 @@ fun ModelsScreen(
     var pendingAsrDelete by remember { mutableStateOf<AsrModelSpec?>(null) }
     var pendingLitertDelete by remember { mutableStateOf<LiteRtLmModelSpec?>(null) }
 
-    // Live downloads per speech model: null means "this model is not downloading".
-    val asrDownloads by viewModel.asrDownloads.collectAsStateWithLifecycle()
+    // Technical specifications modal state
+    var selectedInfoKey by remember { mutableStateOf<String?>(null) }
 
-    // A background download notifies from outside the app, so the permission is asked at the first
-    // download tap rather than in the wizard. Denial is not fatal — it only hides progress.
+    // Notifications permission handling for background downloads
     var notificationsAllowed by remember { mutableStateOf(hasNotificationPermission(context)) }
     var notifyDenied by remember { mutableStateOf(false) }
-    // The tap to replay once the permission dialog is answered. Both model families go through it,
-    // because either can be the first download on a fresh install.
     var pendingDownloadAfterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -121,7 +121,6 @@ fun ModelsScreen(
         pendingDownloadAfterPermission = null
     }
 
-    // Denial does not block the download; it only means progress is invisible while away.
     val withNotificationPermission: (() -> Unit) -> Unit = { enqueue ->
         if (notificationsAllowed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             enqueue()
@@ -145,23 +144,32 @@ fun ModelsScreen(
         }
     }
 
-    // Calculate total disk storage used
+    // Storage computations
     val asrInstalledBytes = viewModel.asrCatalog
         .filter { it.isInstalled(it.directory(context.filesDir)) }
         .sumOf { it.totalBytes }
     val litertInstalledBytes = litertCatalog
         .filter { litertInstalled[it.id] == true }
         .sumOf { it.approximateBytes }
-    val totalInstalledMb = (asrInstalledBytes + litertInstalledBytes) / 1_000_000
-    val storageSummary = if (totalInstalledMb >= 1000) {
-        // Locale-pinned: the UI is English-only, so a decimal comma would read as a bug.
-        String.format(java.util.Locale.US, "%.2f GB on disk", totalInstalledMb / 1000.0)
+    val totalInstalledBytes = asrInstalledBytes + litertInstalledBytes
+    val totalInstalledMb = totalInstalledBytes / 1_000_000
+    val asrInstalledMb = asrInstalledBytes / 1_000_000
+    val litertInstalledMb = litertInstalledBytes / 1_000_000
+
+    val storageSummaryText = if (totalInstalledMb >= 1000) {
+        String.format(Locale.US, "%.2f GB used", totalInstalledMb / 1000.0)
     } else {
-        "$totalInstalledMb MB on disk"
+        "$totalInstalledMb MB used"
     }
 
-    val isSelectedAsrInstalled = asrStatus is ModelStatus.Installed
-    val isSelectedLitertInstalled = litertInstalled[selectedLitertModel.id] == true
+    val litertSummaryText = if (litertInstalledMb >= 1000) {
+        String.format(Locale.US, "%.1f GB", litertInstalledMb / 1000.0)
+    } else {
+        "$litertInstalledMb MB"
+    }
+
+    val fractionAsr = if (totalInstalledBytes > 0L) asrInstalledBytes.toFloat() / totalInstalledBytes else 0f
+    val fractionLlm = if (totalInstalledBytes > 0L) litertInstalledBytes.toFloat() / totalInstalledBytes else 0f
 
     // Confirmation Dialogs
     pendingAsrDownload?.let { model ->
@@ -169,7 +177,7 @@ fun ModelsScreen(
         AlertDialog(
             onDismissRequest = { pendingAsrDownload = null },
             icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Download Voice Model?") },
+            title = { Text("Download voice model?") },
             text = {
                 Column {
                     Text(
@@ -204,7 +212,7 @@ fun ModelsScreen(
                         startAsrDownload(target, metered)
                     },
                 ) {
-                    Text("Download & Activate")
+                    Text("Download & activate")
                 }
             },
             dismissButton = {
@@ -220,7 +228,7 @@ fun ModelsScreen(
         AlertDialog(
             onDismissRequest = { pendingLitertDownload = null },
             icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = BadgeViolet) },
-            title = { Text("Download AI Cleanup Model?") },
+            title = { Text("Download AI cleanup model?") },
             text = {
                 Column {
                     Text(
@@ -256,7 +264,7 @@ fun ModelsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
                 ) {
-                    Text("Download & Activate")
+                    Text("Download & activate")
                 }
             },
             dismissButton = {
@@ -271,7 +279,7 @@ fun ModelsScreen(
         AlertDialog(
             onDismissRequest = { pendingAsrDelete = null },
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete Voice Model?") },
+            title = { Text("Delete voice model?") },
             text = {
                 Text("Delete “${model.label}” files from device storage? This frees ~${model.totalBytes / 1_000_000} MB.")
             },
@@ -299,7 +307,7 @@ fun ModelsScreen(
         AlertDialog(
             onDismissRequest = { pendingLitertDelete = null },
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete AI Model?") },
+            title = { Text("Delete AI model?") },
             text = {
                 Text("Delete “${model.label}” from device storage? This frees ~${model.approximateBytes / 1_000_000} MB.")
             },
@@ -323,794 +331,554 @@ fun ModelsScreen(
         )
     }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        // --- SCREEN TITLE & REFRESH ---
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text(
-                        text = "On-Device Models",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "Select active models and manage local storage",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { viewModel.refreshLitertInstalled() }) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "Refresh models",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        }
-
-        // --- SECTION 1: ACTIVE PIPELINE SELECTION (TOP DROPDOWNS) ---
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "Active Pipeline Selection",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Surface(
-                            color = if (isSelectedAsrInstalled && isSelectedLitertInstalled) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Text(
-                                text = if (isSelectedAsrInstalled && isSelectedLitertInstalled) "Ready" else "Download Needed",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isSelectedAsrInstalled && isSelectedLitertInstalled) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                },
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
-
-                    // 1. Voice Recognition (ASR) Dropdown
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SettingsIconBadge(
-                                icon = Icons.Default.Mic,
-                                badgeColor = BadgeBlue,
-                                size = 28.dp,
-                                iconSize = 16.dp,
-                                contentDescription = "Voice Model",
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Speech Recognition (Voice)",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-
-                        AsrDropdownSelector(
-                            catalog = viewModel.asrCatalog,
-                            selectedModel = selectedAsrModel,
-                            onModelSelected = { model, isInstalled ->
-                                if (isInstalled) {
-                                    viewModel.selectAsrModel(model)
-                                } else {
-                                    pendingAsrDownload = model
-                                }
-                            },
-                        )
-
-                        // Voice Diagnostics / Action row
-                        if (isSelectedAsrInstalled) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                            ) {
-                                OutlinedButton(
-                                    onClick = { viewModel.probeLocalEngine() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                ) {
-                                    Text("Verify Model", style = MaterialTheme.typography.labelMedium)
-                                }
-                            }
-                            if (!loadProbe.isNullOrEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                        .padding(10.dp),
-                                ) {
-                                    Text(
-                                        text = loadProbe!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "Selected model not on device (~${selectedAsrModel.totalBytes / 1_000_000} MB)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                Button(
-                                    onClick = { pendingAsrDownload = selectedAsrModel },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                ) {
-                                    Text("Download", fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                        thickness = 1.dp,
-                    )
-
-                    // 2. AI Cleanup (LLM) Dropdown
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SettingsIconBadge(
-                                icon = Icons.Default.AutoAwesome,
-                                badgeColor = BadgeViolet,
-                                size = 28.dp,
-                                iconSize = 16.dp,
-                                contentDescription = "AI Cleanup Model",
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "AI Speech Cleanup (LLM)",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-
-                        LitertDropdownSelector(
-                            catalog = litertCatalog,
-                            selectedModel = selectedLitertModel,
-                            installedMap = litertInstalled,
-                            onModelSelected = { model, isInstalled ->
-                                if (isInstalled) {
-                                    viewModel.selectLitertModel(model)
-                                } else {
-                                    pendingLitertDownload = model
-                                }
-                            },
-                        )
-
-                        // LLM Diagnostics / Action row
-                        if (isSelectedLitertInstalled) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                            ) {
-                                OutlinedButton(
-                                    onClick = { viewModel.loadCleanupModel() },
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                ) {
-                                    Text("Verify Model", style = MaterialTheme.typography.labelMedium)
-                                }
-                            }
-
-                            cleanupBusy?.let { busy ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = BadgeViolet,
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = busy,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-
-                            cleanupLoadNote?.let { note ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                        .padding(10.dp),
-                                ) {
-                                    Text(
-                                        text = note,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "Selected model not on device (~${selectedLitertModel.approximateBytes / 1_000_000} MB)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                Button(
-                                    onClick = { pendingLitertDownload = selectedLitertModel },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
-                                ) {
-                                    Text("Download", fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- SECTION 2: MODEL STORAGE & DOWNLOADS (LIBRARY) ---
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text(
-                        text = "Model Library & Storage",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "Manage downloaded files or install new models",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Storage,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = storageSummary,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-        }
-
-        // --- ASR MODELS SECTION HEADER ---
-        item {
-            Text(
-                text = "Speech Recognition Models (${viewModel.asrCatalog.size})",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-
-        // ASR MODEL ITEMS
-        items(viewModel.asrCatalog, key = { "asr_${it.id}" }) { model ->
-            val isSelected = model.id == selectedAsrModel.id
-            val isInstalled = model.isInstalled(model.directory(context.filesDir))
-            val downloadState = asrDownloads[model.id]
-
-            AsrModelLibraryItem(
-                model = model,
-                isSelected = isSelected,
-                isInstalled = isInstalled,
-                downloadStatus = downloadState,
-                notificationsAllowed = notificationsAllowed,
-                onSelect = { viewModel.selectAsrModel(model) },
-                onDownload = { pendingAsrDownload = model },
-                onCancelDownload = { viewModel.cancelModelDownload() },
-                onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
-                onDelete = { pendingAsrDelete = model },
-            )
-        }
-
-        // --- LLM MODELS SECTION HEADER ---
-        item {
-            Text(
-                text = "AI Cleanup Models (${litertCatalog.size})",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = BadgeViolet,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-        }
-
-        // LLM MODEL ITEMS
-        items(litertCatalog, key = { "litert_${it.id}" }) { model ->
-            val isSelected = selectedLitertModel.id == model.id
-            val isInstalled = litertInstalled[model.id] == true
-
-            LitertModelLibraryItem(
-                model = model,
-                isSelected = isSelected,
-                isInstalled = isInstalled,
-                downloadStatus = litertDownloads[model.id],
-                notificationsAllowed = notificationsAllowed,
-                onSelect = { viewModel.selectLitertModel(model) },
-                onDownload = { pendingLitertDownload = model },
-                onCancelDownload = { viewModel.cancelModelDownload() },
-                onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
-                onDelete = { pendingLitertDelete = model },
-            )
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
-
-// -------------------------------------------------------------------------------------------------
-// DROPDOWN SELECTORS (TOP OF SCREEN)
-// -------------------------------------------------------------------------------------------------
-
-@Composable
-private fun AsrDropdownSelector(
-    catalog: List<AsrModelSpec>,
-    selectedModel: AsrModelSpec,
-    onModelSelected: (AsrModelSpec, Boolean) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var cardWidthDp by remember { mutableStateOf(0.dp) }
-    val density = LocalDensity.current
-    val context = LocalContext.current
-
-    val isSelectedInstalled = selectedModel.isInstalled(selectedModel.directory(context.filesDir))
-
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedCard(
-            onClick = { expanded = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .onGloballyPositioned { coordinates ->
-                    cardWidthDp = with(density) { coordinates.size.width.toDp() }
-                },
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = selectedModel.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = if (isSelectedInstalled) {
-                            val typeLabel = when (selectedModel.type) {
-                                AsrModelType.STREAMING_TRANSDUCER -> "Streaming"
-                                AsrModelType.OFFLINE_WHISPER -> "Offline Whisper"
-                                AsrModelType.OFFLINE_TRANSDUCER -> "Offline Transducer"
-                                AsrModelType.OFFLINE_CTC -> "Offline CTC"
-                            }
-                            "$typeLabel • ${selectedModel.totalBytes / 1_000_000} MB • Active on device"
-                        } else {
-                            "⚠️ Not downloaded (~${selectedModel.totalBytes / 1_000_000} MB)"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelectedInstalled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                    )
-                }
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = "Select ASR model",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .width(if (cardWidthDp > 0.dp) cardWidthDp else 300.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            catalog.forEach { model ->
-                val isInstalled = model.isInstalled(model.directory(context.filesDir))
-                val isSelected = model.id == selectedModel.id
-
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = model.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isInstalled) {
-                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                                    },
-                                )
-                                Text(
-                                    text = "${model.description} • ${model.totalBytes / 1_000_000} MB" + if (!isInstalled) " (Not downloaded)" else "",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isInstalled) {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                                    },
-                                )
-                            }
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Active",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            } else if (!isInstalled) {
-                                Icon(
-                                    Icons.Default.CloudDownload,
-                                    contentDescription = "Cloud",
-                                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onModelSelected(model, isInstalled)
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LitertDropdownSelector(
-    catalog: List<LiteRtLmModelSpec>,
-    selectedModel: LiteRtLmModelSpec,
-    installedMap: Map<String, Boolean>,
-    onModelSelected: (LiteRtLmModelSpec, Boolean) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var cardWidthDp by remember { mutableStateOf(0.dp) }
-    val density = LocalDensity.current
-
-    val isSelectedInstalled = installedMap[selectedModel.id] == true
-
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedCard(
-            onClick = { expanded = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .onGloballyPositioned { coordinates ->
-                    cardWidthDp = with(density) { coordinates.size.width.toDp() }
-                },
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = selectedModel.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = if (isSelectedInstalled) {
-                            "${selectedModel.targetHardware}${if (selectedModel.supportsSpeculativeDecoding) " • Speculative MTP" else ""} • ${selectedModel.approximateBytes / 1_000_000} MB • Active"
-                        } else {
-                            "⚠️ Not downloaded (~${selectedModel.approximateBytes / 1_000_000} MB)"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelectedInstalled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                    )
-                }
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = "Select LiteRT model",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .width(if (cardWidthDp > 0.dp) cardWidthDp else 300.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            catalog.forEach { model ->
-                val isInstalled = installedMap[model.id] == true
-                val isSelected = model.id == selectedModel.id
-
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = model.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isInstalled) {
-                                        if (isSelected) BadgeViolet else MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                                    },
-                                )
-                                Text(
-                                    text = "${model.targetHardware}${if (model.supportsSpeculativeDecoding) " • Speculative MTP" else ""} • ${model.approximateBytes / 1_000_000} MB" + if (!isInstalled) " (Not downloaded)" else "",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isInstalled) {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                                    },
-                                )
-                            }
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Active",
-                                    tint = BadgeViolet,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            } else if (!isInstalled) {
-                                Icon(
-                                    Icons.Default.CloudDownload,
-                                    contentDescription = "Cloud",
-                                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        onModelSelected(model, isInstalled)
-                    },
-                )
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------------------------------------------
-// MODEL STORAGE & LIBRARY ITEMS (BOTTOM OF SCREEN)
-// -------------------------------------------------------------------------------------------------
-
-@Composable
-private fun AsrModelLibraryItem(
-    model: AsrModelSpec,
-    isSelected: Boolean,
-    isInstalled: Boolean,
-    downloadStatus: ModelStatus.Downloading?,
-    notificationsAllowed: Boolean,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit,
-    onCancelDownload: () -> Unit,
-    onAllowMobileData: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val chipLabel = when (model.type) {
-        AsrModelType.STREAMING_TRANSDUCER -> "Streaming"
-        AsrModelType.OFFLINE_WHISPER -> "Offline Whisper"
-        AsrModelType.OFFLINE_TRANSDUCER -> "Offline Transducer"
-        AsrModelType.OFFLINE_CTC -> "Offline CTC"
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(14.dp),
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isInstalled) {
-                if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
-            },
-        ),
-        shape = RoundedCornerShape(14.dp),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
+    // Model Technical Specifications Dialog
+    if (selectedInfoKey != null) {
+        val spec = getModelTechnicalSpec(selectedInfoKey!!)
+        if (spec != null) {
+            AlertDialog(
+                onDismissRequest = { selectedInfoKey = null },
+                title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(
-                            text = model.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isInstalled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        )
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            shape = RoundedCornerShape(6.dp),
-                        ) {
+                        Text(text = "🧠", fontSize = 20.sp)
+                        Column {
                             Text(
-                                text = chipLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                text = spec.title,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = spec.subtitle,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = spec.overview,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "KEY ADVANTAGES",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            spec.benefits.forEach { benefit ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Text(
+                                        text = "✓",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Text(
+                                        text = benefit,
+                                        fontSize = 12.sp,
+                                        lineHeight = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "TRADE-OFFS & CONSIDERATIONS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp,
+                                color = BadgeOrange,
+                            )
+                            spec.tradeoffs.forEach { tradeoff ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Text(
+                                        text = "•",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BadgeOrange,
+                                    )
+                                    Text(
+                                        text = tradeoff,
+                                        fontSize = 12.sp,
+                                        lineHeight = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { selectedInfoKey = null },
+                        shape = CircleShape,
+                    ) {
+                        Text("Done", fontWeight = FontWeight.Bold)
+                    }
+                },
+            )
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        // --- SCREEN HEADER WITH TITLE & BENCHMARK TRIGGER ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Models",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    letterSpacing = (-0.5).sp,
+                )
+                Text(
+                    text = "On-device neural models for speech & cleanup",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Surface(
+                onClick = onOpenBenchmark,
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(text = "⚡", fontSize = 12.sp)
                     Text(
-                        text = "${model.description} • ${model.totalBytes / 1_000_000} MB",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isInstalled) 1.0f else 0.65f),
+                        text = "Benchmark",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (downloadStatus != null) {
-                val progress = downloadStatus.progress
-                Text(
-                    text = when {
-                        downloadStatus.waitingForWifi -> "Waiting for Wi-Fi"
-                        downloadStatus.queued -> "Queued — another download is running"
-                        progress != null -> "Downloading: ${progress.fileName} (${progress.fileIndex + 1}/${progress.totalFiles})"
-                        else -> "Starting…"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                LinearProgressIndicator(
-                    progress = { progress?.overall ?: 0f },
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp)),
-                )
-                if (!notificationsAllowed) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Notifications are off — progress will not be visible while you are away.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
+        // --- STORAGE SUMMARY CARD ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(26.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (progress != null) "${(progress.overall * 100).toInt()}% completed" else "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "On-device storage",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (downloadStatus.waitingForWifi) {
-                            OutlinedButton(
-                                onClick = onAllowMobileData,
-                                shape = RoundedCornerShape(8.dp),
-                            ) {
-                                Text("Use mobile data", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        text = storageSummaryText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                // Segmented Progress Bar (8.dp height)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                ) {
+                    if (totalInstalledBytes > 0L) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            if (fractionAsr > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .weight(fractionAsr.coerceAtLeast(0.02f))
+                                        .background(MaterialTheme.colorScheme.primary),
+                                )
                             }
-                        }
-                        OutlinedButton(
-                            onClick = onCancelDownload,
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                            if (fractionLlm > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .weight(fractionLlm.coerceAtLeast(0.02f))
+                                        .background(BadgeViolet),
+                                )
+                            }
                         }
                     }
                 }
+
+                // Legend Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                        Text(
+                            text = "Speech ASR ($asrInstalledMb MB)",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(BadgeViolet),
+                        )
+                        Text(
+                            text = "LLM cleanup ($litertSummaryText)",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- SECTION 1: TRANSCRIPTION MODELS ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 4.dp, top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "TRANSCRIPTION MODELS",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Tap to activate",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        viewModel.asrCatalog.forEach { model ->
+            val isSelected = model.id == selectedAsrModel.id
+            val isInstalled = model.isInstalled(model.directory(context.filesDir))
+            val downloadState = asrDownloads[model.id]
+
+            AsrTierCard(
+                model = model,
+                isSelected = isSelected,
+                isInstalled = isInstalled,
+                downloadStatus = downloadState,
+                notificationsAllowed = notificationsAllowed,
+                loadProbe = if (isSelected) loadProbe else null,
+                onSelect = { viewModel.selectAsrModel(model) },
+                onDownload = { pendingAsrDownload = model },
+                onCancelDownload = { viewModel.cancelModelDownload() },
+                onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
+                onDelete = { pendingAsrDelete = model },
+                onVerify = { viewModel.probeLocalEngine() },
+                onOpenInfo = { key -> selectedInfoKey = key },
+            )
+        }
+
+        // --- SECTION 2: LLM CLEANUP MODELS ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 4.dp, top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "LLM CLEANUP MODELS",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "LiteRT-LM",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        litertCatalog.forEach { model ->
+            val isSelected = selectedLitertModel.id == model.id
+            val isInstalled = litertInstalled[model.id] == true
+
+            LitertTierCard(
+                model = model,
+                isSelected = isSelected,
+                isInstalled = isInstalled,
+                downloadStatus = litertDownloads[model.id],
+                notificationsAllowed = notificationsAllowed,
+                cleanupBusy = if (isSelected) cleanupBusy else null,
+                cleanupLoadNote = if (isSelected) cleanupLoadNote else null,
+                onSelect = { viewModel.selectLitertModel(model) },
+                onDownload = { pendingLitertDownload = model },
+                onCancelDownload = { viewModel.cancelModelDownload() },
+                onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
+                onDelete = { pendingLitertDelete = model },
+                onVerify = { viewModel.loadCleanupModel() },
+                onOpenInfo = { key -> selectedInfoKey = key },
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// ASR TIER CARD COMPONENT
+// -------------------------------------------------------------------------------------------------
+
+@Composable
+private fun AsrTierCard(
+    model: AsrModelSpec,
+    isSelected: Boolean,
+    isInstalled: Boolean,
+    downloadStatus: ModelStatus.Downloading?,
+    notificationsAllowed: Boolean,
+    loadProbe: String?,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onAllowMobileData: () -> Unit,
+    onDelete: () -> Unit,
+    onVerify: () -> Unit,
+    onOpenInfo: (String) -> Unit,
+) {
+    // Model metadata resolution
+    val (tierTitle, badgeText, badgeBg, badgeTextColor, description, latencyVal, qualityVal, ramVal, infoKey) = when (model.id) {
+        AsrModels.DEFAULT_MODEL_ID -> ModelMetadata(
+            title = "Fast & Streaming",
+            badge = "Recommended",
+            badgeBg = BadgeOrange.copy(alpha = 0.18f),
+            badgeColor = BadgeOrange,
+            description = "Transcribes speech in real time as you speak. Lowest latency · Good quality · High RAM requirement.",
+            latency = "Real-time",
+            quality = "Good",
+            ram = "High (${model.totalBytes / 1_000_000} MB)",
+            infoKey = "nemotron",
+        )
+        AsrModels.WHISPER_BASE.id -> ModelMetadata(
+            title = "Lightweight",
+            badge = "Low battery",
+            badgeBg = BadgeGreen.copy(alpha = 0.18f),
+            badgeColor = BadgeGreen,
+            description = "Transcribes speech in audio chunks after you pause. Medium latency · Medium quality · Lowest RAM requirement.",
+            latency = "Chunked",
+            quality = "Standard",
+            ram = "Low (${model.totalBytes / 1_000_000} MB)",
+            infoKey = "whisper",
+        )
+        AsrModels.PARAKEET_TDT_V3.id -> ModelMetadata(
+            title = "Highest Accuracy",
+            badge = "Highest quality",
+            badgeBg = BadgeBlue.copy(alpha = 0.18f),
+            badgeColor = BadgeBlue,
+            description = "Transcribes speech in audio chunks after you pause. Highest latency · Best quality · High RAM requirement.",
+            latency = "Chunked",
+            quality = "Highest",
+            ram = "Medium (${model.totalBytes / 1_000_000} MB)",
+            infoKey = "parakeet",
+        )
+        else -> ModelMetadata(
+            title = model.label,
+            badge = if (model.type == AsrModelType.STREAMING_TRANSDUCER) "Streaming" else "Offline",
+            badgeBg = MaterialTheme.colorScheme.surfaceContainerHighest,
+            badgeColor = MaterialTheme.colorScheme.primary,
+            description = model.description,
+            latency = if (model.type == AsrModelType.STREAMING_TRANSDUCER) "Real-time" else "Chunked",
+            quality = "Standard",
+            ram = "${model.totalBytes / 1_000_000} MB",
+            infoKey = model.id,
+        )
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = downloadStatus == null) {
+                if (isInstalled) {
+                    onSelect()
+                } else {
+                    onDownload()
+                }
+            },
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
+        ),
+        border = BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // Header Row: Title, Badges, and Info [ⓘ] button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = tierTitle,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Surface(
+                        color = badgeBg,
+                        shape = CircleShape,
+                    ) {
+                        Text(
+                            text = badgeText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = badgeTextColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+
+                    if (isSelected && isInstalled) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = CircleShape,
+                        ) {
+                            Text(
+                                text = "Active",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    onClick = { onOpenInfo(infoKey) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "ⓘ",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            // Subtext Description
+            Text(
+                text = description,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            // Standardized 3-Pill Attribute Row: Latency · Quality · RAM
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AttributeChip(label = "Latency", value = latencyVal, modifier = Modifier.weight(1f))
+                AttributeChip(label = "Quality", value = qualityVal, modifier = Modifier.weight(1f))
+                AttributeChip(label = "RAM", value = ramVal, modifier = Modifier.weight(1f))
+            }
+
+            // Action / Download / Diagnostics Area
+            if (downloadStatus != null) {
+                DownloadProgressBlock(
+                    downloadStatus = downloadStatus,
+                    notificationsAllowed = notificationsAllowed,
+                    tintColor = MaterialTheme.colorScheme.primary,
+                    onCancelDownload = onCancelDownload,
+                    onAllowMobileData = onAllowMobileData,
+                )
             } else if (isInstalled) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1118,32 +886,72 @@ private fun AsrModelLibraryItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (isSelected) "Active" else "Downloaded",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else BadgeGreen,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        text = "${model.totalBytes / 1_000_000} MB on disk",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (!isSelected) {
+                        if (isSelected) {
                             OutlinedButton(
-                                onClick = onSelect,
-                                shape = RoundedCornerShape(8.dp),
+                                onClick = onVerify,
+                                shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                             ) {
-                                Text("Select", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "Verify in RAM",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = onSelect,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                            ) {
+                                Text(
+                                    text = "Select model",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             }
                         }
-                        IconButton(onClick = onDelete) {
+
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(36.dp),
+                        ) {
                             Icon(
                                 Icons.Default.DeleteOutline,
                                 contentDescription = "Delete model",
                                 tint = MaterialTheme.colorScheme.error,
                             )
                         }
+                    }
+                }
+
+                if (isSelected && !loadProbe.isNullOrEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                    ) {
+                        Text(
+                            text = loadProbe,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             } else {
@@ -1154,12 +962,13 @@ private fun AsrModelLibraryItem(
                 ) {
                     Text(
                         text = "Not downloaded (~${model.totalBytes / 1_000_000} MB)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
                     Button(
                         onClick = onDownload,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     ) {
                         Icon(
@@ -1168,7 +977,11 @@ private fun AsrModelLibraryItem(
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "Download",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
             }
@@ -1176,153 +989,161 @@ private fun AsrModelLibraryItem(
     }
 }
 
+// -------------------------------------------------------------------------------------------------
+// LLM TIER CARD COMPONENT
+// -------------------------------------------------------------------------------------------------
+
 @Composable
-private fun LitertModelLibraryItem(
+private fun LitertTierCard(
     model: LiteRtLmModelSpec,
     isSelected: Boolean,
     isInstalled: Boolean,
     downloadStatus: ModelStatus.Downloading?,
     notificationsAllowed: Boolean,
+    cleanupBusy: String?,
+    cleanupLoadNote: String?,
     onSelect: () -> Unit,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
     onAllowMobileData: () -> Unit,
     onDelete: () -> Unit,
+    onVerify: () -> Unit,
+    onOpenInfo: (String) -> Unit,
 ) {
+    val isGemma4 = model.id == LiteRtLmModels.GEMMA_4_E2B.id
+    val title = if (isGemma4) "Good Polish" else model.label
+    val badgeText = if (isGemma4) "Recommended" else model.targetHardware
+    val description = if (isGemma4) {
+        "High precision punctuation, capitalization, and filler removal. Fast GPU generation · High RAM requirement."
+    } else {
+        model.note
+    }
+    val speedVal = if (isGemma4) "75–104 tok/s" else "CPU only"
+    val qualityVal = if (isGemma4) "High" else "Basic"
+    val hardwareVal = if (isGemma4) "GPU / OpenCL" else model.targetHardware
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = if (isSelected) BadgeViolet else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(14.dp),
-            ),
+            .clickable(enabled = downloadStatus == null) {
+                if (isInstalled) {
+                    onSelect()
+                } else {
+                    onDownload()
+                }
+            },
+        shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isInstalled) {
-                if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
             } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                MaterialTheme.colorScheme.surfaceContainer
             },
         ),
-        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) {
+                BadgeViolet.copy(alpha = 0.8f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            },
+        ),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // Header Row: Title, Badges, and Info [ⓘ] button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Surface(
+                        color = BadgeViolet.copy(alpha = 0.18f),
+                        shape = CircleShape,
                     ) {
                         Text(
-                            text = model.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isInstalled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                            text = badgeText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BadgeViolet,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         )
+                    }
+
+                    if (isSelected && isInstalled) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            shape = RoundedCornerShape(6.dp),
+                            color = BadgeViolet,
+                            shape = CircleShape,
                         ) {
                             Text(
-                                text = model.targetHardware,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = BadgeViolet,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                text = "Active",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             )
                         }
-                        if (model.supportsSpeculativeDecoding) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                shape = RoundedCornerShape(6.dp),
-                            ) {
-                                Text(
-                                    text = "Speculative MTP",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = BadgeGreen,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
                     }
-                    Text(
-                        text = "${model.approximateBytes / 1_000_000} MB • ${model.note}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isInstalled) 1.0f else 0.65f),
-                    )
+                }
+
+                Surface(
+                    onClick = { onOpenInfo(if (isGemma4) "gemma" else model.id) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "ⓘ",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Subtext Description
+            Text(
+                text = description,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
+            // Standardized 3-Pill Attribute Row: Speed · Quality · Hardware
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AttributeChip(label = "Speed", value = speedVal, modifier = Modifier.weight(1f))
+                AttributeChip(label = "Quality", value = qualityVal, modifier = Modifier.weight(1f))
+                AttributeChip(label = "Hardware", value = hardwareVal, modifier = Modifier.weight(1f))
+            }
+
+            // Action / Download / Diagnostics Area
             if (downloadStatus != null) {
-                val progress = downloadStatus.progress
-                Text(
-                    text = when {
-                        downloadStatus.waitingForWifi -> "Waiting for Wi-Fi"
-                        downloadStatus.queued -> "Queued — another download is running"
-                        progress != null -> "Downloading: ${progress.fileName}"
-                        else -> "Starting…"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                DownloadProgressBlock(
+                    downloadStatus = downloadStatus,
+                    notificationsAllowed = notificationsAllowed,
+                    tintColor = BadgeViolet,
+                    onCancelDownload = onCancelDownload,
+                    onAllowMobileData = onAllowMobileData,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                LinearProgressIndicator(
-                    progress = { progress?.overall ?: 0f },
-                    color = BadgeViolet,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp)),
-                )
-                if (!notificationsAllowed) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Notifications are off — progress will not be visible while you are away.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (progress != null) {
-                            "${progress.downloadedBytes / 1_000_000} / ${progress.totalBytes / 1_000_000} MB (${(progress.overall * 100).toInt()}%)"
-                        } else {
-                            ""
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (downloadStatus.waitingForWifi) {
-                            OutlinedButton(
-                                onClick = onAllowMobileData,
-                                shape = RoundedCornerShape(8.dp),
-                            ) {
-                                Text("Use mobile data", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = onCancelDownload,
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Text("Cancel", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
             } else if (isInstalled) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1330,30 +1151,91 @@ private fun LitertModelLibraryItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (isSelected) "Active" else "Downloaded",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected) BadgeViolet else BadgeGreen,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        text = "${model.approximateBytes / 1_000_000} MB on disk",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (!isSelected) {
+                        if (isSelected) {
                             OutlinedButton(
-                                onClick = onSelect,
-                                shape = RoundedCornerShape(8.dp),
+                                onClick = onVerify,
+                                shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, BadgeViolet),
                             ) {
-                                Text("Select", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = BadgeViolet)
+                                Text(
+                                    text = "Verify in RAM",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = BadgeViolet,
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = onSelect,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = BadgeViolet,
+                                    contentColor = Color.White,
+                                ),
+                            ) {
+                                Text(
+                                    text = "Select model",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             }
                         }
-                        IconButton(onClick = onDelete) {
+
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(36.dp),
+                        ) {
                             Icon(
                                 Icons.Default.DeleteOutline,
                                 contentDescription = "Delete model",
                                 tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+
+                if (isSelected) {
+                    cleanupBusy?.let { busy ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = BadgeViolet,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = busy,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+
+                    cleanupLoadNote?.let { note ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .padding(10.dp),
+                        ) {
+                            Text(
+                                text = note,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -1366,12 +1248,13 @@ private fun LitertModelLibraryItem(
                 ) {
                     Text(
                         text = "Not downloaded (~${model.approximateBytes / 1_000_000} MB)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
                     Button(
                         onClick = onDownload,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
                     ) {
                         Icon(
@@ -1380,7 +1263,11 @@ private fun LitertModelLibraryItem(
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "Download",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
             }
@@ -1388,10 +1275,194 @@ private fun LitertModelLibraryItem(
     }
 }
 
-/**
- * Whether the app may post notifications. Below Android 13 there is no such permission, so the
- * answer is simply yes.
- */
+// -------------------------------------------------------------------------------------------------
+// SHARED HELPER COMPONENTS
+// -------------------------------------------------------------------------------------------------
+
+@Composable
+private fun AttributeChip(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = value,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DownloadProgressBlock(
+    downloadStatus: ModelStatus.Downloading,
+    notificationsAllowed: Boolean,
+    tintColor: Color,
+    onCancelDownload: () -> Unit,
+    onAllowMobileData: () -> Unit,
+) {
+    val progress = downloadStatus.progress
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = when {
+                downloadStatus.waitingForWifi -> "Waiting for Wi-Fi"
+                downloadStatus.queued -> "Queued — another download is running"
+                progress != null -> "Downloading: ${progress.fileName} (${progress.fileIndex + 1}/${progress.totalFiles})"
+                else -> "Starting…"
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        LinearProgressIndicator(
+            progress = { progress?.overall ?: 0f },
+            color = tintColor,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape),
+        )
+        if (!notificationsAllowed) {
+            Text(
+                text = "Notifications are off — progress will not be visible while you are away.",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (progress != null) "${(progress.overall * 100).toInt()}% completed" else "",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (downloadStatus.waitingForWifi) {
+                    OutlinedButton(
+                        onClick = onAllowMobileData,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text("Use mobile data", fontSize = 11.sp)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onCancelDownload,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("Cancel", fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// MODEL TECHNICAL SPECIFICATIONS
+// -------------------------------------------------------------------------------------------------
+
+private data class ModelMetadata(
+    val title: String,
+    val badge: String,
+    val badgeBg: Color,
+    val badgeColor: Color,
+    val description: String,
+    val latency: String,
+    val quality: String,
+    val ram: String,
+    val infoKey: String,
+)
+
+private data class ModelTechnicalSpec(
+    val title: String,
+    val subtitle: String,
+    val overview: String,
+    val benefits: List<String>,
+    val tradeoffs: List<String>,
+)
+
+private fun getModelTechnicalSpec(key: String): ModelTechnicalSpec? = when (key) {
+    "nemotron" -> ModelTechnicalSpec(
+        title = "Fast & Streaming",
+        subtitle = "Nvidia Nemotron-3.5-ASR-Streaming-0.6B (CPU)",
+        overview = "Uses Nvidia's Nemotron-3.5-ASR-Streaming-0.6B (560ms) model under the hood, run on CPU using the sherpa-onnx backend. The model supports 40 different languages.",
+        benefits = listOf(
+            "Streaming ASR: transcribes speech in real time as you speak, drastically reducing end-to-end latency.",
+            "Immediate LLM handoff: by the time you stop speaking, raw transcription is already complete and sent for cleanup instantly.",
+            "Broad multilingual recognition across 40 languages.",
+        ),
+        tradeoffs = listOf(
+            "Relatively large model footprint requiring high RAM.",
+            "Slower initial load time: larger model weights take slightly longer to initialize into memory.",
+            "Lower precision on noisy audio or dense domain jargon compared to the Highest Accuracy model.",
+        ),
+    )
+    "whisper" -> ModelTechnicalSpec(
+        title = "Lightweight",
+        subtitle = "OpenAI Whisper Base (CPU)",
+        overview = "Uses an optimized OpenAI Whisper Base model run on CPU via the sherpa-onnx backend. Operates in non-streaming chunked mode, decoding audio after natural pauses.",
+        benefits = listOf(
+            "Quickest load time: initializes the fastest into memory due to its compact model size.",
+            "Lowest RAM requirement: ideal for older devices or keeping memory footprint minimal.",
+            "Solid baseline punctuation and accuracy for everyday English.",
+        ),
+        tradeoffs = listOf(
+            "Chunked processing: speech is only decoded after you pause, adding a slight post-speech processing delay.",
+        ),
+    )
+    "parakeet" -> ModelTechnicalSpec(
+        title = "Highest Accuracy",
+        subtitle = "Nvidia Parakeet TDT v3 (CPU)",
+        overview = "Uses Nvidia Parakeet TDT v3 run on CPU via sherpa-onnx. Decodes audio chunks with state-of-the-art acoustic accuracy.",
+        benefits = listOf(
+            "Highest transcription precision: excels at complex vocabulary, technical terms, and proper nouns.",
+            "Strong noise resilience in challenging acoustic environments.",
+            "Fast transducer decoding within each captured audio chunk.",
+        ),
+        tradeoffs = listOf(
+            "Chunked processing: transcription starts after you pause, resulting in higher perceived latency than streaming.",
+            "Slower initial load time: larger model weights take slightly longer to initialize into memory.",
+            "High RAM requirement comparable to the streaming model.",
+        ),
+    )
+    "gemma" -> ModelTechnicalSpec(
+        title = "Good Polish",
+        subtitle = "Google Gemma 4 E2B (OpenCL GPU)",
+        overview = "Uses Google's Gemma 4 E2B (2 billion parameters) executed on-device via Google LiteRT-LM, hardware-accelerated on your phone's GPU using OpenCL.",
+        benefits = listOf(
+            "Natural grammar restoration: fixes punctuation, strips filler words (um, uh), and repairs hesitations without changing your meaning.",
+            "Hardware-accelerated token generation using OpenCL GPU.",
+            "Strictly 100% on-device: zero audio or text data ever leaves your phone.",
+        ),
+        tradeoffs = listOf(
+            "High RAM footprint while resident in memory.",
+            "Requires modern GPU hardware for fast token generation.",
+        ),
+    )
+    else -> null
+}
+
 private fun hasNotificationPermission(context: android.content.Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
