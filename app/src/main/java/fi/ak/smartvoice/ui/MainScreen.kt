@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
@@ -28,11 +30,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fi.ak.smartvoice.ui.home.HomeScreen
+import fi.ak.smartvoice.ui.models.ModelsScreen
 import fi.ak.smartvoice.ui.onboarding.OnboardingScreen
 import fi.ak.smartvoice.ui.onboarding.OnboardingStep
 import fi.ak.smartvoice.ui.profile.ProfilesScreen
@@ -47,6 +55,11 @@ enum class NavTab(
         title = "Home",
         selectedIcon = Icons.Filled.Home,
         unselectedIcon = Icons.Outlined.Home,
+    ),
+    MODELS(
+        title = "Models",
+        selectedIcon = Icons.Filled.Memory,
+        unselectedIcon = Icons.Outlined.Memory,
     ),
     PROFILES(
         title = "Profiles",
@@ -83,8 +96,46 @@ fun MainScreen(
         return
     }
 
+    val primary = MaterialTheme.colorScheme.primary
+    val surface = MaterialTheme.colorScheme.surface
+    val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
+    val isDark = surface.luminance() < 0.5f
+
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .drawBehind {
+                val centerOffset = if (isDark) {
+                    Offset(x = size.width * 0.5f, y = size.height * 0.08f)
+                } else {
+                    Offset(x = size.width * 0.5f, y = size.height * 0.06f)
+                }
+                val radius = size.maxDimension * 0.85f
+
+                val brush = if (isDark) {
+                    Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to primary.copy(alpha = 0.12f),
+                            0.40f to surfaceContainer.copy(alpha = 0.92f),
+                            1.0f to surface,
+                        ),
+                        center = centerOffset,
+                        radius = radius,
+                    )
+                } else {
+                    Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to primary.copy(alpha = 0.08f),
+                            0.32f to Color.White,
+                            1.0f to surface,
+                        ),
+                        center = centerOffset,
+                        radius = radius,
+                    )
+                }
+                drawRect(brush = brush)
+            },
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
@@ -131,6 +182,7 @@ fun MainScreen(
                     },
                 )
 
+                NavTab.MODELS -> ModelsScreen(viewModel = viewModel)
                 NavTab.PROFILES -> ProfilesScreen(viewModel = viewModel)
                 NavTab.SETTINGS -> SettingsScreen(
                     viewModel = viewModel,
