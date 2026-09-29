@@ -52,6 +52,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +66,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -120,6 +122,13 @@ fun TranscribeHubScreen(
     var pickedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var pickedAudioName by remember { mutableStateOf<String?>(null) }
     var isDecodingAudio by remember { mutableStateOf(false) }
+    var isTranscribingFile by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state) {
+        if (state !is DictationUiState.Working) {
+            isTranscribingFile = false
+        }
+    }
 
     val audioPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
@@ -352,6 +361,12 @@ fun TranscribeHubScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Medium,
                         )
+                        current.progress?.let { p ->
+                            LinearProgressIndicator(
+                                progress = { p },
+                                modifier = Modifier.fillMaxWidth(0.6f),
+                            )
+                        }
                     }
                     is DictationUiState.Failed -> {
                         Text(
@@ -487,6 +502,7 @@ fun TranscribeHubScreen(
                                 val uri = pickedAudioUri ?: return@Button
                                 val name = pickedAudioName ?: "audio"
                                 isDecodingAudio = true
+                                isTranscribingFile = true
                                 scope.launch {
                                     try {
                                         val pcmSamples = AudioDecoder.decodeToPcm(context, uri)
@@ -495,6 +511,7 @@ fun TranscribeHubScreen(
                                         viewModel.transcribeAudioFile(pcmSamples, name, durationSec)
                                     } catch (e: Exception) {
                                         isDecodingAudio = false
+                                        isTranscribingFile = false
                                         Toast.makeText(context, "Audio decode failed: ${e.message}", Toast.LENGTH_LONG).show()
                                     }
                                 }
@@ -524,6 +541,36 @@ fun TranscribeHubScreen(
                             text = "Preparing audio file…",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    }
+                }
+
+                val workingState = state as? DictationUiState.Working
+                if (isTranscribingFile && workingState != null) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                            Text(
+                                text = workingState.stage,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        if (workingState.progress != null) {
+                            LinearProgressIndicator(
+                                progress = { workingState.progress },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }

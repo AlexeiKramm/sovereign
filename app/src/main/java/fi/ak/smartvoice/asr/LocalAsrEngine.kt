@@ -288,20 +288,58 @@ class LocalAsrEngine(
     }
 
     /**
+     * Decodes an isolated audio segment (<= 28s) using the active model.
+     * Works identically for streaming (Nemotron) and offline (Whisper, Parakeet) models.
+     */
+    fun decodeSegment(samples: FloatArray, language: String = ""): String {
+        if (samples.isEmpty()) return ""
+        if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
+            return getOrCreateOfflineEngine().decodeSegment(samples)
+        }
+        if (recognizer == null) {
+            val loaded = load()
+            if (loaded !is Availability.Loaded) return ""
+        }
+        val rec = recognizer ?: return ""
+        val activeStream = rec.createStream()
+        return try {
+            val lang = if (language.isNotEmpty() && language != "auto") language else modelSpec.defaultLanguage
+            if (lang.isNotEmpty() && lang != "auto") {
+                activeStream.setOption("language", lang)
+            }
+            activeStream.acceptWaveform(samples, AsrModels.SAMPLE_RATE)
+            val padding = FloatArray((AsrModels.SAMPLE_RATE * STREAMING_TAIL_PADDING_SECONDS).toInt())
+            activeStream.acceptWaveform(padding, AsrModels.SAMPLE_RATE)
+            activeStream.inputFinished()
+            while (rec.isReady(activeStream)) {
+                rec.decode(activeStream)
+            }
+            rec.getResult(activeStream).text.trim()
+        } finally {
+            activeStream.release()
+        }
+    }
+
+    /**
      * Transcribes an in-memory audio sample buffer sequentially.
-     * Useful for file-based transcription and standard benchmarking fixtures.
+     * Chunks audio using [AudioSegmenter] (<= 28s) to respect Whisper 30s limits and Parakeet low-RAM bounds.
      */
     fun transcribeBuffer(
         samples: FloatArray,
         language: String,
         chunkSize: Int = 1600,
     ): String {
-        startSession(language = language)
-        for (i in samples.indices step chunkSize) {
-            val end = minOf(i + chunkSize, samples.size)
-            accept(samples.copyOfRange(i, end))
+        if (samples.isEmpty()) return ""
+        val chunks = AudioSegmenter.segment(samples, assetManager)
+        val sb = StringBuilder()
+        for (chunk in chunks) {
+            val text = decodeSegment(chunk, language)
+            if (text.isNotBlank()) {
+                if (sb.isNotEmpty()) sb.append(" ")
+                sb.append(text)
+            }
         }
-        return finish().trim()
+        return sb.toString().trim()
     }
 
     fun abort() {

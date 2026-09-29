@@ -216,8 +216,12 @@ class OfflineVadAsrEngine(
         return null
     }
 
-    private fun decodeSegment(samples: FloatArray): String {
+    fun decodeSegment(samples: FloatArray): String {
         if (samples.isEmpty()) return ""
+        if (recognizer == null) {
+            val loaded = load()
+            if (loaded !is LocalAsrEngine.Availability.Loaded) return ""
+        }
         val rec = recognizer ?: return ""
 
         // Strictly clamp to maximum 30.0s for Whisper safety
