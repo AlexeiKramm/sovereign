@@ -267,6 +267,13 @@ class LocalAsrEngine(
 
         val active = stream ?: return ""
         val engine = recognizer ?: return ""
+
+        // Tail padding with silence guarantees any partial chunk (< 560ms or < 320ms)
+        // accumulates enough frames for engine.isReady(active) to evaluate to true,
+        // preventing the final words of the utterance from being dropped on stream release.
+        val paddingSamples = (AsrModels.SAMPLE_RATE * STREAMING_TAIL_PADDING_SECONDS).toInt()
+        val padding = FloatArray(paddingSamples)
+        active.acceptWaveform(padding, AsrModels.SAMPLE_RATE)
         active.inputFinished()
 
         var decodes = 0
@@ -333,5 +340,6 @@ class LocalAsrEngine(
         private const val FEATURE_DIM = 80
         const val DEFAULT_PAUSE_SILENCE_SECONDS = 2.0f
         private const val MAX_FLUSH_DECODES = 512
+        const val STREAMING_TAIL_PADDING_SECONDS = 0.8f
     }
 }

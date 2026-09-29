@@ -53,7 +53,7 @@ import fi.ak.smartvoice.ui.onboarding.OnboardingScreen
 import fi.ak.smartvoice.ui.onboarding.OnboardingStep
 import fi.ak.smartvoice.ui.profile.ProfilesScreen
 import fi.ak.smartvoice.ui.settings.SettingsScreen
-import fi.ak.smartvoice.ui.transcribe.TranscribeModal
+import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
 
 enum class NavTab(
     val title: String,
@@ -104,6 +104,7 @@ fun MainScreen(
         focusManager.clearFocus(force = true)
         showHistory = false
         showBenchmark = false
+        showTranscribe = false
         if (tabHistory.lastOrNull() != index) {
             tabHistory = tabHistory + index
         }
@@ -116,7 +117,10 @@ fun MainScreen(
     BackHandler(enabled = !showHistory && showBenchmark) {
         showBenchmark = false
     }
-    BackHandler(enabled = !showHistory && !showBenchmark && tabHistory.size > 1) {
+    BackHandler(enabled = !showHistory && !showBenchmark && showTranscribe) {
+        showTranscribe = false
+    }
+    BackHandler(enabled = !showHistory && !showBenchmark && !showTranscribe && tabHistory.size > 1) {
         tabHistory = tabHistory.dropLast(1)
     }
 
@@ -176,7 +180,7 @@ fun MainScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         tabs.forEachIndexed { index, tab ->
-                            val isSelected = !showHistory && !showBenchmark && (currentTabIndex == index)
+                            val isSelected = !showHistory && !showBenchmark && !showTranscribe && (currentTabIndex == index)
                             val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
                             NavigationBarItem(
                                 selected = isSelected,
@@ -213,6 +217,12 @@ fun MainScreen(
                         showBenchmark -> BenchmarkScreen(
                             modifier = Modifier.fillMaxSize(),
                             onNavigateUp = { showBenchmark = false },
+                        )
+
+                        showTranscribe -> TranscribeHubScreen(
+                            viewModel = viewModel,
+                            modifier = Modifier.fillMaxSize(),
+                            onNavigateUp = { showTranscribe = false },
                         )
 
                         else -> {
@@ -278,12 +288,5 @@ fun MainScreen(
                 }
             }
         }
-    }
-
-    if (showTranscribe) {
-        TranscribeModal(
-            viewModel = viewModel,
-            onDismissRequest = { showTranscribe = false },
-        )
     }
 }
