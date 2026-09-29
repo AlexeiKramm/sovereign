@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,8 +61,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -85,6 +88,7 @@ import fi.ak.smartvoice.theme.BadgeGreen
 import fi.ak.smartvoice.theme.BadgeOrange
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import fi.ak.smartvoice.ui.components.TopAppBarWithScrollShadow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -314,12 +318,10 @@ fun BenchmarkScreen(
         }
     }
 
-    val content = @Composable { paddingModifier: Modifier ->
+    val content = @Composable { contentPadding: PaddingValues ->
         LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .then(paddingModifier)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = modifier.fillMaxSize(),
+            contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (onNavigateUp == null) {
@@ -350,7 +352,8 @@ fun BenchmarkScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SettingsIconBadge(
                                 icon = Icons.Default.Speed,
-                                badgeColor = BadgeCyan,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 contentDescription = "Benchmark Runner",
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -762,24 +765,44 @@ fun BenchmarkScreen(
         }
     }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val isScrolled = scrollBehavior.state.overlappedFraction > 0.01f
+
     if (onNavigateUp != null) {
         Scaffold(
+            modifier = modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            containerColor = Color.Transparent,
             topBar = {
-                TopAppBar(
-                    title = { Text("Model Benchmarks", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onNavigateUp) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-                )
+                TopAppBarWithScrollShadow(scrollBehavior = scrollBehavior) {
+                    TopAppBar(
+                        title = { Text("Model Benchmarks", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
+                        navigationIcon = {
+                            IconButton(onClick = onNavigateUp) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        },
+                        scrollBehavior = scrollBehavior,
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent,
+                        ),
+                    )
+                }
             },
         ) { innerPadding ->
-            content(Modifier.padding(innerPadding))
+            content(
+                PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 8.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 16.dp,
+                )
+            )
         }
     } else {
-        content(Modifier)
+        content(PaddingValues(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 

@@ -142,4 +142,107 @@ object WordDiffCalculator {
             wordsCleaned = removed + changed,
         )
     }
+
+    /**
+     * Splits [cleanedText] into verbatim segments marking which words or punctuation were
+     * modified, capitalized, punctuated, or added by the cleanup model compared to [rawText].
+     * Concatenating all segment texts exactly reconstructs [cleanedText].
+     */
+    fun calculateWordDiffSegments(rawText: String, cleanedText: String): List<DiffSegment> {
+        if (cleanedText.isBlank() || rawText == cleanedText) {
+            return listOf(DiffSegment(cleanedText, isModified = false))
+        }
+
+        val wordRegex = Regex("\\S+")
+        val rawWords = rawText.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val cleanMatches = wordRegex.findAll(cleanedText).toList()
+
+        if (cleanMatches.isEmpty()) {
+            return listOf(DiffSegment(cleanedText, isModified = false))
+        }
+
+        val rawNormalized = rawWords.map { normalizeForDiff(it) }
+        val cleanNormalized = cleanMatches.map { normalizeForDiff(it.value) }
+
+        val m = rawNormalized.size
+        val n = cleanNormalized.size
+
+        val lcs = Array(m + 1) { IntArray(n + 1) }
+        for (i in 1..m) {
+            for (j in 1..n) {
+                if (rawNormalized[i - 1] == cleanNormalized[j - 1] && rawNormalized[i - 1].isNotEmpty()) {
+                    lcs[i][j] = lcs[i - 1][j - 1] + 1
+                } else {
+                    lcs[i][j] = maxOf(lcs[i - 1][j], lcs[i][j - 1])
+                }
+            }
+        }
+
+        val cleanToRawMap = mutableMapOf<Int, Int>()
+        var i = m
+        var j = n
+        while (i > 0 && j > 0) {
+            if (rawNormalized[i - 1] == cleanNormalized[j - 1] && rawNormalized[i - 1].isNotEmpty() &&
+                lcs[i][j] == lcs[i - 1][j - 1] + 1
+            ) {
+                cleanToRawMap[j - 1] = i - 1
+                i--
+                j--
+            } else if (lcs[i - 1][j] >= lcs[i][j - 1]) {
+                i--
+            } else {
+                j--
+            }
+        }
+
+        val segments = mutableListOf<DiffSegment>()
+        var lastEnd = 0
+
+        for (idx in cleanMatches.indices) {
+            val match = cleanMatches[idx]
+            if (match.range.first > lastEnd) {
+                segments.add(DiffSegment(cleanedText.substring(lastEnd, match.range.first), isModified = false))
+            }
+
+            val rawIndex = cleanToRawMap[idx]
+            val isModified = if (rawIndex == null) {
+                true
+            } else {
+                val rawWord = rawWords[rawIndex]
+                val cleanWord = match.value
+                rawWord != cleanWord
+            }
+
+            segments.add(DiffSegment(match.value, isModified = isModified))
+            lastEnd = match.range.last + 1
+        }
+
+        if (lastEnd < cleanedText.length) {
+            segments.add(DiffSegment(cleanedText.substring(lastEnd), isModified = false))
+        }
+
+        val merged = mutableListOf<DiffSegment>()
+        for (seg in segments) {
+            if (merged.isNotEmpty() && merged.last().isModified == seg.isModified) {
+                merged[merged.lastIndex] = DiffSegment(merged.last().text + seg.text, seg.isModified)
+            } else {
+                merged.add(seg)
+            }
+        }
+
+        return merged
+    }
+
+    private fun normalizeForDiff(token: String): String {
+        return token.lowercase().filter { it.isLetterOrDigit() }
+    }
 }
+
+/**
+ * A continuous segment of cleaned text indicating whether it represents a delta spot
+ * modified or added during LLM cleanup.
+ */
+data class DiffSegment(
+    val text: String,
+    val isModified: Boolean,
+)

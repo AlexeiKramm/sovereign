@@ -3,15 +3,19 @@ package fi.ak.smartvoice.ui.profile
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -170,6 +174,10 @@ private fun ProfilesListScreen(
             .padding(horizontal = Spacing.screen, vertical = Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
+        item {
+            Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+        }
+
         // --- HEADER ---
         item {
             Row(
@@ -194,19 +202,23 @@ private fun ProfilesListScreen(
                     )
                 }
 
-                IconButton(
+                Surface(
                     onClick = { showNewProfileDialog = true },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.size(28.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New profile",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New profile",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
             }
         }
@@ -493,8 +505,8 @@ private fun ProfilesListScreen(
                         ) {
                             SettingsIconBadge(
                                 icon = Icons.Default.Backup,
-                                badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 contentDescription = null,
                             )
                             Column {

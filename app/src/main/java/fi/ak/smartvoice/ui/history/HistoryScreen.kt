@@ -61,7 +61,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,6 +79,7 @@ import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import fi.ak.smartvoice.ui.components.TopAppBarWithScrollShadow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -138,46 +141,59 @@ fun HistoryScreen(
         )
     }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val isScrolled = scrollBehavior.state.overlappedFraction > 0.01f
+
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Dictation History",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                navigationIcon = {
-                    if (onNavigateUp != null) {
-                        IconButton(onClick = onNavigateUp) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            TopAppBarWithScrollShadow(scrollBehavior = scrollBehavior) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Dictation History",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    navigationIcon = {
+                        if (onNavigateUp != null) {
+                            IconButton(onClick = onNavigateUp) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
                         }
-                    }
-                },
-                actions = {
-                    if (historyData.records.isNotEmpty()) {
-                        IconButton(onClick = { showClearConfirmDialog = true }) {
-                            Icon(
-                                Icons.Default.DeleteOutline,
-                                contentDescription = "Clear all history",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
+                    },
+                    actions = {
+                        if (historyData.records.isNotEmpty()) {
+                            IconButton(onClick = { showClearConfirmDialog = true }) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "Clear all history",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
+                    },
+                    scrollBehavior = scrollBehavior,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                    ),
+                )
+            }
         },
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = innerPadding.calculateTopPadding() + 8.dp,
+                bottom = innerPadding.calculateBottomPadding() + 16.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // Master toggle card
@@ -406,10 +422,10 @@ private fun HistoryRecordCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // ASR tag
-                    ModelBadge(text = normalizeModelBadge(record.asrModel), color = BadgeCyan)
+                    ModelBadge(text = normalizeModelBadge(record.asrModel), color = MaterialTheme.colorScheme.primary)
                     // LLM tag
                     if (record.llmModel != null) {
-                        ModelBadge(text = normalizeModelBadge(record.llmModel), color = BadgeViolet)
+                        ModelBadge(text = normalizeModelBadge(record.llmModel), color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -437,14 +453,14 @@ private fun HistoryRecordCard(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = null,
-                            tint = BadgeViolet,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(14.dp),
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = if (showRawDetails) "Hide raw ASR" else "Show raw ASR",
                             style = MaterialTheme.typography.labelSmall,
-                            color = BadgeViolet,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }

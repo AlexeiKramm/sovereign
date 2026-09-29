@@ -1,6 +1,7 @@
 package fi.ak.smartvoice.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,18 +9,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,15 +36,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.luminance
 import androidx.activity.compose.BackHandler
 
 /**
@@ -53,10 +67,11 @@ fun SettingsIconBadge(
     contentDescription: String? = null,
     size: Dp = 40.dp,
     iconSize: Dp = 22.dp,
+    shape: Shape = CircleShape,
 ) {
     Surface(
         modifier = modifier.size(size),
-        shape = RoundedCornerShape(12.dp),
+        shape = shape,
         color = badgeColor,
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -300,6 +315,7 @@ fun SubScreenHost(
 ) {
     BackHandler(onBack = onNavigateUp)
     Column(modifier = modifier.fillMaxSize()) {
+        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -315,6 +331,154 @@ fun SubScreenHost(
             }
         }
         content()
+    }
+}
+
+/**
+ * A labelled stepper row with [-] and [+] pill button, matching M3 redesign prototype.
+ */
+@Composable
+fun SettingsStepperRow(
+    title: String,
+    subtitle: String,
+    valueLabel: String,
+    onMinusClick: () -> Unit,
+    onPlusClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    minusEnabled: Boolean = true,
+    plusEnabled: Boolean = true,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                IconButton(
+                    onClick = onMinusClick,
+                    enabled = minusEnabled,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Text(
+                        text = "−",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (minusEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
+                Text(
+                    text = valueLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                IconButton(
+                    onClick = onPlusClick,
+                    enabled = plusEnabled,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Text(
+                        text = "+",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (plusEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A TopAppBar wrapper that renders a translucent backdrop over the app bar
+ * and a smooth drop shadow gradient extending downwards below the app bar
+ * that smoothly engages (fades in) as content scrolls underneath.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TopAppBarWithScrollShadow(
+    scrollBehavior: TopAppBarScrollBehavior,
+    modifier: Modifier = Modifier,
+    shadowHeight: Dp = 16.dp,
+    topAppBar: @Composable () -> Unit,
+) {
+    val scrollFraction = if (scrollBehavior.state.contentOffset != 0f) {
+        (-scrollBehavior.state.contentOffset / 80f).coerceIn(0f, 1f)
+    } else {
+        scrollBehavior.state.overlappedFraction.coerceIn(0f, 1f)
+    }
+
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val isDark = surfaceColor.luminance() < 0.5f
+    val density = LocalDensity.current
+    val shadowHeightPx = with(density) { shadowHeight.toPx() }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .drawBehind {
+                if (scrollFraction > 0.001f) {
+                    // 1. Subtle translucent backdrop over the app bar itself (0..size.height)
+                    // Allows cards to be seen sliding underneath while keeping title text legible
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                surfaceColor.copy(alpha = 0.72f * scrollFraction),
+                                surfaceColor.copy(alpha = 0.52f * scrollFraction),
+                            ),
+                            startY = 0f,
+                            endY = size.height,
+                        ),
+                        size = size,
+                    )
+
+                    // 2. Drop shadow gradient casting downwards from the bottom edge of the TopAppBar
+                    val shadowMaxAlpha = if (isDark) 0.42f else 0.18f
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = shadowMaxAlpha * scrollFraction),
+                                Color.Black.copy(alpha = shadowMaxAlpha * 0.40f * scrollFraction),
+                                Color.Black.copy(alpha = shadowMaxAlpha * 0.10f * scrollFraction),
+                                Color.Transparent,
+                            ),
+                            startY = size.height,
+                            endY = size.height + shadowHeightPx,
+                        ),
+                        topLeft = Offset(0f, size.height),
+                        size = size.copy(height = shadowHeightPx),
+                    )
+                }
+            },
+    ) {
+        topAppBar()
     }
 }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,7 +48,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,7 @@ import fi.ak.smartvoice.theme.BadgeViolet
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import fi.ak.smartvoice.ui.components.TopAppBarWithScrollShadow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -127,12 +131,10 @@ fun StatsScreen(
         )
     }
 
-    val content = @Composable { paddingModifier: Modifier ->
+    val content = @Composable { contentPadding: PaddingValues ->
         LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .then(paddingModifier)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = modifier.fillMaxSize(),
+            contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (onNavigateUp == null) {
@@ -232,7 +234,8 @@ fun StatsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             SettingsIconBadge(
                                 icon = Icons.Default.AutoAwesome,
-                                badgeColor = BadgeViolet,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 contentDescription = "AI Impact",
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -271,8 +274,8 @@ fun StatsScreen(
                 ) {
                     SettingsIconBadge(
                         icon = Icons.Default.History,
-                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                         contentDescription = "Recent Dictations",
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -307,43 +310,61 @@ fun StatsScreen(
         }
     }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val isScrolled = scrollBehavior.state.overlappedFraction > 0.01f
+
     if (onNavigateUp != null) {
         Scaffold(
+            modifier = modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            containerColor = Color.Transparent,
             topBar = {
-                TopAppBar(
-                    title = { Text("Usage Statistics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onNavigateUp) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { refresh() }) {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "Refresh",
-                            )
-                        }
-                        if (stats.totalUtterances > 0) {
-                            IconButton(onClick = { showResetDialog = true }) {
+                TopAppBarWithScrollShadow(scrollBehavior = scrollBehavior) {
+                    TopAppBar(
+                        title = { Text("Usage Statistics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
+                        navigationIcon = {
+                            IconButton(onClick = onNavigateUp) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { refresh() }) {
                                 Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Reset Stats",
-                                    tint = MaterialTheme.colorScheme.error,
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Refresh",
                                 )
                             }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
-                )
+                            if (stats.totalUtterances > 0) {
+                                IconButton(onClick = { showResetDialog = true }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Reset Stats",
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        },
+                        scrollBehavior = scrollBehavior,
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent,
+                        ),
+                    )
+                }
             }
         ) { innerPadding ->
-            content(Modifier.padding(innerPadding))
+            content(
+                PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 8.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 16.dp,
+                )
+            )
         }
     } else {
-        content(Modifier)
+        content(PaddingValues(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 
@@ -514,7 +535,8 @@ fun PowerDiagnosticsCard(powerState: DevicePowerState, modifier: Modifier = Modi
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SettingsIconBadge(
                     icon = Icons.Default.BatteryChargingFull,
-                    badgeColor = BadgeGreen,
+                    badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                    iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                     contentDescription = "Battery & Power",
                 )
                 Spacer(modifier = Modifier.width(12.dp))

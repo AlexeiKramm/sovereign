@@ -16,9 +16,9 @@ enum class LiteRtProcessor(val id: String, val label: String, val note: String) 
 }
 
 enum class AppThemeMode(val id: String, val label: String) {
-    SYSTEM("system", "System Default"),
-    LIGHT("light", "Light Theme"),
-    DARK("dark", "Dark Theme"),
+    SYSTEM("system", "System"),
+    LIGHT("light", "Light"),
+    DARK("dark", "Dark"),
 }
 
 /**
@@ -282,6 +282,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_QUICK_DICTATE_ON_HOLD, DEFAULT_QUICK_DICTATE_ON_HOLD)
         set(value) = prefs.edit { putBoolean(KEY_QUICK_DICTATE_ON_HOLD, value) }
 
+    /** Whether haptic feedback is triggered when starting and releasing Hold-To-Dictate. */
+    var hapticFeedbackOnHold: Boolean
+        get() = prefs.getBoolean(KEY_HAPTIC_FEEDBACK_ON_HOLD, DEFAULT_HAPTIC_FEEDBACK_ON_HOLD)
+        set(value) = prefs.edit { putBoolean(KEY_HAPTIC_FEEDBACK_ON_HOLD, value) }
+
     /**
      * How quickly the pill's post-flick glide bleeds off, per second. Higher friction = the pill
      * stops sooner. Exposed as a setting because "how slippery the pill feels" is a taste question
@@ -395,6 +400,7 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
         private const val KEY_QUICK_DICTATE_ON_HOLD = "quick_dictate_on_hold"
+        private const val KEY_HAPTIC_FEEDBACK_ON_HOLD = "haptic_feedback_on_hold"
         private const val KEY_PILL_FLICK_FRICTION = "pill_flick_friction"
         private const val KEY_PILL_SNAP_ATTENUATION = "pill_snap_attenuation"
         private const val KEY_PILL_SNAP_STIFFNESS = "pill_snap_stiffness"
@@ -413,6 +419,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_FLOATING_PILL_AUTO_COMMIT = false
         const val DEFAULT_FLOATING_PILL_EDGE_ANCHORING = true
         const val DEFAULT_QUICK_DICTATE_ON_HOLD = true
+        const val DEFAULT_HAPTIC_FEEDBACK_ON_HOLD = true
 
         /** Stored pill position meaning "never dragged — use the default corner dock". */
         const val PILL_POSITION_UNSET = -1

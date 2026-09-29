@@ -28,11 +28,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -143,6 +146,8 @@ fun TranscribeHubScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+
         // --- HEADER & MODEL BADGES ---
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
@@ -215,8 +220,8 @@ fun TranscribeHubScreen(
                     ) {
                         SettingsIconBadge(
                             icon = Icons.Default.Edit,
-                            badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             size = 32.dp,
                             iconSize = 18.dp,
                         )
@@ -243,8 +248,8 @@ fun TranscribeHubScreen(
                 ) {
                     SettingsIconBadge(
                         icon = Icons.Default.Edit,
-                        badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Column {
                         Text(
@@ -447,8 +452,8 @@ fun TranscribeHubScreen(
                 ) {
                     SettingsIconBadge(
                         icon = Icons.Default.PlayArrow,
-                        badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Column {
                         Text(

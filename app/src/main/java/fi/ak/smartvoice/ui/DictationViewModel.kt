@@ -495,6 +495,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _quickDictateOnHold = MutableStateFlow(settings.quickDictateOnHold)
     val quickDictateOnHold: StateFlow<Boolean> = _quickDictateOnHold.asStateFlow()
 
+    private val _hapticFeedbackOnHold = MutableStateFlow(settings.hapticFeedbackOnHold)
+    val hapticFeedbackOnHold: StateFlow<Boolean> = _hapticFeedbackOnHold.asStateFlow()
+
     private val _pillFlickFriction = MutableStateFlow(settings.pillFlickFriction)
     val pillFlickFriction: StateFlow<Float> = _pillFlickFriction.asStateFlow()
 
@@ -704,6 +707,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _floatingPillAutoCommit.value = settings.floatingPillAutoCommit
         _floatingPillEdgeAnchoring.value = settings.floatingPillEdgeAnchoring
         _quickDictateOnHold.value = settings.quickDictateOnHold
+        _hapticFeedbackOnHold.value = settings.hapticFeedbackOnHold
         _pillFlickFriction.value = settings.pillFlickFriction
         _pillSnapAttenuation.value = settings.pillSnapAttenuation
         _pillSnapStiffness.value = settings.pillSnapStiffness
@@ -866,6 +870,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setQuickDictateOnHold(enabled: Boolean) {
         settings.quickDictateOnHold = enabled
         _quickDictateOnHold.value = enabled
+    }
+
+    fun setHapticFeedbackOnHold(enabled: Boolean) {
+        settings.hapticFeedbackOnHold = enabled
+        _hapticFeedbackOnHold.value = enabled
     }
 
     /**
@@ -1157,32 +1166,76 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             withContext(Dispatchers.IO) { recorder.stop() }
             val stoppedAt = SystemClock.elapsedRealtime()
-            val text = localSession.finish()
-            val tailMs = SystemClock.elapsedRealtime() - stoppedAt
+            val rawText = localSession.finish()
+            val asrMs = SystemClock.elapsedRealtime() - stoppedAt
 
-            val diff = WordDiffCalculator.verbatim(text)
+            if (rawText.isBlank()) {
+                _state.value = DictationUiState.Done(
+                    outcome = DictationOutcome(
+                        text = "(no speech recognized)",
+                        engine = Engine.LOCAL,
+                        note = "No speech detected",
+                        audioSeconds = audioSeconds,
+                        elapsedMs = asrMs,
+                    ),
+                    roundTripMs = null,
+                    rawText = "",
+                    diff = null,
+                )
+                return@launch
+            }
+
+            var cleanedText = rawText
+            var diff = WordDiffCalculator.verbatim(rawText)
+            var llmModelLabel: String? = null
+            var wordsCleaned = 0
+            var llmMs = 0L
+
+            if (settings.cleanupEnabled) {
+                _state.value = DictationUiState.Working("Cleaning up transcription with LLM…", Engine.LOCAL)
+                try {
+                    val cleanupEngine = engine()
+                    val pass = cleanupEngine.clean(
+                        unit = rawText,
+                        context = null,
+                        variant = _cleanupVariant.value,
+                    )
+                    cleanedText = pass.text
+                    diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = pass.text)
+                    wordsCleaned = diff.wordsChanged + diff.wordsRemoved + diff.wordsAdded
+                    llmModelLabel = settings.litertModel.label
+                    llmMs = pass.ttftMs.toLong()
+                } catch (t: Throwable) {
+                    // Fall back to verbatim ASR if cleanup fails
+                    cleanedText = rawText
+                    diff = WordDiffCalculator.verbatim(rawText)
+                }
+            }
+
+            val totalElapsedMs = SystemClock.elapsedRealtime() - stoppedAt
+
             UsageStatsStore(app).record(
                 durationSeconds = audioSeconds,
                 rawWords = diff.rawWords,
-                cleanedWords = 0,
+                cleanedWords = wordsCleaned,
                 engine = Engine.LOCAL.label,
                 deliveredWords = diff.deliveredWords,
-                wordsRemoved = 0,
-                wordsChanged = 0,
-                wordsAdded = 0,
+                wordsRemoved = diff.wordsRemoved,
+                wordsChanged = diff.wordsChanged,
+                wordsAdded = diff.wordsAdded,
             )
 
-            if (settings.historyEnabled && text.isNotBlank()) {
+            if (settings.historyEnabled && cleanedText.isNotBlank()) {
                 dictationHistoryStore.record(
                     record = DictationRecord(
                         id = UUID.randomUUID().toString(),
                         timestampMs = System.currentTimeMillis(),
                         durationSeconds = audioSeconds,
-                        rawText = text,
-                        cleanedText = text,
+                        rawText = rawText,
+                        cleanedText = cleanedText,
                         asrModel = settings.asrModel.label,
-                        llmModel = null,
-                        wordsCleaned = 0,
+                        llmModel = llmModelLabel,
+                        wordsCleaned = wordsCleaned,
                         insertedSuccessfully = false,
                     ),
                     maxCapacity = settings.historyCapacity,
@@ -1191,8 +1244,8 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             }
 
             _state.value = DictationUiState.Done(
-                DictationOutcome(
-                    text = text,
+                outcome = DictationOutcome(
+                    text = cleanedText,
                     engine = Engine.LOCAL,
                     note = buildString {
                         append(note)
@@ -1200,11 +1253,16 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                         if (localSession.droppedFrames > 0) {
                             append(" · ${localSession.droppedFrames} frame(s) dropped")
                         }
+                        if (settings.cleanupEnabled && llmModelLabel != null) {
+                            append(" · LLM: $llmModelLabel ($llmMs ms)")
+                        }
                     },
                     audioSeconds = audioSeconds,
-                    elapsedMs = tailMs,
+                    elapsedMs = totalElapsedMs,
                 ),
                 roundTripMs = null,
+                rawText = rawText,
+                diff = diff,
             )
         }
     }

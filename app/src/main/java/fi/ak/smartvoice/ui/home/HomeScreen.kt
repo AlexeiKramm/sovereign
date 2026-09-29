@@ -25,12 +25,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,9 +76,12 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -160,6 +166,8 @@ fun HomeScreen(
             .padding(horizontal = Spacing.screen, vertical = Spacing.md),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+
         // Centered Brand Hero
         BrandHero(modifier = Modifier.fillMaxWidth())
 
@@ -364,7 +372,7 @@ private fun StatusConfigCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -375,7 +383,9 @@ private fun StatusConfigCard(
                     )
                     Text(
                         text = if (allGreen) "Floating pill active · Ready in all apps" else "Missing required permissions",
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -397,19 +407,19 @@ private fun StatusConfigCard(
                     modifier = Modifier.clickable(onClick = onToggleCleanup),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(6.dp)
+                                .size(5.dp)
                                 .clip(CircleShape)
                                 .background(toggleText),
                         )
                         Text(
                             text = "LLM polish ${if (cleanupEnabled) "ON" else "OFF"}",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = toggleText,
                         )
@@ -629,33 +639,38 @@ private fun TryDictationCard(
                     )
                     Text(
                         text = "Speak a sentence to test recognition and polish",
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 // Action Pill: [🎙️ Transcribe file]
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                     modifier = Modifier.clickable(onClick = onOpenTranscribe),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Default.Audiotrack,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(12.dp),
                         )
                         Text(
                             text = "Transcribe file",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -827,11 +842,39 @@ private fun TryDictationCard(
                                 }
                             }
 
+                            val raw = done.rawText?.ifBlank { done.outcome.text } ?: done.outcome.text
+                            val cleaned = done.outcome.text
+                            val diffSegments = remember(raw, cleaned) {
+                                WordDiffCalculator.calculateWordDiffSegments(raw, cleaned)
+                            }
+                            val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+                            val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
+                            val annotatedCleanedText = remember(diffSegments, primaryContainer, onPrimaryContainer) {
+                                buildAnnotatedString {
+                                    diffSegments.forEach { segment ->
+                                        if (segment.isModified) {
+                                            withStyle(
+                                                SpanStyle(
+                                                    background = primaryContainer.copy(alpha = 0.55f),
+                                                    color = onPrimaryContainer,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            ) {
+                                                append(segment.text)
+                                            }
+                                        } else {
+                                            append(segment.text)
+                                        }
+                                    }
+                                }
+                            }
+
                             SelectionContainer {
                                 Text(
-                                    text = done.outcome.text,
+                                    text = annotatedCleanedText,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
+                                    lineHeight = 18.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                             }

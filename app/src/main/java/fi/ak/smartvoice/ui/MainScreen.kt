@@ -1,10 +1,14 @@
 package fi.ak.smartvoice.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Memory
@@ -36,8 +40,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import fi.ak.smartvoice.ui.benchmark.BenchmarkScreen
 import fi.ak.smartvoice.ui.history.HistoryScreen
@@ -47,7 +53,7 @@ import fi.ak.smartvoice.ui.onboarding.OnboardingScreen
 import fi.ak.smartvoice.ui.onboarding.OnboardingStep
 import fi.ak.smartvoice.ui.profile.ProfilesScreen
 import fi.ak.smartvoice.ui.settings.SettingsScreen
-import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
+import fi.ak.smartvoice.ui.transcribe.TranscribeModal
 
 enum class NavTab(
     val title: String,
@@ -80,7 +86,8 @@ enum class NavTab(
 fun MainScreen(
     viewModel: DictationViewModel = viewModel(),
 ) {
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var tabHistory by rememberSaveable { mutableStateOf(listOf(0)) }
+    val currentTabIndex = tabHistory.lastOrNull() ?: 0
     val focusManager = LocalFocusManager.current
     val tabs = NavTab.entries
     val snackbarHostState = remember { SnackbarHostState() }
@@ -93,36 +100,24 @@ fun MainScreen(
     var showTranscribe by rememberSaveable { mutableStateOf(false) }
     var showBenchmark by rememberSaveable { mutableStateOf(false) }
 
-    if (showOnboarding) {
-        OnboardingScreen(
-            viewModel = viewModel,
-            initialStep = onboardingStart,
-            onFinished = { showOnboarding = false },
-        )
-        return
+    val selectTab: (Int) -> Unit = { index ->
+        focusManager.clearFocus(force = true)
+        showHistory = false
+        showBenchmark = false
+        if (tabHistory.lastOrNull() != index) {
+            tabHistory = tabHistory + index
+        }
     }
 
-    if (showHistory) {
-        HistoryScreen(
-            viewModel = viewModel,
-            onNavigateUp = { showHistory = false },
-        )
-        return
+    // System Back gesture/button handling
+    BackHandler(enabled = showHistory) {
+        showHistory = false
     }
-
-    if (showTranscribe) {
-        TranscribeHubScreen(
-            viewModel = viewModel,
-            onNavigateUp = { showTranscribe = false },
-        )
-        return
+    BackHandler(enabled = !showHistory && showBenchmark) {
+        showBenchmark = false
     }
-
-    if (showBenchmark) {
-        BenchmarkScreen(
-            onNavigateUp = { showBenchmark = false },
-        )
-        return
+    BackHandler(enabled = !showHistory && !showBenchmark && tabHistory.size > 1) {
+        tabHistory = tabHistory.dropLast(1)
     }
 
     val primary = MaterialTheme.colorScheme.primary
@@ -131,7 +126,7 @@ fun MainScreen(
     val surfaceContainerLow = MaterialTheme.colorScheme.surfaceContainerLow
     val isDark = surface.luminance() < 0.5f
 
-    Scaffold(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .drawBehind {
@@ -163,76 +158,132 @@ fun MainScreen(
                 }
                 drawRect(brush = brush)
             },
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets.safeDrawing,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ) {
-                tabs.forEachIndexed { index, tab ->
-                    val isSelected = selectedTabIndex == index
-                    val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = {
-                            focusManager.clearFocus(force = true)
-                            selectedTabIndex = index
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = tab.title,
+    ) {
+        if (showOnboarding) {
+            OnboardingScreen(
+                viewModel = viewModel,
+                initialStep = onboardingStart,
+                onFinished = { showOnboarding = false },
+            )
+        } else {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                bottomBar = {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        tabs.forEachIndexed { index, tab ->
+                            val isSelected = !showHistory && !showBenchmark && (currentTabIndex == index)
+                            val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = { selectTab(index) },
+                                icon = {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = tab.title,
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.title,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                },
                             )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        },
+                        }
+                    }
+                },
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = innerPadding.calculateBottomPadding()),
+                ) {
+                    when {
+                        showHistory -> HistoryScreen(
+                            viewModel = viewModel,
+                            modifier = Modifier.fillMaxSize(),
+                            onNavigateUp = { showHistory = false },
+                        )
+
+                        showBenchmark -> BenchmarkScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            onNavigateUp = { showBenchmark = false },
+                        )
+
+                        else -> {
+                            when (tabs[currentTabIndex]) {
+                                NavTab.HOME -> HomeScreen(
+                                    viewModel = viewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onNavigateToModels = {
+                                        selectTab(tabs.indexOf(NavTab.MODELS).coerceAtLeast(0))
+                                    },
+                                    onNavigateToProfiles = {
+                                        selectTab(tabs.indexOf(NavTab.PROFILES).coerceAtLeast(0))
+                                    },
+                                    onOpenHistory = { showHistory = true },
+                                    onOpenTranscribe = { showTranscribe = true },
+                                    onSetUpModels = {
+                                        onboardingStart = OnboardingStep.MODELS
+                                        showOnboarding = true
+                                    },
+                                )
+
+                                NavTab.MODELS -> ModelsScreen(
+                                    viewModel = viewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onOpenBenchmark = { showBenchmark = true },
+                                )
+
+                                NavTab.PROFILES -> ProfilesScreen(
+                                    viewModel = viewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+
+                                NavTab.SETTINGS -> SettingsScreen(
+                                    viewModel = viewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onOpenSetup = {
+                                        onboardingStart = OnboardingStep.MICROPHONE
+                                        showOnboarding = true
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    // Subtle top gradient scrim to maintain status bar icon legibility as content scrolls underneath
+                    val statusBarHeight = with(LocalDensity.current) {
+                        WindowInsets.statusBars.getTop(this).toDp()
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(statusBarHeight + 14.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        (if (isDark) surface else surfaceContainerLow).copy(alpha = 0.72f),
+                                        (if (isDark) surface else surfaceContainerLow).copy(alpha = 0.35f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                            ),
                     )
                 }
             }
-        },
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) {
-            when (tabs[selectedTabIndex]) {
-                NavTab.HOME -> HomeScreen(
-                    viewModel = viewModel,
-                    onNavigateToModels = {
-                        focusManager.clearFocus(force = true)
-                        selectedTabIndex = tabs.indexOf(NavTab.MODELS).coerceAtLeast(0)
-                    },
-                    onNavigateToProfiles = {
-                        focusManager.clearFocus(force = true)
-                        selectedTabIndex = tabs.indexOf(NavTab.PROFILES).coerceAtLeast(0)
-                    },
-                    onOpenHistory = { showHistory = true },
-                    onOpenTranscribe = { showTranscribe = true },
-                    onSetUpModels = {
-                        onboardingStart = OnboardingStep.MODELS
-                        showOnboarding = true
-                    },
-                )
-
-                NavTab.MODELS -> ModelsScreen(
-                    viewModel = viewModel,
-                    onOpenBenchmark = { showBenchmark = true },
-                )
-                NavTab.PROFILES -> ProfilesScreen(viewModel = viewModel)
-                NavTab.SETTINGS -> SettingsScreen(
-                    viewModel = viewModel,
-                    onOpenSetup = {
-                        onboardingStart = OnboardingStep.MICROPHONE
-                        showOnboarding = true
-                    },
-                )
-            }
         }
+    }
+
+    if (showTranscribe) {
+        TranscribeModal(
+            viewModel = viewModel,
+            onDismissRequest = { showTranscribe = false },
+        )
     }
 }

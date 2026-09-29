@@ -12,15 +12,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -227,7 +231,7 @@ fun ModelsScreen(
         var allowMobileData by remember(model) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { pendingLitertDownload = null },
-            icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = BadgeViolet) },
+            icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Download AI cleanup model?") },
             text = {
                 Column {
@@ -262,7 +266,6 @@ fun ModelsScreen(
                         pendingLitertDownload = null
                         startLitertDownload(target, metered)
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
                 ) {
                     Text("Download & activate")
                 }
@@ -450,6 +453,8 @@ fun ModelsScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+
         // --- SCREEN HEADER WITH TITLE & BENCHMARK TRIGGER ---
         Row(
             modifier = Modifier
@@ -657,7 +662,7 @@ fun ModelsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "LiteRT-LM",
+                text = "Tap to activate",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -714,8 +719,8 @@ private fun AsrTierCard(
         AsrModels.DEFAULT_MODEL_ID -> ModelMetadata(
             title = "Fast & Streaming",
             badge = "Recommended",
-            badgeBg = BadgeOrange.copy(alpha = 0.18f),
-            badgeColor = BadgeOrange,
+            badgeBg = MaterialTheme.colorScheme.primaryContainer,
+            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
             description = "Transcribes speech in real time as you speak. Lowest latency · Good quality · High RAM requirement.",
             latency = "Real-time",
             quality = "Good",
@@ -724,9 +729,9 @@ private fun AsrTierCard(
         )
         AsrModels.WHISPER_BASE.id -> ModelMetadata(
             title = "Lightweight",
-            badge = "Low battery",
-            badgeBg = BadgeGreen.copy(alpha = 0.18f),
-            badgeColor = BadgeGreen,
+            badge = null,
+            badgeBg = MaterialTheme.colorScheme.primaryContainer,
+            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
             description = "Transcribes speech in audio chunks after you pause. Medium latency · Medium quality · Lowest RAM requirement.",
             latency = "Chunked",
             quality = "Standard",
@@ -735,9 +740,9 @@ private fun AsrTierCard(
         )
         AsrModels.PARAKEET_TDT_V3.id -> ModelMetadata(
             title = "Highest Accuracy",
-            badge = "Highest quality",
-            badgeBg = BadgeBlue.copy(alpha = 0.18f),
-            badgeColor = BadgeBlue,
+            badge = null,
+            badgeBg = MaterialTheme.colorScheme.primaryContainer,
+            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
             description = "Transcribes speech in audio chunks after you pause. Highest latency · Best quality · High RAM requirement.",
             latency = "Chunked",
             quality = "Highest",
@@ -746,9 +751,9 @@ private fun AsrTierCard(
         )
         else -> ModelMetadata(
             title = model.label,
-            badge = if (model.type == AsrModelType.STREAMING_TRANSDUCER) "Streaming" else "Offline",
-            badgeBg = MaterialTheme.colorScheme.surfaceContainerHighest,
-            badgeColor = MaterialTheme.colorScheme.primary,
+            badge = null,
+            badgeBg = MaterialTheme.colorScheme.primaryContainer,
+            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
             description = model.description,
             latency = if (model.type == AsrModelType.STREAMING_TRANSDUCER) "Real-time" else "Chunked",
             quality = "Standard",
@@ -806,17 +811,19 @@ private fun AsrTierCard(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
 
-                    Surface(
-                        color = badgeBg,
-                        shape = CircleShape,
-                    ) {
-                        Text(
-                            text = badgeText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = badgeTextColor,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
+                    if (!badgeText.isNullOrEmpty()) {
+                        Surface(
+                            color = badgeBg,
+                            shape = CircleShape,
+                        ) {
+                            Text(
+                                text = badgeText,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badgeTextColor,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
                     }
 
                     if (isSelected && isInstalled) {
@@ -835,19 +842,42 @@ private fun AsrTierCard(
                     }
                 }
 
-                Surface(
-                    onClick = { onOpenInfo(infoKey) },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    modifier = Modifier.size(28.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "ⓘ",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (isInstalled && downloadStatus == null) {
+                        Surface(
+                            onClick = onDelete,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "Delete model",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        onClick = { onOpenInfo(infoKey) },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "ⓘ",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -860,16 +890,6 @@ private fun AsrTierCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // Standardized 3-Pill Attribute Row: Latency · Quality · RAM
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                AttributeChip(label = "Latency", value = latencyVal, modifier = Modifier.weight(1f))
-                AttributeChip(label = "Quality", value = qualityVal, modifier = Modifier.weight(1f))
-                AttributeChip(label = "RAM", value = ramVal, modifier = Modifier.weight(1f))
-            }
-
             // Action / Download / Diagnostics Area
             if (downloadStatus != null) {
                 DownloadProgressBlock(
@@ -879,82 +899,7 @@ private fun AsrTierCard(
                     onCancelDownload = onCancelDownload,
                     onAllowMobileData = onAllowMobileData,
                 )
-            } else if (isInstalled) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "${model.totalBytes / 1_000_000} MB on disk",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (isSelected) {
-                            OutlinedButton(
-                                onClick = onVerify,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                            ) {
-                                Text(
-                                    text = "Verify in RAM",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = onSelect,
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ),
-                            ) {
-                                Text(
-                                    text = "Select model",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                        }
-
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.DeleteOutline,
-                                contentDescription = "Delete model",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                }
-
-                if (isSelected && !loadProbe.isNullOrEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(10.dp),
-                    ) {
-                        Text(
-                            text = loadProbe,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            } else {
+            } else if (!isInstalled) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -962,27 +907,43 @@ private fun AsrTierCard(
                 ) {
                     Text(
                         text = "Not downloaded (~${model.totalBytes / 1_000_000} MB)",
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     Button(
                         onClick = onDownload,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     ) {
                         Icon(
                             Icons.Default.CloudDownload,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Download",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
+                }
+            } else if (isSelected && !loadProbe.isNullOrEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(10.dp),
+                ) {
+                    Text(
+                        text = loadProbe,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -1012,15 +973,12 @@ private fun LitertTierCard(
 ) {
     val isGemma4 = model.id == LiteRtLmModels.GEMMA_4_E2B.id
     val title = if (isGemma4) "Good Polish" else model.label
-    val badgeText = if (isGemma4) "Recommended" else model.targetHardware
+    val badgeText = if (isGemma4) "Recommended" else null
     val description = if (isGemma4) {
         "High precision punctuation, capitalization, and filler removal. Fast GPU generation · High RAM requirement."
     } else {
         model.note
     }
-    val speedVal = if (isGemma4) "75–104 tok/s" else "CPU only"
-    val qualityVal = if (isGemma4) "High" else "Basic"
-    val hardwareVal = if (isGemma4) "GPU / OpenCL" else model.targetHardware
 
     Card(
         modifier = Modifier
@@ -1043,7 +1001,7 @@ private fun LitertTierCard(
         border = BorderStroke(
             width = if (isSelected) 2.dp else 1.dp,
             color = if (isSelected) {
-                BadgeViolet.copy(alpha = 0.8f)
+                MaterialTheme.colorScheme.primary
             } else {
                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             },
@@ -1071,48 +1029,73 @@ private fun LitertTierCard(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
 
-                    Surface(
-                        color = BadgeViolet.copy(alpha = 0.18f),
-                        shape = CircleShape,
-                    ) {
-                        Text(
-                            text = badgeText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = BadgeViolet,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
+                    if (!badgeText.isNullOrEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = CircleShape,
+                        ) {
+                            Text(
+                                text = badgeText,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
                     }
 
                     if (isSelected && isInstalled) {
                         Surface(
-                            color = BadgeViolet,
+                            color = MaterialTheme.colorScheme.primary,
                             shape = CircleShape,
                         ) {
                             Text(
                                 text = "Active",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             )
                         }
                     }
                 }
 
-                Surface(
-                    onClick = { onOpenInfo(if (isGemma4) "gemma" else model.id) },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    modifier = Modifier.size(28.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "ⓘ",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (isInstalled && downloadStatus == null) {
+                        Surface(
+                            onClick = onDelete,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "Delete model",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        onClick = { onOpenInfo(if (isGemma4) "gemma" else model.id) },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "ⓘ",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -1125,122 +1108,16 @@ private fun LitertTierCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            // Standardized 3-Pill Attribute Row: Speed · Quality · Hardware
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                AttributeChip(label = "Speed", value = speedVal, modifier = Modifier.weight(1f))
-                AttributeChip(label = "Quality", value = qualityVal, modifier = Modifier.weight(1f))
-                AttributeChip(label = "Hardware", value = hardwareVal, modifier = Modifier.weight(1f))
-            }
-
             // Action / Download / Diagnostics Area
             if (downloadStatus != null) {
                 DownloadProgressBlock(
                     downloadStatus = downloadStatus,
                     notificationsAllowed = notificationsAllowed,
-                    tintColor = BadgeViolet,
+                    tintColor = MaterialTheme.colorScheme.primary,
                     onCancelDownload = onCancelDownload,
                     onAllowMobileData = onAllowMobileData,
                 )
-            } else if (isInstalled) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "${model.approximateBytes / 1_000_000} MB on disk",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (isSelected) {
-                            OutlinedButton(
-                                onClick = onVerify,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, BadgeViolet),
-                            ) {
-                                Text(
-                                    text = "Verify in RAM",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = BadgeViolet,
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = onSelect,
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = BadgeViolet,
-                                    contentColor = Color.White,
-                                ),
-                            ) {
-                                Text(
-                                    text = "Select model",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                        }
-
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.DeleteOutline,
-                                contentDescription = "Delete model",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                }
-
-                if (isSelected) {
-                    cleanupBusy?.let { busy ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = BadgeViolet,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = busy,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-
-                    cleanupLoadNote?.let { note ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .padding(10.dp),
-                        ) {
-                            Text(
-                                text = note,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            } else {
+            } else if (!isInstalled) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1248,25 +1125,62 @@ private fun LitertTierCard(
                 ) {
                     Text(
                         text = "Not downloaded (~${model.approximateBytes / 1_000_000} MB)",
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     Button(
                         onClick = onDownload,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = BadgeViolet),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     ) {
                         Icon(
                             Icons.Default.CloudDownload,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Download",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            } else if (isSelected) {
+                cleanupBusy?.let { busy ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = busy,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+
+                cleanupLoadNote?.let { note ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                    ) {
+                        Text(
+                            text = note,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -1279,36 +1193,6 @@ private fun LitertTierCard(
 // SHARED HELPER COMPONENTS
 // -------------------------------------------------------------------------------------------------
 
-@Composable
-private fun AttributeChip(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = label,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = value,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
-}
 
 @Composable
 private fun DownloadProgressBlock(
@@ -1384,7 +1268,7 @@ private fun DownloadProgressBlock(
 
 private data class ModelMetadata(
     val title: String,
-    val badge: String,
+    val badge: String? = null,
     val badgeBg: Color,
     val badgeColor: Color,
     val description: String,

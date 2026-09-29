@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -31,10 +34,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -45,12 +52,14 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -64,6 +73,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -99,6 +109,7 @@ import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import fi.ak.smartvoice.ui.components.SettingsItemRow
 import fi.ak.smartvoice.ui.components.SettingsSliderRow
+import fi.ak.smartvoice.ui.components.SettingsStepperRow
 import fi.ak.smartvoice.ui.components.SettingsToggleRow
 import fi.ak.smartvoice.ui.components.SubScreenHost
 import fi.ak.smartvoice.ui.history.HistoryScreen
@@ -207,16 +218,20 @@ fun SettingsScreen(
     val floatingPillAutoCommit by viewModel.floatingPillAutoCommit.collectAsStateWithLifecycle()
     val floatingPillEdgeAnchoring by viewModel.floatingPillEdgeAnchoring.collectAsStateWithLifecycle()
     val quickDictateOnHold by viewModel.quickDictateOnHold.collectAsStateWithLifecycle()
+    val hapticFeedbackOnHold by viewModel.hapticFeedbackOnHold.collectAsStateWithLifecycle()
     val keepScreenOnWhileRecording by viewModel.keepScreenOnWhileRecording.collectAsStateWithLifecycle()
 
+    val cleanupEnabled by viewModel.cleanupEnabled.collectAsStateWithLifecycle()
     val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
     val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
+    val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
     val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
     val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
     val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
 
     val historyEnabled by viewModel.historyEnabled.collectAsStateWithLifecycle()
+    val dictationHistory by viewModel.dictationHistory.collectAsStateWithLifecycle()
 
     val enginePreference by viewModel.enginePreference.collectAsStateWithLifecycle()
     val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
@@ -242,6 +257,8 @@ fun SettingsScreen(
         enabledServices.contains(context.packageName)
     }
 
+    var devLegacyExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -249,6 +266,8 @@ fun SettingsScreen(
             .padding(horizontal = Spacing.screen, vertical = Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
+        Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+
         // --- SCREEN HEADER ---
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -273,26 +292,132 @@ fun SettingsScreen(
             )
         }
 
-        // --- 1. APPEARANCE & THEME ---
+        // --- 1. DICTATION FEEL ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
-                text = "APPEARANCE & THEME",
+                text = "DICTATION FEEL",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
-            AppearanceCard(
-                themeMode = themeMode,
-                onThemeModeChange = viewModel::setThemeMode,
-                seedColor = themeSeedColor,
-                onSeedColorChange = viewModel::setThemeSeedColor,
-                paletteStyle = themePaletteStyle,
-                onPaletteStyleChange = viewModel::setThemePaletteStyle,
-                useSystemDynamic = themeUseSystemDynamic,
-                onUseSystemDynamicChange = viewModel::setThemeUseSystemDynamic,
-            )
+            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.GraphicEq,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            contentDescription = null,
+                        )
+                        Column {
+                            Text(
+                                text = "Dictation feel",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Hold-to-dictate, haptic feedback, and silence detection",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    SettingsToggleRow(
+                        title = "Hold the pill to dictate",
+                        subtitle = "Press and hold the pill to speak, then release to immediately insert text",
+                        checked = quickDictateOnHold,
+                        onCheckedChange = viewModel::setQuickDictateOnHold,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Haptic feedback on hold",
+                        subtitle = "Vibrate lightly when hold-to-dictate starts and stops",
+                        checked = hapticFeedbackOnHold,
+                        onCheckedChange = viewModel::setHapticFeedbackOnHold,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Auto-insert on silence",
+                        subtitle = "Automatically inserts cleaned text when you stop speaking",
+                        checked = floatingPillAutoCommit,
+                        onCheckedChange = viewModel::setFloatingPillAutoCommit,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsStepperRow(
+                        title = "Pause sensitivity",
+                        subtitle = "How long you can pause before speech splits into a new chunk",
+                        valueLabel = SettingsControls.formatSeconds(pauseSeconds),
+                        onMinusClick = {
+                            viewModel.setPauseSilenceSeconds(
+                                SettingsControls.snap(
+                                    pauseSeconds - SettingsControls.TIMING_STEP_SECONDS,
+                                    SettingsControls.PAUSE_MIN_SECONDS,
+                                    SettingsControls.PAUSE_MAX_SECONDS,
+                                )
+                            )
+                        },
+                        onPlusClick = {
+                            viewModel.setPauseSilenceSeconds(
+                                SettingsControls.snap(
+                                    pauseSeconds + SettingsControls.TIMING_STEP_SECONDS,
+                                    SettingsControls.PAUSE_MIN_SECONDS,
+                                    SettingsControls.PAUSE_MAX_SECONDS,
+                                )
+                            )
+                        },
+                        minusEnabled = pauseSeconds > SettingsControls.PAUSE_MIN_SECONDS,
+                        plusEnabled = pauseSeconds < SettingsControls.PAUSE_MAX_SECONDS,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsStepperRow(
+                        title = "Auto-stop silence",
+                        subtitle = "How many seconds of silence before the microphone turns off",
+                        valueLabel = SettingsControls.formatSeconds(stopSeconds),
+                        onMinusClick = {
+                            viewModel.setStopAfterSilenceSeconds(
+                                SettingsControls.snap(
+                                    stopSeconds - 1.0f,
+                                    SettingsControls.STOP_MIN_SECONDS,
+                                    SettingsControls.STOP_MAX_SECONDS,
+                                    1.0f,
+                                )
+                            )
+                        },
+                        onPlusClick = {
+                            viewModel.setStopAfterSilenceSeconds(
+                                SettingsControls.snap(
+                                    stopSeconds + 1.0f,
+                                    SettingsControls.STOP_MIN_SECONDS,
+                                    SettingsControls.STOP_MAX_SECONDS,
+                                    1.0f,
+                                )
+                            )
+                        },
+                        minusEnabled = stopSeconds > SettingsControls.STOP_MIN_SECONDS,
+                        plusEnabled = stopSeconds < SettingsControls.STOP_MAX_SECONDS,
+                    )
+                }
+            }
         }
 
         // --- 2. FLOATING PILL ---
@@ -328,7 +453,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = "Overlay visibility, edge snapping, and push-to-talk",
+                                text = "Overlay visibility and screen edge behavior",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -338,17 +463,8 @@ fun SettingsScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                     SettingsToggleRow(
-                        title = "Floating dictation pill",
-                        subtitle = "Master switch for the floating pill overlay",
-                        checked = floatingPillEnabled,
-                        onCheckedChange = viewModel::setFloatingPillEnabled,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
                         title = "Show only when keyboard is open",
-                        subtitle = "Hides the pill when you are not typing anywhere",
+                        subtitle = "Keep the pill hidden until your keyboard appears",
                         checked = floatingPillOnlyWhenKeyboardOpen,
                         onCheckedChange = viewModel::setFloatingPillOnlyWhenKeyboardOpen,
                     )
@@ -357,27 +473,18 @@ fun SettingsScreen(
 
                     SettingsToggleRow(
                         title = "Snap pill to screen edges",
-                        subtitle = "Snaps the resting pill to the nearest screen edge",
+                        subtitle = "Snaps the resting pill to the nearest screen edge so it stays out of your way",
                         checked = floatingPillEdgeAnchoring,
                         onCheckedChange = viewModel::setFloatingPillEdgeAnchoring,
                     )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
-                        title = "Hold the pill to dictate",
-                        subtitle = "Press and hold the pill to speak, then release to immediately insert text",
-                        checked = quickDictateOnHold,
-                        onCheckedChange = viewModel::setQuickDictateOnHold,
-                    )
                 }
             }
         }
 
-        // --- 3. DICTATION BEHAVIOR ---
+        // --- 3. LLM CLEANUP ENGINE ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
-                text = "DICTATION BEHAVIOR",
+                text = "LLM CLEANUP ENGINE",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -394,20 +501,20 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         SettingsIconBadge(
-                            icon = Icons.Default.GraphicEq,
-                            badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            icon = Icons.Default.AutoFixHigh,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             contentDescription = null,
                         )
                         Column {
                             Text(
-                                text = "Dictation behavior",
+                                text = "LLM cleanup engine",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = "Insertion timing, silence detection, and display state",
+                                text = "Hardware acceleration, speculative decoding, and context window",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -417,104 +524,45 @@ fun SettingsScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                     SettingsToggleRow(
-                        title = "Auto-insert on silence",
-                        subtitle = "Automatically inserts cleaned text when you stop speaking",
-                        checked = floatingPillAutoCommit,
-                        onCheckedChange = viewModel::setFloatingPillAutoCommit,
+                        title = "Enable LLM cleanup pass",
+                        subtitle = "Runs on-device LLM to polish text output",
+                        checked = cleanupEnabled,
+                        onCheckedChange = viewModel::setCleanupEnabled,
                     )
 
                     SettingsDivider(startIndent = 0.dp)
 
-                    SettingsToggleRow(
-                        title = "Keep screen awake while dictating",
-                        subtitle = "Prevents display from dimming or locking during dictation",
-                        checked = keepScreenOnWhileRecording,
-                        onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsSliderRow(
-                        title = "Pause sensitivity",
-                        subtitle = "How long you can pause before speech splits into a new chunk",
-                        value = pauseSeconds,
-                        valueLabel = SettingsControls.formatSeconds(pauseSeconds),
-                        valueRange = SettingsControls.PAUSE_MIN_SECONDS..SettingsControls.PAUSE_MAX_SECONDS,
-                        steps = SettingsControls.PAUSE_STEPS,
-                        onValueChange = viewModel::setPauseSilenceSeconds,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsSliderRow(
-                        title = "Auto-stop silence",
-                        subtitle = "How many seconds of silence before the microphone turns off",
-                        value = stopSeconds,
-                        valueLabel = SettingsControls.formatSeconds(stopSeconds),
-                        valueRange = SettingsControls.STOP_MIN_SECONDS..SettingsControls.STOP_MAX_SECONDS,
-                        steps = SettingsControls.STOP_STEPS,
-                        onValueChange = viewModel::setStopAfterSilenceSeconds,
-                    )
-                }
-            }
-        }
-
-        // --- 4. AI CLEANUP & PERFORMANCE ---
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text(
-                text = "AI CLEANUP & PERFORMANCE",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Memory,
-                            badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            contentDescription = null,
-                        )
-                        Column {
-                            Text(
-                                text = "AI cleanup & performance",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Processor acceleration, token speculation, and memory unloads",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    // Processor selector
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = "AI cleanup processor",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Hardware acceleration for on-device LLM cleanup",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "LLM execution backend",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Hardware acceleration for faster LLM cleanup",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = { viewModel.probeHardwareCompatibility() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    "Re-test GPU",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             LiteRtProcessor.entries.forEachIndexed { index, proc ->
                                 val isSupported = when (proc) {
@@ -548,33 +596,109 @@ fun SettingsScreen(
 
                     SettingsDivider(startIndent = 0.dp)
 
+                    SettingsStepperRow(
+                        title = "Healing context sentences",
+                        subtitle = "How many previous sentences the LLM uses as context across pauses",
+                        valueLabel = "$healingSentencesCount",
+                        onMinusClick = {
+                            if (healingSentencesCount > 1) {
+                                viewModel.onHealingSentencesCountChange(healingSentencesCount - 1)
+                            }
+                        },
+                        onPlusClick = {
+                            if (healingSentencesCount < 10) {
+                                viewModel.onHealingSentencesCountChange(healingSentencesCount + 1)
+                            }
+                        },
+                        minusEnabled = healingSentencesCount > 1,
+                        plusEnabled = healingSentencesCount < 10,
+                    )
+                }
+            }
+        }
+
+        // --- 4. APPEARANCE & THEME ---
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Text(
+                text = "APPEARANCE & THEME",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            AppearanceCard(
+                themeMode = themeMode,
+                onThemeModeChange = viewModel::setThemeMode,
+                seedColor = themeSeedColor,
+                onSeedColorChange = viewModel::setThemeSeedColor,
+                paletteStyle = themePaletteStyle,
+                onPaletteStyleChange = viewModel::setThemePaletteStyle,
+                useSystemDynamic = themeUseSystemDynamic,
+                onUseSystemDynamicChange = viewModel::setThemeUseSystemDynamic,
+            )
+        }
+
+        // --- 5. BATTERY & MEMORY ---
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Text(
+                text = "BATTERY & MEMORY",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.BatteryChargingFull,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            contentDescription = null,
+                        )
+                        Column {
+                            Text(
+                                text = "Battery & memory",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Unload models to preserve battery and free RAM",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
                     SettingsToggleRow(
                         title = "Unload models on screen off",
-                        subtitle = "Frees memory by unloading models when screen turns off",
+                        subtitle = "Free RAM by unloading models when screen is turned off",
                         checked = unloadOnScreenOff,
                         onCheckedChange = viewModel::onUnloadOnScreenOffChange,
                     )
 
                     SettingsDivider(startIndent = 0.dp)
 
-                    SettingsToggleRow(
-                        title = "Unload models on keyboard close",
-                        subtitle = "Frees memory when software keyboard is dismissed",
-                        checked = unloadOnKeyboardClose,
-                        onCheckedChange = viewModel::onUnloadOnKeyboardCloseChange,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = "Model idle timeout",
+                            text = "Unload idle timeout",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Unloads models from memory after a period of inactivity",
+                            text = "Unload models from RAM after inactivity",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -584,14 +708,32 @@ fun SettingsScreen(
                             onMinutesSelected = viewModel::onModelIdleTimeoutMinutesChange,
                         )
                     }
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Keep screen awake while dictating",
+                        subtitle = "Prevent display from dimming or locking during dictation",
+                        checked = keepScreenOnWhileRecording,
+                        onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Unload models on keyboard close",
+                        subtitle = "Free RAM when software keyboard is dismissed",
+                        checked = unloadOnKeyboardClose,
+                        onCheckedChange = viewModel::onUnloadOnKeyboardCloseChange,
+                    )
                 }
             }
         }
 
-        // --- 5. AUDIO & STORAGE ---
+        // --- 6. DATA & MAINTENANCE ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
-                text = "AUDIO & STORAGE",
+                text = "DATA & MAINTENANCE",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -609,13 +751,13 @@ fun SettingsScreen(
                     ) {
                         SettingsIconBadge(
                             icon = Icons.Default.Storage,
-                            badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             contentDescription = null,
                         )
                         Column {
                             Text(
-                                text = "Audio & storage",
+                                text = "Data & maintenance",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -630,34 +772,49 @@ fun SettingsScreen(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                    SettingsToggleRow(
-                        title = "Save dictation history",
-                        subtitle = "Keeps recent transcripts stored securely on-device",
-                        checked = historyEnabled,
-                        onCheckedChange = viewModel::setHistoryEnabled,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsItemRow(
-                        title = "Dictation history",
-                        subtitle = "Review, copy, and re-insert recent dictations",
-                        badge = {
-                            SettingsIconBadge(
-                                icon = Icons.Default.History,
-                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        },
-                        trailing = {
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = "Open dictation history",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        onClick = { currentSubScreen = SettingsSubScreen.HISTORY },
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SettingsToggleRow(
+                            title = "Save dictation history",
+                            subtitle = "Keep recent transcripts stored securely on-device",
+                            checked = historyEnabled,
+                            onCheckedChange = viewModel::setHistoryEnabled,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(
+                                onClick = { currentSubScreen = SettingsSubScreen.HISTORY },
+                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = "View dictation history (${dictationHistory.records.size} items)",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            TextButton(
+                                onClick = { viewModel.clearHistory() },
+                                enabled = dictationHistory.records.isNotEmpty(),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = "Clear",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (dictationHistory.records.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                )
+                            }
+                        }
+                    }
 
                     SettingsDivider(startIndent = 0.dp)
 
@@ -667,8 +824,8 @@ fun SettingsScreen(
                         badge = {
                             SettingsIconBadge(
                                 icon = Icons.Default.Refresh,
-                                badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
                         },
                         trailing = {
@@ -689,8 +846,8 @@ fun SettingsScreen(
                         badge = {
                             SettingsIconBadge(
                                 icon = Icons.Default.Refresh,
-                                badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
                         },
                         trailing = {
@@ -702,227 +859,183 @@ fun SettingsScreen(
                         },
                         onClick = onOpenSetup,
                     )
-                }
-            }
-        }
 
-        // --- 6. DIAGNOSTICS & ENGINE ---
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text(
-                text = "DIAGNOSTICS & ENGINE",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Build,
-                            badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            contentDescription = null,
-                        )
-                        Column {
+                    SettingsDivider(startIndent = 0.dp)
+
+                    // Expandable Developer & legacy controls
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { devLegacyExpanded = !devLegacyExpanded }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                text = "Diagnostics & engine",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Hardware acceleration, usage stats, and transcription engine",
-                                style = MaterialTheme.typography.bodySmall,
+                                text = "Developer & legacy controls",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    // Hardware info tile
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
                             Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Column {
-                                Text(
-                                    text = "Hardware acceleration",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    text = "Snapdragon 8 Elite / OpenCL GPU acceleration active",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsItemRow(
-                        title = "Usage & battery statistics",
-                        subtitle = "Audio metrics, power draw, and transcription history",
-                        badge = {
-                            SettingsIconBadge(
-                                icon = Icons.Default.BarChart,
-                                badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                                iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                        },
-                        trailing = {
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = "Open usage statistics",
+                                imageVector = if (devLegacyExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (devLegacyExpanded) "Collapse" else "Expand",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        },
-                        onClick = { currentSubScreen = SettingsSubScreen.STATS },
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsItemRow(
-                        title = "Model benchmarking",
-                        subtitle = "Measure ASR RTF and LLM tokens/sec latency",
-                        badge = {
-                            SettingsIconBadge(
-                                icon = Icons.Default.Speed,
-                                badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            )
-                        },
-                        trailing = {
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = "Open benchmarks",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsItemRow(
-                        title = "Legacy & flick feel settings",
-                        subtitle = "Pill flick friction, snap attenuation, and spring physics",
-                        badge = {
-                            SettingsIconBadge(
-                                icon = Icons.Default.Tune,
-                                badgeColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        trailing = {
-                            Icon(
-                                Icons.Default.ChevronRight,
-                                contentDescription = "Open legacy settings",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        onClick = { currentSubScreen = SettingsSubScreen.LEGACY },
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    // Engine Preference
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "Transcription engine",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Local on-device transcription is the private default",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                            EnginePreference.entries.forEachIndexed { index, pref ->
-                                SegmentedButton(
-                                    selected = enginePreference == pref,
-                                    onClick = { viewModel.onEnginePreferenceChange(pref) },
-                                    shape = SegmentedButtonDefaults.itemShape(
-                                        index = index,
-                                        count = EnginePreference.entries.size,
-                                    ),
-                                    label = { Text(if (pref == EnginePreference.LOCAL) "Local (on-device)" else "Server (remote)") },
-                                )
-                            }
                         }
 
-                        if (enginePreference == EnginePreference.REMOTE) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            OutlinedTextField(
-                                value = serverUrl,
-                                onValueChange = viewModel::onServerUrlChange,
-                                label = { Text("Server base URL") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
+                        if (devLegacyExpanded) {
+                            Column(
+                                modifier = Modifier.padding(top = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
-                                when (val status = serverStatus) {
-                                    is ServerStatus.Ready -> Text(
-                                        "Connected (contract ${status.contractVersion})",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                    is ServerStatus.Unreachable -> Text(
-                                        "Unreachable",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.error,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                    else -> Text(
-                                        "Status not checked",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                                SettingsItemRow(
+                                    title = "Usage & battery statistics",
+                                    subtitle = "Audio hours & thermal state (legacy; scheduled for removal)",
+                                    badge = {
+                                        SettingsIconBadge(
+                                            icon = Icons.Default.BarChart,
+                                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    },
+                                    trailing = {
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Open usage statistics",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = { currentSubScreen = SettingsSubScreen.STATS },
+                                )
 
-                                Button(
-                                    onClick = { viewModel.checkServer() },
-                                    shape = CircleShape,
-                                ) {
-                                    Text("Test connection")
+                                SettingsDivider(startIndent = 0.dp)
+
+                                SettingsToggleRow(
+                                    title = "Floating dictation pill",
+                                    subtitle = "Master overlay switch (legacy; scheduled for removal)",
+                                    checked = floatingPillEnabled,
+                                    onCheckedChange = viewModel::setFloatingPillEnabled,
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
+                                SettingsItemRow(
+                                    title = "Model benchmarking",
+                                    subtitle = "Measure ASR RTF and LLM tokens/sec latency",
+                                    badge = {
+                                        SettingsIconBadge(
+                                            icon = Icons.Default.Speed,
+                                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    },
+                                    trailing = {
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Open benchmarks",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
+                                SettingsItemRow(
+                                    title = "Legacy & flick feel settings",
+                                    subtitle = "Pill flick friction, snap attenuation, and spring physics",
+                                    badge = {
+                                        SettingsIconBadge(
+                                            icon = Icons.Default.Tune,
+                                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    },
+                                    trailing = {
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Open legacy settings",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = { currentSubScreen = SettingsSubScreen.LEGACY },
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "Transcription tier",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                        EnginePreference.entries.forEachIndexed { index, pref ->
+                                            SegmentedButton(
+                                                selected = enginePreference == pref,
+                                                onClick = { viewModel.onEnginePreferenceChange(pref) },
+                                                shape = SegmentedButtonDefaults.itemShape(
+                                                    index = index,
+                                                    count = EnginePreference.entries.size,
+                                                ),
+                                                label = { Text(if (pref == EnginePreference.LOCAL) "Local (default)" else "Server (legacy)") },
+                                            )
+                                        }
+                                    }
+
+                                    if (enginePreference == EnginePreference.REMOTE) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        OutlinedTextField(
+                                            value = serverUrl,
+                                            onValueChange = viewModel::onServerUrlChange,
+                                            label = { Text("Server base URL") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                            ),
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            when (val status = serverStatus) {
+                                                is ServerStatus.Ready -> Text(
+                                                    "Connected (contract ${status.contractVersion})",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Medium,
+                                                )
+                                                is ServerStatus.Unreachable -> Text(
+                                                    "Unreachable",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontWeight = FontWeight.Medium,
+                                                )
+                                                else -> Text(
+                                                    "Status not checked",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+
+                                            Button(
+                                                onClick = { viewModel.checkServer() },
+                                                shape = CircleShape,
+                                            ) {
+                                                Text("Test")
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1002,6 +1115,8 @@ private fun AppearanceCard(
     useSystemDynamic: Boolean,
     onUseSystemDynamicChange: (Boolean) -> Unit,
 ) {
+    var showCustomColorDialog by remember { mutableStateOf(false) }
+
     SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
         Column(
             modifier = Modifier.padding(20.dp),
@@ -1034,13 +1149,6 @@ private fun AppearanceCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-            Text(
-                text = "Mode",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 AppThemeMode.entries.forEachIndexed { index, mode ->
                     SegmentedButton(
@@ -1052,55 +1160,45 @@ private fun AppearanceCard(
                 }
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                SettingsDivider(startIndent = 0.dp)
-                SettingsToggleRow(
-                    title = "Material You dynamic colors",
-                    subtitle = "Derive colors from your system wallpaper instead of a custom seed",
-                    checked = useSystemDynamic,
-                    onCheckedChange = onUseSystemDynamicChange,
-                )
-            }
-
             SettingsDivider(startIndent = 0.dp)
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                     Text(
-                        text = "Accent color",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = "M3 seed accent",
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    val activeHex = remember(seedColor) {
-                        String.format(Locale.US, "#%06X", seedColor and 0x00FFFFFF)
-                    }
                     Text(
-                        text = if (useSystemDynamic) "System dynamic" else activeHex,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        text = "Generates full dynamic tonal palette",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
+                Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    items(ThemePresets.ALL) { preset ->
+                    val standardPresets = listOf(
+                        ThemePresets.SIGNATURE_ORANGE,
+                        ThemePresets.PIXEL_BLUE,
+                        ThemePresets.ANDROID_GREEN,
+                    )
+                    standardPresets.forEach { preset ->
                         val isSelected = !useSystemDynamic && (seedColor and 0x00FFFFFF) == (preset.argb and 0x00FFFFFF)
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .background(preset.color)
                                 .border(
-                                    width = if (isSelected) 3.dp else 1.dp,
+                                    width = if (isSelected) 2.5.dp else 1.dp,
                                     color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                                     shape = CircleShape,
                                 )
@@ -1115,70 +1213,69 @@ private fun AppearanceCard(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Selected",
                                     tint = if (preset.color.luminance() > 0.5f) Color.Black else Color.White,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
                     }
-                }
 
-                val hsv = remember(seedColor) {
-                    val arr = FloatArray(3)
-                    android.graphics.Color.colorToHSV(seedColor, arr)
-                    arr
-                }
-                var currentHue by remember(seedColor) { mutableFloatStateOf(hsv[0]) }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = String.format(Locale.US, "Custom hue spectrum (%d°)", currentHue.roundToInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // 4th slot: Custom Color
+                    val isCustomSelected = !useSystemDynamic && standardPresets.none {
+                        (seedColor and 0x00FFFFFF) == (it.argb and 0x00FFFFFF)
+                    }
+                    val customColor = Color(seedColor)
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .size(28.dp)
+                            .clip(CircleShape)
                             .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color.Red,
-                                        Color.Yellow,
-                                        Color.Green,
-                                        Color.Cyan,
-                                        Color.Blue,
-                                        Color.Magenta,
-                                        Color.Red,
-                                    )
-                                )
+                                if (isCustomSelected) customColor else MaterialTheme.colorScheme.surfaceContainerHigh
                             )
-                    )
-                    Slider(
-                        value = currentHue,
-                        onValueChange = { hue ->
-                            currentHue = hue
-                            val newColor = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 0.95f))
-                            onUseSystemDynamicChange(false)
-                            onSeedColorChange(newColor)
-                        },
-                        valueRange = 0f..360f,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                            .border(
+                                width = if (isCustomSelected) 2.5.dp else 1.dp,
+                                color = if (isCustomSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                                shape = CircleShape,
+                            )
+                            .clickable {
+                                showCustomColorDialog = true
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isCustomSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Custom seed selected",
+                                tint = if (customColor.luminance() > 0.5f) Color.Black else Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = "Custom color picker",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
                 }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                SettingsDivider(startIndent = 0.dp)
+                SettingsToggleRow(
+                    title = "Material You wallpaper colors",
+                    subtitle = "Derive colors from Android system wallpaper instead of seed",
+                    checked = useSystemDynamic,
+                    onCheckedChange = onUseSystemDynamicChange,
+                )
             }
 
             SettingsDivider(startIndent = 0.dp)
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "M3 palette variant",
-                    style = MaterialTheme.typography.labelMedium,
+                    text = "M3 palette style",
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -1200,6 +1297,174 @@ private fun AppearanceCard(
             }
         }
     }
+
+    if (showCustomColorDialog) {
+        CustomColorDialog(
+            initialColor = seedColor,
+            onDismissRequest = { showCustomColorDialog = false },
+            onColorSelected = { selectedColor ->
+                onUseSystemDynamicChange(false)
+                onSeedColorChange(selectedColor)
+                showCustomColorDialog = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun CustomColorDialog(
+    initialColor: Int,
+    onDismissRequest: () -> Unit,
+    onColorSelected: (Int) -> Unit,
+) {
+    var hexInput by remember {
+        mutableStateOf(String.format(Locale.US, "#%06X", initialColor and 0x00FFFFFF))
+    }
+    val parsedColor = remember(hexInput) {
+        val clean = hexInput.trim().removePrefix("#").removePrefix("0x").removePrefix("0X")
+        if (clean.length == 6) {
+            clean.toLongOrNull(16)?.let { (0xFF000000L or it).toInt() }
+        } else if (clean.length == 8) {
+            clean.toLongOrNull(16)?.toInt()
+        } else {
+            null
+        }
+    }
+
+    val paletteChoices = remember {
+        listOf(
+            0xFFFF9248.toInt(), // Orange
+            0xFF1A73E8.toInt(), // Blue
+            0xFF34A853.toInt(), // Green
+            0xFFFA5B52.toInt(), // Coral
+            0xFFD0BCFF.toInt(), // Lilac
+            0xFF26A69A.toInt(), // Mint Teal
+            0xFF546E7A.toInt(), // Slate
+            0xFFFFB300.toInt(), // Amber
+            0xFF8E24AA.toInt(), // Purple
+            0xFFE91E63.toInt(), // Pink
+            0xFF00BCD4.toInt(), // Cyan
+            0xFF3F51B5.toInt(), // Indigo
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = {
+            Text(
+                text = "Custom Theme Color",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = "Pick a curated tone or enter a hex code to generate your dynamic Material 3 palette.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                // Palette grid (2 rows of 6)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    paletteChoices.chunked(6).forEach { rowColors ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            rowColors.forEach { argb ->
+                                val color = Color(argb)
+                                val isCurSelected = parsedColor != null && (parsedColor and 0x00FFFFFF) == (argb and 0x00FFFFFF)
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(
+                                            width = if (isCurSelected) 2.5.dp else 1.dp,
+                                            color = if (isCurSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                            shape = CircleShape,
+                                        )
+                                        .clickable {
+                                            hexInput = String.format(Locale.US, "#%06X", argb and 0x00FFFFFF)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (isCurSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = if (color.luminance() > 0.5f) Color.Black else Color.White,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                // Hex input with real-time preview
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(parsedColor?.let { Color(it) } ?: MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .border(
+                                width = 1.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                shape = CircleShape,
+                            ),
+                    )
+
+                    OutlinedTextField(
+                        value = hexInput,
+                        onValueChange = { input ->
+                            if (input.length <= 9) {
+                                hexInput = input
+                            }
+                        },
+                        label = { Text("Hex code") },
+                        placeholder = { Text("#RRGGBB") },
+                        singleLine = true,
+                        isError = parsedColor == null,
+                        supportingText = {
+                            if (parsedColor == null) {
+                                Text("Enter a valid hex code (e.g. #7C4DFF)")
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    parsedColor?.let { onColorSelected(it) }
+                },
+                enabled = parsedColor != null,
+            ) {
+                Text("Apply")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 // ----------------------------------------------------------------------------

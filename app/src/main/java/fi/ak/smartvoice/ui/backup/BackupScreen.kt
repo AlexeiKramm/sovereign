@@ -56,20 +56,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.data.AppBackup
-import fi.ak.smartvoice.theme.BadgeBlue
 import fi.ak.smartvoice.theme.BadgeGreen
-import fi.ak.smartvoice.theme.BadgeRose
-import fi.ak.smartvoice.theme.BadgeViolet
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.components.SettingsDivider
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
+import fi.ak.smartvoice.ui.components.TopAppBarWithScrollShadow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -183,32 +183,45 @@ fun BackupScreen(
         )
     }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val isScrolled = scrollBehavior.state.overlappedFraction > 0.01f
+
     Scaffold(
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text("Backup & Restore", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Navigate back",
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
+            TopAppBarWithScrollShadow(scrollBehavior = scrollBehavior) {
+                TopAppBar(
+                    title = { Text("Backup & Restore", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateUp) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Navigate back",
+                            )
+                        }
+                    },
+                    scrollBehavior = scrollBehavior,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                    ),
+                )
+            }
         },
-        containerColor = MaterialTheme.colorScheme.surface,
-        modifier = modifier,
+        containerColor = Color.Transparent,
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 8.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 16.dp,
+                ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Intro info card
@@ -251,19 +264,19 @@ fun BackupScreen(
 
                     InventoryItemRow(
                         icon = Icons.Default.Spellcheck,
-                        iconTint = BadgeRose,
+                        iconTint = MaterialTheme.colorScheme.primary,
                         title = "Dictionary entries",
                         value = "${dictionaryEntries.size} terms",
                     )
                     InventoryItemRow(
                         icon = Icons.Default.Tune,
-                        iconTint = BadgeViolet,
+                        iconTint = MaterialTheme.colorScheme.primary,
                         title = "Custom cleaning profiles",
                         value = "${customProfiles.size} custom (${profiles.size} total)",
                     )
                     InventoryItemRow(
                         icon = Icons.Default.Settings,
-                        iconTint = BadgeBlue,
+                        iconTint = MaterialTheme.colorScheme.primary,
                         title = "Active profile",
                         value = activeProfileName,
                     )
@@ -279,8 +292,8 @@ fun BackupScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SettingsIconBadge(
                             icon = Icons.Default.FileUpload,
-                            badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             contentDescription = "Export Backup",
                         )
                         Spacer(modifier = Modifier.width(12.dp))
@@ -330,8 +343,8 @@ fun BackupScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SettingsIconBadge(
                             icon = Icons.Default.FileDownload,
-                            badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             contentDescription = "Restore Backup",
                         )
                         Spacer(modifier = Modifier.width(12.dp))

@@ -99,4 +99,32 @@ class WordDiffCalculatorTest {
         assertEquals(0, result.wordsAdded)
         assertEquals(0, result.wordsCleaned)
     }
+
+    @Test
+    fun `calculateWordDiffSegments reconstructs full text and identifies modifications`() {
+        val raw = "right so the problem is that"
+        val clean = "Right, so the problem is that."
+        val segments = WordDiffCalculator.calculateWordDiffSegments(raw, clean)
+
+        // Concatenating all segment texts exactly reconstructs clean text
+        val reconstructed = segments.joinToString("") { it.text }
+        assertEquals(clean, reconstructed)
+
+        // First word "Right," is modified (capitalized + comma)
+        assertEquals("Right,", segments.first().text)
+        assertEquals(true, segments.first().isModified)
+
+        // Last word "that." has period added
+        assertEquals("that.", segments.last().text)
+        assertEquals(true, segments.last().isModified)
+    }
+
+    @Test
+    fun `calculateWordDiffSegments handles verbatim identical strings`() {
+        val text = "identical verbatim sentence"
+        val segments = WordDiffCalculator.calculateWordDiffSegments(text, text)
+        assertEquals(1, segments.size)
+        assertEquals(text, segments[0].text)
+        assertEquals(false, segments[0].isModified)
+    }
 }
