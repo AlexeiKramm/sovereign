@@ -739,22 +739,45 @@ fun TranscribeHubScreen(
 
                     HorizontalDivider()
 
-                    // Diagnostics line
-                    Row(
+                    // Diagnostics footer
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(
-                            text = outcome.note,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = "%.1fs • %d ms".format(outcome.audioSeconds, outcome.elapsedMs),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        val speedMultiplier = if (outcome.elapsedMs > 0 && outcome.audioSeconds > 0) {
+                            (outcome.audioSeconds * 1000.0) / outcome.elapsedMs
+                        } else null
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Audio: %.1fs".format(java.util.Locale.US, outcome.audioSeconds),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = if (speedMultiplier != null) {
+                                    "%,d ms (%.1f× real-time)".format(java.util.Locale.US, outcome.elapsedMs, speedMultiplier)
+                                } else {
+                                    "%,d ms".format(java.util.Locale.US, outcome.elapsedMs)
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+
+                        if (outcome.note.isNotBlank()) {
+                            Text(
+                                text = outcome.note,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

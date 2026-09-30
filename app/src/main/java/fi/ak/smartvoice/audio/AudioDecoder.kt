@@ -1,13 +1,13 @@
 package fi.ak.smartvoice.audio
 
 import android.content.Context
+import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
@@ -15,6 +15,9 @@ import java.nio.ByteOrder
  *
  * Decodes audio from any format supported by the Android platform (WAV, MP3, M4A, AAC, OGG, FLAC)
  * into normalized 16-bit 16kHz mono FloatArray samples ready for sherpa-onnx speech recognition.
+ *
+ * Uses streaming unboxed decoding and downmixing/resampling to ensure low memory footprint
+ * even on long audio files (e.g. 30+ minutes).
  */
 object AudioDecoder {
 
@@ -23,13 +26,16 @@ object AudioDecoder {
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val audio = WavReader.read(stream)
-                if (audio.sampleRate == 16000 && audio.channels == 1) {
-                    return@withContext audio.samples
+                return@withContext if (audio.sampleRate == 16000) {
+                    audio.samples
+                } else {
+                    AudioResampler.resample(audio.samples, audio.sampleRate, 16000)
                 }
             }
         } catch (_: Exception) {}
 
         val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
         try {
             extractor.setDataSource(context, uri, null)
             val trackIndex = (0 until extractor.trackCount).firstOrNull { idx ->
@@ -39,83 +45,124 @@ object AudioDecoder {
             extractor.selectTrack(trackIndex)
             val format = extractor.getTrackFormat(trackIndex)
             val mime = format.getString(MediaFormat.KEY_MIME) ?: throw IllegalStateException("Unknown audio MIME")
-            val codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(format, null, null, 0)
-            codec.start()
+            val localCodec = MediaCodec.createDecoderByType(mime)
+            codec = localCodec
+            localCodec.configure(format, null, null, 0)
+            localCodec.start()
 
-            val sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 16000
-            val channelCount = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else 1
+            var sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            } else 16000
+            var channelCount = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            } else 1
+            var pcmEncoding = if (format.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                format.getInteger(MediaFormat.KEY_PCM_ENCODING)
+            } else AudioFormat.ENCODING_PCM_16BIT
 
-            val pcmBytes = ArrayList<Byte>(1024 * 1024)
+            val pcmOutput = FloatChunkBuffer(chunkSize = 16384)
+            var resampler = AudioResampler(sampleRate, 16000)
+
             val bufferInfo = MediaCodec.BufferInfo()
-            var isEos = false
+            var isInputEos = false
+            var isOutputEos = false
 
-            while (!isEos) {
-                val inIndex = codec.dequeueInputBuffer(10_000)
-                if (inIndex >= 0) {
-                    val buffer = codec.getInputBuffer(inIndex)
-                    if (buffer != null) {
-                        val sampleSize = extractor.readSampleData(buffer, 0)
-                        if (sampleSize < 0) {
-                            codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            isEos = true
-                        } else {
-                            codec.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
-                            extractor.advance()
+            while (!isOutputEos) {
+                if (!isInputEos) {
+                    val inIndex = localCodec.dequeueInputBuffer(10_000)
+                    if (inIndex >= 0) {
+                        val buffer = localCodec.getInputBuffer(inIndex)
+                        if (buffer != null) {
+                            val sampleSize = extractor.readSampleData(buffer, 0)
+                            if (sampleSize < 0) {
+                                localCodec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                isInputEos = true
+                            } else {
+                                localCodec.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
                         }
                     }
                 }
 
-                var outIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000)
-                while (outIndex >= 0) {
-                    val outBuffer = codec.getOutputBuffer(outIndex)
-                    if (outBuffer != null && bufferInfo.size > 0) {
-                        val chunk = ByteArray(bufferInfo.size)
-                        outBuffer.position(bufferInfo.offset)
-                        outBuffer.get(chunk)
-                        for (b in chunk) pcmBytes.add(b)
+                var outIndex = localCodec.dequeueOutputBuffer(bufferInfo, 10_000)
+                while (outIndex >= 0 || outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        val newFormat = localCodec.outputFormat
+                        val newSampleRate = if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                            newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        } else sampleRate
+                        val newChannelCount = if (newFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                            newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        } else channelCount
+                        if (newFormat.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                            pcmEncoding = newFormat.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                        }
+                        if (newSampleRate != sampleRate) {
+                            sampleRate = newSampleRate
+                            resampler = AudioResampler(sampleRate, 16000)
+                        }
+                        channelCount = maxOf(1, newChannelCount)
+                    } else if (outIndex >= 0) {
+                        val outBuffer = localCodec.getOutputBuffer(outIndex)
+                        if (outBuffer != null && bufferInfo.size > 0) {
+                            outBuffer.position(bufferInfo.offset)
+                            outBuffer.limit(bufferInfo.offset + bufferInfo.size)
+
+                            if (pcmEncoding == AudioFormat.ENCODING_PCM_FLOAT) {
+                                val floatBuffer = outBuffer.order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+                                val numFrames = floatBuffer.remaining() / channelCount
+                                if (channelCount == 1) {
+                                    while (floatBuffer.hasRemaining()) {
+                                        resampler.process(floatBuffer.get(), pcmOutput)
+                                    }
+                                } else {
+                                    for (f in 0 until numFrames) {
+                                        var sum = 0.0f
+                                        for (ch in 0 until channelCount) {
+                                            sum += floatBuffer.get()
+                                        }
+                                        val monoSample = sum / channelCount
+                                        resampler.process(monoSample, pcmOutput)
+                                    }
+                                }
+                            } else {
+                                // Standard 16-bit signed PCM
+                                val shortBuffer = outBuffer.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                                val numFrames = shortBuffer.remaining() / channelCount
+                                if (channelCount == 1) {
+                                    while (shortBuffer.hasRemaining()) {
+                                        val monoSample = shortBuffer.get() / 32768.0f
+                                        resampler.process(monoSample, pcmOutput)
+                                    }
+                                } else {
+                                    for (f in 0 until numFrames) {
+                                        var sum = 0
+                                        for (ch in 0 until channelCount) {
+                                            sum += shortBuffer.get()
+                                        }
+                                        val monoSample = (sum.toFloat() / channelCount) / 32768.0f
+                                        resampler.process(monoSample, pcmOutput)
+                                    }
+                                }
+                            }
+                        }
+
+                        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                            isOutputEos = true
+                        }
+                        localCodec.releaseOutputBuffer(outIndex, false)
+                        if (isOutputEos) break
                     }
-                    codec.releaseOutputBuffer(outIndex, false)
-                    outIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
+                    outIndex = localCodec.dequeueOutputBuffer(bufferInfo, 0)
                 }
             }
 
-            codec.stop()
-            codec.release()
-            extractor.release()
-
-            val rawBytes = pcmBytes.toByteArray()
-            val shortCount = rawBytes.size / 2
-            val shortBuffer = ByteBuffer.wrap(rawBytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-            val frames = shortCount / channelCount
-            val monoSamples = FloatArray(frames)
-            for (i in 0 until frames) {
-                var sum = 0f
-                for (ch in 0 until channelCount) {
-                    sum += shortBuffer.get(i * channelCount + ch) / 32768.0f
-                }
-                monoSamples[i] = sum / channelCount
-            }
-
-            if (sampleRate == 16000 || sampleRate <= 0) {
-                monoSamples
-            } else {
-                resample(monoSamples, sampleRate, 16000)
-            }
-        } catch (e: Exception) {
+            pcmOutput.toFloatArray()
+        } finally {
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
             runCatching { extractor.release() }
-            throw e
         }
-    }
-
-    private fun resample(input: FloatArray, srcRate: Int, dstRate: Int): FloatArray {
-        val ratio = srcRate.toDouble() / dstRate
-        val outLen = (input.size / ratio).toInt()
-        val output = FloatArray(outLen)
-        for (i in 0 until outLen) {
-            val srcIdx = (i * ratio).toInt().coerceIn(0, input.size - 1)
-            output[i] = input[srcIdx]
-        }
-        return output
     }
 }
