@@ -196,7 +196,7 @@ fun StatsScreen(
                         StatMetricCard(
                             modifier = Modifier.weight(1f),
                             title = "Time Saved Typing",
-                            value = "%.1f min".format(stats.typingMinutesSaved),
+                            value = "%.1f min".format(Locale.US, stats.typingMinutesSaved),
                             subtitle = "based on 40 WPM typing speed",
                             accentColor = BadgeGreen,
                         )
@@ -218,6 +218,58 @@ fun StatsScreen(
                             value = "${stats.totalCleanedWords}",
                             subtitle = "via AI rewriting",
                             accentColor = BadgeViolet,
+                        )
+                    }
+                }
+            }
+
+            // Real-Time Inference Speed Cards
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Inference & Real-Time Speeds",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        StatMetricCard(
+                            modifier = Modifier.weight(1f),
+                            title = "ASR Speed",
+                            value = if (stats.asrRealTimeSpeed > 0.0) "%.1f×".format(Locale.US, stats.asrRealTimeSpeed) else "—",
+                            subtitle = if (stats.totalAsrActiveMs > 0L) "${stats.totalAsrActiveMs / 1000}s active decode" else "real-time speed",
+                            accentColor = MaterialTheme.colorScheme.primary,
+                        )
+                        StatMetricCard(
+                            modifier = Modifier.weight(1f),
+                            title = "LLM Polish Speed",
+                            value = if (stats.llmRealTimeSpeed > 0.0) "%.1f×".format(Locale.US, stats.llmRealTimeSpeed) else "—",
+                            subtitle = if (stats.totalLlmActiveMs > 0L) {
+                                "%.1fs active cleanup".format(Locale.US, stats.totalLlmActiveMs / 1000.0)
+                            } else "not engaged",
+                            accentColor = BadgeViolet,
+                        )
+                    }
+                    val hasOverlapSavings = stats.totalWallClockMs in 1 until stats.totalComputeMs
+                    val throughputSpeed = if (hasOverlapSavings) stats.e2eRealTimeSpeed else if (stats.pipelineRealTimeSpeed > 0.0) stats.pipelineRealTimeSpeed else stats.e2eRealTimeSpeed
+                    if (throughputSpeed > 0.0) {
+                        StatMetricCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            title = if (hasOverlapSavings) "Overall Pipeline Throughput" else "Pipeline Compute Speed",
+                            value = "%.1f× real-time".format(Locale.US, throughputSpeed),
+                            subtitle = if (hasOverlapSavings) {
+                                val savedSec = (stats.totalComputeMs - stats.totalWallClockMs) / 1000
+                                "${stats.totalWallClockMs / 1000}s total time (saved ${savedSec}s via concurrency) for ${formatDuration(stats.totalAudioSeconds)} audio"
+                            } else if (stats.totalComputeMs > 0L) {
+                                "${stats.totalComputeMs / 1000}s active compute for ${formatDuration(stats.totalAudioSeconds)} audio (concurrent ASR + LLM)"
+                            } else {
+                                "Full pipelined transcription speed"
+                            },
+                            accentColor = BadgeGreen,
                         )
                     }
                 }
@@ -419,7 +471,7 @@ private fun UtteranceRecordRow(record: UtteranceRecord) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "${record.engine}  •  %.1f s audio".format(record.durationSeconds),
+                text = "${record.engine}  •  %.1f s audio".format(Locale.US, record.durationSeconds),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -435,14 +487,42 @@ private fun UtteranceRecordRow(record: UtteranceRecord) {
                 } else {
                     "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned"
                 }
-            } else {
+            } else if (record.llmDurationMs > 0L) {
                 "${record.rawWords} words spoken  •  No edits needed"
+            } else {
+                "${record.rawWords} words spoken  •  Raw transcript"
             }
             Text(
                 text = detailsText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            val speedBreakdown = buildList {
+                if (record.asrDurationMs > 0L) {
+                    add("ASR: %,d ms (%.1f×)".format(Locale.US, record.asrDurationMs, record.asrRealTimeSpeed))
+                }
+                if (record.llmDurationMs > 0L) {
+                    add("LLM: %,d ms (%.1f×)".format(Locale.US, record.llmDurationMs, record.llmRealTimeSpeed))
+                }
+                if (record.wallClockMs in 1 until record.totalComputeMs) {
+                    add("Throughput: %,d ms (%.1f×)".format(Locale.US, record.wallClockMs, record.e2eRealTimeSpeed))
+                } else if (record.pipelineRealTimeSpeed > 0.0) {
+                    add("Pipeline: %.1f×".format(Locale.US, record.pipelineRealTimeSpeed))
+                } else if (record.wallClockMs > 0L && record.e2eRealTimeSpeed > 0.0) {
+                    add("Wall: %,d ms (%.1f×)".format(Locale.US, record.wallClockMs, record.e2eRealTimeSpeed))
+                }
+                if (record.latencyMs > 0L) {
+                    add("Latency: %,d ms".format(Locale.US, record.latencyMs))
+                }
+            }.joinToString("  •  ")
+            if (speedBreakdown.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = speedBreakdown,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
         Text(
             text = timeStr,
@@ -569,7 +649,7 @@ fun PowerDiagnosticsCard(powerState: DevicePowerState, modifier: Modifier = Modi
                 StatMetricCard(
                     modifier = Modifier.weight(1f),
                     title = "Battery Temp",
-                    value = if (powerState.batteryTempC > 0) "%.1f°C".format(powerState.batteryTempC) else "--",
+                    value = if (powerState.batteryTempC > 0) "%.1f°C".format(Locale.US, powerState.batteryTempC) else "--",
                     subtitle = if (powerState.batteryTempC < 37f) "Cool & optimal" else "Warm",
                     accentColor = BadgeGreen,
                 )
@@ -590,7 +670,7 @@ fun PowerDiagnosticsCard(powerState: DevicePowerState, modifier: Modifier = Modi
                     modifier = Modifier.weight(1f),
                     title = "Thermal Headroom",
                     value = if (powerState.thermalHeadroom != null) {
-                        "%.0f%%".format(maxOf(0f, 1f - powerState.thermalHeadroom) * 100f)
+                        "%.0f%%".format(Locale.US, maxOf(0f, 1f - powerState.thermalHeadroom) * 100f)
                     } else {
                         "Nominal"
                     },

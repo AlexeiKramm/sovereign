@@ -114,6 +114,9 @@ class DataStoresTest {
             wordsRemoved = 2,
             wordsChanged = 1,
             wordsAdded = 0,
+            asrDurationMs = 1250L,
+            llmDurationMs = 2500L,
+            wallClockMs = 2800L,
         )
         store.record(
             durationSeconds = 8.0,
@@ -124,6 +127,9 @@ class DataStoresTest {
             wordsRemoved = 0,
             wordsChanged = 2,
             wordsAdded = 2,
+            asrDurationMs = 800L,
+            llmDurationMs = 1600L,
+            wallClockMs = 2000L,
         )
 
         val updated = store.load()
@@ -136,8 +142,48 @@ class DataStoresTest {
         assertEquals(2, updated.totalWordsRemoved)
         assertEquals(3, updated.totalWordsChanged)
         assertEquals(2, updated.totalWordsAdded)
+        assertEquals(2050L, updated.totalAsrActiveMs)
+        assertEquals(4100L, updated.totalLlmActiveMs)
+        assertEquals(4800L, updated.totalWallClockMs)
         assertEquals(2, updated.recentRecords.size)
         assertEquals(1.0, updated.typingMinutesSaved, 0.001) // 40 delivered words / 40 WPM = 1 min
+
+        // Test real-time speed calculations
+        // 20.5s audio / 2.05s ASR = 10.0x real-time
+        assertEquals(10.0, updated.asrRealTimeSpeed, 0.01)
+        // 20.5s audio / 4.10s LLM = 5.0x real-time
+        assertEquals(5.0, updated.llmRealTimeSpeed, 0.01)
+        // 20.5s audio / 4.80s Wall = 4.27x real-time
+        assertEquals(20.5 / 4.8, updated.e2eRealTimeSpeed, 0.01)
+        // 20.5s audio / (2.05s + 4.10s) = 3.33x pipeline compute speed
+        assertEquals(20.5 / (2.05 + 4.10), updated.pipelineRealTimeSpeed, 0.01)
+
+        val firstRecord = updated.recentRecords[0]
+        assertEquals(8.0, firstRecord.durationSeconds, 0.001)
+        assertEquals(10.0, firstRecord.asrRealTimeSpeed, 0.01) // 8.0s / 0.8s = 10.0x
+        assertEquals(5.0, firstRecord.llmRealTimeSpeed, 0.01)  // 8.0s / 1.6s = 5.0x
+        assertEquals(4.0, firstRecord.e2eRealTimeSpeed, 0.01)  // 8.0s / 2.0s = 4.0x
+        assertEquals(8.0 / (0.8 + 1.6), firstRecord.pipelineRealTimeSpeed, 0.01)
+
+        // Third utterance without LLM (e.g. user dictated with LLM disabled)
+        store.record(
+            durationSeconds = 10.0,
+            rawWords = 20,
+            cleanedWords = 0,
+            engine = "local",
+            deliveredWords = 20,
+            asrDurationMs = 1000L,
+            llmDurationMs = 0L,
+            wallClockMs = 1000L,
+        )
+        val withNonLlm = store.load()
+        // Total audio: 30.5s, but LLM audio is only 20.5s
+        assertEquals(30.5, withNonLlm.totalAudioSeconds, 0.001)
+        assertEquals(20.5, withNonLlm.totalLlmAudioSeconds, 0.001)
+        // LLM speed must NOT be diluted by non-LLM audio: 20.5s / 4.1s = 5.0x
+        assertEquals(5.0, withNonLlm.llmRealTimeSpeed, 0.01)
+        // ASR speed: 30.5s / 3.05s = 10.0x
+        assertEquals(10.0, withNonLlm.asrRealTimeSpeed, 0.01)
     }
 
     @Test

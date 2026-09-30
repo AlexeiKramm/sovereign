@@ -1123,6 +1123,48 @@ private fun UsageStatisticsCard(
                     )
                 }
             }
+
+            if (stats.asrRealTimeSpeed > 0.0 || stats.llmRealTimeSpeed > 0.0) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text(
+                                text = "On-device processing speed",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            val speedText = buildList {
+                                if (stats.asrRealTimeSpeed > 0.0) {
+                                    add("ASR: %.1f×".format(Locale.US, stats.asrRealTimeSpeed))
+                                }
+                                if (stats.llmRealTimeSpeed > 0.0) {
+                                    add("LLM: %.1f×".format(Locale.US, stats.llmRealTimeSpeed))
+                                }
+                                val pipelineSpeed = if (stats.pipelineRealTimeSpeed > 0.0) stats.pipelineRealTimeSpeed else stats.e2eRealTimeSpeed
+                                if (pipelineSpeed > 0.0) {
+                                    add("Pipeline: %.1f×".format(Locale.US, pipelineSpeed))
+                                }
+                            }.joinToString("  •  ")
+                            Text(
+                                text = speedText,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

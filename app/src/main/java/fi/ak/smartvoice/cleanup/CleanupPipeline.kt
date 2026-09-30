@@ -1,5 +1,6 @@
 package fi.ak.smartvoice.cleanup
 
+import fi.ak.smartvoice.engine.MonotonicClock
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -43,6 +44,9 @@ class CleanupPipeline(
     /** The carried context and counters for the utterance in progress. */
     val state = UtteranceCleanupState()
 
+    /** Total active inference milliseconds across all units in this utterance. */
+    val totalActiveLlmMs: Long get() = state.totalActiveCleanMs
+
     /** The last finished pass, for the status line's timings. */
     @Volatile
     var lastPass: CleanupPass? = null
@@ -82,6 +86,7 @@ class CleanupPipeline(
                     state.carriedTail.takeIf { it.isNotBlank() }
                 }
 
+                val passStart = MonotonicClock.nowMs()
                 val pass = runCatching { engine.clean(textToClean, contextForClean, rules()) }
                     .getOrElse { error ->
                         CleanupPass.failed(
@@ -89,13 +94,15 @@ class CleanupPipeline(
                             "cleanup crashed — ${error.message ?: error::class.java.simpleName}",
                         )
                     }
+                val passMs = MonotonicClock.nowMs() - passStart
+                val passWithActive = if (pass.activeMs <= 0L) pass.copy(activeMs = passMs) else pass
 
                 // Fail-closed guard: if seam healing was used, but the output dropped text abnormally
                 // (less than half of the overlap length), fail closed to avoid erasing user text
-                val finalPass = if (hasOverlap && pass.cleaned && pass.text.length < seam.strippedOverlap.length / 2) {
-                    CleanupPass.failed(unit, "cleanup output suspiciously short — failing closed")
+                val finalPass = if (hasOverlap && passWithActive.cleaned && passWithActive.text.length < seam.strippedOverlap.length / 2) {
+                    CleanupPass.failed(unit, "cleanup output suspiciously short — failing closed", activeMs = passWithActive.activeMs)
                 } else {
-                    pass
+                    passWithActive
                 }
 
                 lastPass = finalPass

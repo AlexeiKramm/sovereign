@@ -13,7 +13,19 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
+import fi.ak.smartvoice.engine.MonotonicClock
 import java.io.File
+
+data class AsrChunkResult(
+    val text: String,
+    val activeMs: Long,
+)
+
+data class AsrTranscriptionResult(
+    val text: String,
+    val activeMs: Long,
+    val chunksCount: Int,
+)
 
 /**
  * The on-device ASR engine router: supports both streaming transducer models (Nemotron 3.5)
@@ -321,6 +333,41 @@ class LocalAsrEngine(
     }
 
     /**
+     * Decodes an isolated audio segment (<= 28s) using the active model and returns the transcript
+     * along with the active duration (from receipt of audio input to transcript output).
+     */
+    fun decodeSegmentTimed(samples: FloatArray, language: String = ""): AsrChunkResult {
+        if (samples.isEmpty()) return AsrChunkResult("", 0L)
+        val start = MonotonicClock.nowMs()
+        val text = decodeSegment(samples, language)
+        val durationMs = MonotonicClock.nowMs() - start
+        return AsrChunkResult(text, durationMs)
+    }
+
+    /**
+     * Transcribes an in-memory audio sample buffer sequentially, chunking via [AudioSegmenter],
+     * and returns the transcribed text along with the sum of active chunk ASR decode durations.
+     */
+    fun transcribeBufferTimed(
+        samples: FloatArray,
+        language: String,
+    ): AsrTranscriptionResult {
+        if (samples.isEmpty()) return AsrTranscriptionResult("", 0L, 0)
+        val chunks = AudioSegmenter.segment(samples, assetManager)
+        var totalActiveMs = 0L
+        val sb = StringBuilder()
+        for (chunk in chunks) {
+            val result = decodeSegmentTimed(chunk, language)
+            totalActiveMs += result.activeMs
+            if (result.text.isNotBlank()) {
+                if (sb.isNotEmpty()) sb.append(" ")
+                sb.append(result.text)
+            }
+        }
+        return AsrTranscriptionResult(sb.toString().trim(), totalActiveMs, chunks.size)
+    }
+
+    /**
      * Transcribes an in-memory audio sample buffer sequentially.
      * Chunks audio using [AudioSegmenter] (<= 28s) to respect Whisper 30s limits and Parakeet low-RAM bounds.
      */
@@ -328,19 +375,7 @@ class LocalAsrEngine(
         samples: FloatArray,
         language: String,
         chunkSize: Int = 1600,
-    ): String {
-        if (samples.isEmpty()) return ""
-        val chunks = AudioSegmenter.segment(samples, assetManager)
-        val sb = StringBuilder()
-        for (chunk in chunks) {
-            val text = decodeSegment(chunk, language)
-            if (text.isNotBlank()) {
-                if (sb.isNotEmpty()) sb.append(" ")
-                sb.append(text)
-            }
-        }
-        return sb.toString().trim()
-    }
+    ): String = transcribeBufferTimed(samples, language).text
 
     fun abort() {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {

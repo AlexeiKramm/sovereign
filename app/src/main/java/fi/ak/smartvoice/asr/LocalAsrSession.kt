@@ -1,5 +1,6 @@
 package fi.ak.smartvoice.asr
 
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -87,11 +88,16 @@ class LocalAsrSession(
     var droppedFrames: Int = 0
         private set
 
+    /** Total active ASR computation milliseconds spent processing audio frames in this session. */
+    var totalActiveAsrMs: Long = 0L
+        private set
+
     /** Opens an utterance: a fresh queue, ready to receive frames before the model is loaded. */
     fun begin() {
         abort()
         queue = Channel(capacity = FRAME_QUEUE_CAPACITY)
         droppedFrames = 0
+        totalActiveAsrMs = 0L
         utterance.clear()
         unitCount = 0
         heardSpeech = false
@@ -120,6 +126,7 @@ class LocalAsrSession(
             engine.startSession(language)
             var lastText = ""
             for (frames in queue) {
+                val acceptStart = SystemClock.elapsedRealtime()
                 val text = engine.accept(frames).orEmpty()
                 if (text.isNotBlank()) {
                     onPartialWords(text.count { it == ' ' } + 1)
@@ -140,6 +147,8 @@ class LocalAsrSession(
                     boundary.markCut()
                     emitUnit(unit)
                 }
+                totalActiveAsrMs += (SystemClock.elapsedRealtime() - acceptStart)
+
                 // The partial is published for the panel's preview only; it is never committed (D-041).
                 val newState = boundary.snapshot(quietSeconds, heardSpeech, text)
                 boundaryState = newState
@@ -173,7 +182,10 @@ class LocalAsrSession(
         return withContext(dispatcher) {
             // The tail D-020 measured at 39-120 ms: the flush, then whatever the last segment still
             // held. It is emitted like any other unit so there is one commit path, not two.
-            emitUnit(engine.finish())
+            val finishStart = SystemClock.elapsedRealtime()
+            val tail = engine.finish()
+            totalActiveAsrMs += (SystemClock.elapsedRealtime() - finishStart)
+            emitUnit(tail)
             utterance.toString()
         }
     }

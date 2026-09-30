@@ -202,8 +202,8 @@ class LiteRtLmCleanupEngine(
                 messageToSend = promptData.user
             }
 
+            val started = SystemClock.elapsedRealtime()
             try {
-                val started = SystemClock.elapsedRealtime()
                 var ttftMs = 0.0
                 var firstToken = true
                 val textBuilder = StringBuilder()
@@ -228,8 +228,9 @@ class LiteRtLmCleanupEngine(
                 val rawText = textBuilder.toString()
                 val cleaned = CleanupPrompt.parse(rawText)
 
+                val totalActiveMs = SystemClock.elapsedRealtime() - started
                 if (cleaned.isBlank()) {
-                    return@withContext CleanupPass.failed(unit, "LiteRT-LM returned empty response", messageToSend)
+                    return@withContext CleanupPass.failed(unit, "LiteRT-LM returned empty response", messageToSend, activeMs = totalActiveMs)
                 }
 
                 if (isSession) {
@@ -283,12 +284,13 @@ class LiteRtLmCleanupEngine(
                     promptTokens = promptTokens,
                     generatedTokens = actualTokens,
                     promptSent = messageToSend,
+                    activeMs = totalActiveMs,
                 )
             } catch (e: Exception) {
                 if (isSession) {
                     closeSession()
                 }
-                CleanupPass.failed(unit, "LiteRT-LM error: ${e.message}", messageToSend)
+                CleanupPass.failed(unit, "LiteRT-LM error: ${e.message}", messageToSend, activeMs = SystemClock.elapsedRealtime() - started)
             } finally {
                 if (!isSession) {
                     runCatching { conversation.close() }

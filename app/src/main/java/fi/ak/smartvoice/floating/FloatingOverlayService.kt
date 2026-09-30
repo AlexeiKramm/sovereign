@@ -498,6 +498,9 @@ class FloatingOverlayService : Service() {
     /** Wall-clock accounting for the usage stats the dashboard shows. */
     private var recordStartedAtMs = 0L
     private var recordedMillis = 0L
+    private var captureStoppedAtMs = 0L
+    private var turnaroundLatencyMs = 0L
+    private var reprocessActiveLlmMs: Long? = null
 
     // Keyboard & focus visibility tracker
     private var isKeyboardOpen = false
@@ -710,6 +713,9 @@ class FloatingOverlayService : Service() {
                     committedText.append(commit.prefix)
                     committedText.append(commit.text)
                     previewText = committedText.toString()
+                    if (cleanupPipeline.lastPass?.cleaned == false) {
+                        errorMessage = CLEANUP_UNAVAILABLE
+                    }
                 }
             }
         )
@@ -1877,7 +1883,13 @@ class FloatingOverlayService : Service() {
             quickStatus = null
             quickStatusIsError = false
         }
-        cleanupEngaged = false
+        reprocessActiveLlmMs = null
+        if (settings.cleanupEnabled) {
+            cleanupPipeline.begin(committedText.toString())
+            cleanupEngaged = true
+        } else {
+            cleanupEngaged = false
+        }
 
         localEngine.applyModel(settings.asrModel, filesDir)
         localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
@@ -2050,6 +2062,7 @@ class FloatingOverlayService : Service() {
 
     private fun stopRecording() {
         if (!recorder.isRecording) return
+        captureStoppedAtMs = SystemClock.elapsedRealtime()
         finishRecordingAccounting()
         stopAudioMetering()
         stopSilenceMonitoring()
@@ -2060,6 +2073,7 @@ class FloatingOverlayService : Service() {
 
         inFlightJob = scope.launch {
             finalizeUtterance()
+            turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
             isProcessing = false
             statusNote = null
             onCaptureFinished()
@@ -2078,7 +2092,7 @@ class FloatingOverlayService : Service() {
         if (!quickCaptureActive) return
         quickCaptureActive = false
         if (!recorder.isRecording) return
-
+        captureStoppedAtMs = SystemClock.elapsedRealtime()
         finishRecordingAccounting()
         stopAudioMetering()
         stopSilenceMonitoring()
@@ -2086,6 +2100,7 @@ class FloatingOverlayService : Service() {
         isProcessing = true
         inFlightJob = scope.launch {
             finalizeUtterance()
+            turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
             isProcessing = false
             onCaptureFinished()
             deliverQuickCapture()
@@ -2101,10 +2116,18 @@ class FloatingOverlayService : Service() {
             recorder.stop()
         }
         refreshKeepScreenOn()
-        localSession.finish()
+        val totalUtterance = localSession.finish()
 
         if (settings.cleanupEnabled && cleanupEngaged) {
             cleanupPipeline.drain()
+        } else {
+            withContext(Dispatchers.Main.immediate) {
+                if (committedText.isBlank() && totalUtterance.isNotBlank()) {
+                    committedText.clear()
+                    committedText.append(totalUtterance)
+                    previewText = committedText.toString()
+                }
+            }
         }
 
         finalizePunctuation()
@@ -2122,13 +2145,16 @@ class FloatingOverlayService : Service() {
 
     /** Injects the finalized utterance and shows the outcome on the minimized pill. */
     private suspend fun deliverQuickCapture() {
+        val latency = if (turnaroundLatencyMs > 0L) turnaroundLatencyMs else (if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L)
+        captureStoppedAtMs = 0L
+        turnaroundLatencyMs = 0L
         val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
         if (textToInject.isBlank()) {
             showQuickResult("Nothing heard")
         } else {
             val toType = UtteranceFinalizer.forInsertion(textToInject)
             val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
-            recordUsageStats(deliveredText = textToInject)
+            recordUsageStats(deliveredText = textToInject, latencyMs = latency)
             recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
             if (injected) {
                 // A cleanup failure still injects the raw words; say so rather than claim a polish.
@@ -2209,26 +2235,44 @@ class FloatingOverlayService : Service() {
     }
 
     private fun commitSession() {
-        if (recorder.isRecording) {
-            abandonCapture()
-        }
-        val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
-        var injected = false
-        if (textToInject.isNotBlank()) {
-            // A trailing space separates this session from the next: the pill has no memory of where
-            // the cursor sits between sessions, and re-dictating must not glue the new segment onto
-            // this one. It comes after terminal punctuation too ("Done. ").
-            val toType = UtteranceFinalizer.forInsertion(textToInject)
-            injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
-            if (!injected) {
-                // Never fail silently: the words are on the clipboard, so tell the user how to use them.
-                Log.w(TAG, "Text injected via clipboard fallback")
-                Toast.makeText(this, "Copied — long-press the text field to paste", Toast.LENGTH_LONG).show()
+        scope.launch(Dispatchers.Main.immediate) {
+            if (recorder.isRecording) {
+                captureStoppedAtMs = SystemClock.elapsedRealtime()
+                finishRecordingAccounting()
+                stopAudioMetering()
+                stopSilenceMonitoring()
+                isProcessing = true
+                statusNote = "Polishing with AI..."
+                finalizeUtterance()
+                turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
+                isProcessing = false
+                statusNote = null
+                onCaptureFinished()
+            } else if (isProcessing) {
+                inFlightJob?.join()
             }
+
+            val latency = if (turnaroundLatencyMs > 0L) turnaroundLatencyMs else (if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L)
+            captureStoppedAtMs = 0L
+            turnaroundLatencyMs = 0L
+            val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
+            var injected = false
+            if (textToInject.isNotBlank()) {
+                // A trailing space separates this session from the next: the pill has no memory of where
+                // the cursor sits between sessions, and re-dictating must not glue the new segment onto
+                // this one. It comes after terminal punctuation too ("Done. ").
+                val toType = UtteranceFinalizer.forInsertion(textToInject)
+                injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
+                if (!injected) {
+                    // Never fail silently: the words are on the clipboard, so tell the user how to use them.
+                    Log.w(TAG, "Text injected via clipboard fallback")
+                    Toast.makeText(this@FloatingOverlayService, "Copied — long-press the text field to paste", Toast.LENGTH_LONG).show()
+                }
+            }
+            recordUsageStats(deliveredText = textToInject, latencyMs = latency)
+            recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
+            resetToResting()
         }
-        recordUsageStats(deliveredText = textToInject)
-        recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
-        resetToResting()
     }
 
     /**
@@ -2236,15 +2280,20 @@ class FloatingOverlayService : Service() {
      * stats store the IME writes to — otherwise the dashboard silently misses
      * most of what the user actually dictated.
      */
-    private fun recordUsageStats(deliveredText: String) {
+    private fun recordUsageStats(deliveredText: String, latencyMs: Long = 0L) {
         val raw = rawTextAccumulator.toString().trim()
         if (raw.isEmpty() && deliveredText.isEmpty()) return
 
-        val diff = if (cleanupEngaged && raw.isNotEmpty()) {
+        val asrMs = localSession.totalActiveAsrMs
+        val llmMs = reprocessActiveLlmMs ?: if (cleanupEngaged || settings.cleanupEnabled) cleanupPipeline.totalActiveLlmMs else 0L
+
+        val diff = if (raw.isNotEmpty() && (llmMs > 0L || deliveredText != raw)) {
             WordDiffCalculator.calculate(rawText = raw, cleanedText = deliveredText)
         } else {
             WordDiffCalculator.verbatim(raw.ifEmpty { deliveredText })
         }
+        val activeComputeMs = asrMs + llmMs
+
         usageStatsStore.record(
             durationSeconds = currentSessionSeconds(),
             rawWords = diff.rawWords,
@@ -2254,6 +2303,10 @@ class FloatingOverlayService : Service() {
             wordsRemoved = diff.wordsRemoved,
             wordsChanged = diff.wordsChanged,
             wordsAdded = diff.wordsAdded,
+            asrDurationMs = asrMs,
+            llmDurationMs = llmMs,
+            wallClockMs = activeComputeMs,
+            latencyMs = latencyMs,
         )
     }
 
@@ -2263,7 +2316,9 @@ class FloatingOverlayService : Service() {
         val cleaned = deliveredText.trim()
         if (raw.isEmpty() && cleaned.isEmpty()) return
 
-        val diff = if (cleanupEngaged && raw.isNotEmpty()) {
+        val llmMs = reprocessActiveLlmMs ?: if (cleanupEngaged || settings.cleanupEnabled) cleanupPipeline.totalActiveLlmMs else 0L
+
+        val diff = if (raw.isNotEmpty() && (llmMs > 0L || cleaned != raw)) {
             WordDiffCalculator.calculate(rawText = raw, cleanedText = cleaned)
         } else {
             WordDiffCalculator.verbatim(raw.ifEmpty { cleaned })
@@ -2277,7 +2332,7 @@ class FloatingOverlayService : Service() {
                 rawText = raw.ifEmpty { cleaned },
                 cleanedText = cleaned.ifEmpty { raw },
                 asrModel = settings.asrModel.label,
-                llmModel = if (cleanupEngaged) settings.litertModel.label else null,
+                llmModel = if (cleanupEngaged || llmMs > 0L) settings.litertModel.label else null,
                 wordsCleaned = diff.wordsCleaned,
                 insertedSuccessfully = insertedSuccessfully,
             ),
@@ -2307,7 +2362,7 @@ class FloatingOverlayService : Service() {
         isProcessing = true
         statusNote = "Reprocessing entire text with LLM..."
 
-        scope.launch(cleanupDispatcher) {
+        inFlightJob = scope.launch(cleanupDispatcher) {
             val engine = engineForUtterance()
             if (!engine.isLoaded) {
                 val loadRes = engine.load()
@@ -2339,10 +2394,11 @@ class FloatingOverlayService : Service() {
             withContext(Dispatchers.Main.immediate) {
                 isProcessing = false
                 if (pass.cleaned) {
+                    val costMs = (pass.promptTimeMs + pass.decodeTimeMs).toInt()
+                    reprocessActiveLlmMs = if (pass.activeMs > 0L) pass.activeMs else costMs.toLong()
                     previewText = pass.text
                     committedText.clear()
                     committedText.append(pass.text)
-                    val costMs = (pass.promptTimeMs + pass.decodeTimeMs).toInt()
                     statusNote = "Reprocessed full text (${costMs}ms)"
                 } else {
                     statusNote = "Reprocess failed: ${pass.note.ifBlank { "unknown" }}"
@@ -2390,6 +2446,9 @@ class FloatingOverlayService : Service() {
         committedText.clear()
         recordStartedAtMs = 0L
         recordedMillis = 0L
+        captureStoppedAtMs = 0L
+        turnaroundLatencyMs = 0L
+        cleanupEngaged = false
         // A session that was cancelled (rather than finalised) still ends the capture; the engines
         // are idle from here. Harmless when a finalised capture already armed the same timer.
         onCaptureFinished()
@@ -2416,6 +2475,8 @@ class FloatingOverlayService : Service() {
         }
         refreshKeepScreenOn()
         localSession.abort()
+        captureStoppedAtMs = 0L
+        turnaroundLatencyMs = 0L
         if (cleanupEngaged) {
             cleanupPipeline.abort()
             cleanupEngaged = false
@@ -2424,48 +2485,26 @@ class FloatingOverlayService : Service() {
 
     private fun onAsrUnit(unit: String) {
         if (unit.isBlank()) return
-        scope.launch(Dispatchers.Main.immediate) {
+        synchronized(rawTextAccumulator) {
             if (rawTextAccumulator.isNotEmpty() && !rawTextAccumulator.endsWith(" ")) {
                 rawTextAccumulator.append(" ")
             }
             rawTextAccumulator.append(unit)
+        }
+        scope.launch(Dispatchers.Main.immediate) {
             rawText = rawTextAccumulator.toString()
+        }
 
-            if (settings.cleanupEnabled) {
-                val engine = engineForUtterance()
-
-                // If the engine isn't loaded yet, wait for it (suspends this coroutine only;
-                // recording and the ASR pipeline keep running normally on their own threads).
-                if (!engine.isLoaded) {
-                    val loadResult = withContext(cleanupDispatcher) { engine.load() }
-                    cleanupModelLoaded = engine.isLoaded
-                    if (loadResult.isFailure) {
-                        // Never surface the exception text: it is noise to a user mid-sentence.
-                        // The raw ASR still lands below, so no words are lost.
-                        Log.e(TAG, "LLM cleanup engine failed to load: ${loadResult.exceptionOrNull()?.message}")
-                        errorMessage = CLEANUP_UNAVAILABLE
-                        // Fall through to raw-append below
-                    }
+        if (settings.cleanupEnabled && cleanupEngaged) {
+            cleanupPipeline.submit(unit)
+        } else {
+            scope.launch(Dispatchers.Main.immediate) {
+                if (committedText.isNotEmpty() && !committedText.endsWith(" ") && !unit.startsWith(" ")) {
+                    committedText.append(" ")
                 }
-
-                if (engine.isLoaded) {
-                    cleanupModelLoaded = true
-                    errorMessage = null
-                    if (!cleanupEngaged) {
-                        cleanupPipeline.begin(committedText.toString())
-                        cleanupEngaged = true
-                    }
-                    cleanupPipeline.submit(unit)
-                    return@launch
-                }
+                committedText.append(unit)
+                previewText = committedText.toString()
             }
-
-            // Cleanup disabled or engine failed to load — append raw text as fallback
-            if (committedText.isNotEmpty() && !committedText.endsWith(" ") && !unit.startsWith(" ")) {
-                committedText.append(" ")
-            }
-            committedText.append(unit)
-            previewText = committedText.toString()
         }
     }
 
@@ -2570,7 +2609,7 @@ class FloatingOverlayService : Service() {
             variant: CleanupPrompt.Variant,
             customRules: String?,
         ): CleanupPass {
-            val engine = cleanupEngine ?: return CleanupPass.failed(unit, "no cleanup model loaded")
+            val engine = engineForUtterance()
             val active = profileStore.activeProfile()
             val effectiveRules = customRules ?: if (!active.isBuiltin) active.rules else null
             return engine.clean(unit, context, variant, effectiveRules)
@@ -2582,7 +2621,7 @@ class FloatingOverlayService : Service() {
         }
 
         override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
-            val engine = cleanupEngine ?: return
+            val engine = engineForUtterance()
             val active = profileStore.activeProfile()
             val effectiveRules = customRules ?: if (!active.isBuiltin) active.rules else null
             engine.startSession(variant, effectiveRules)

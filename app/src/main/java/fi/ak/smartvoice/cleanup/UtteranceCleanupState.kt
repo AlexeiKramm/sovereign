@@ -37,6 +37,10 @@ class UtteranceCleanupState {
     var failedUnits: Int = 0
         private set
 
+    /** Total active inference milliseconds spent across all passes this utterance. */
+    var totalActiveCleanMs: Long = 0L
+        private set
+
     /** The cleaned text so far: the context the next unit's pass is given (D-032 rule 5). */
     val carriedTail: String get() = committed.toString()
 
@@ -55,6 +59,7 @@ class UtteranceCleanupState {
         val raw = if (pass.cleaned) pass.text else pass.unit
         units++
         if (pass.cleaned) cleanedUnits++ else failedUnits++
+        totalActiveCleanMs += pass.activeMs
         val body = raw.trim()
         if (body.isEmpty()) {
             return CleanupCommit(text = "", cleaned = pass.cleaned, note = pass.note, prefix = "")
@@ -90,5 +95,6 @@ class UtteranceCleanupState {
         units = 0
         cleanedUnits = 0
         failedUnits = 0
+        totalActiveCleanMs = 0L
     }
 }

@@ -89,4 +89,5 @@ data class DictationOutcome(
     val audioSeconds: Double,
     val elapsedMs: Long,
     val response: TranscribeResponse? = null,
+    val timings: PipelineTimings? = null,
 )

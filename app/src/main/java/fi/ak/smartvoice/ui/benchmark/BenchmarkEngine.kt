@@ -346,26 +346,25 @@ class BenchmarkEngine(private val context: Context) {
 
                 onProgress(repFraction, "Rep $rep/$totalReps: Running ASR...")
                 val e2eStart = SystemClock.elapsedRealtime()
-                val asrStart = SystemClock.elapsedRealtime()
-                val rawAsr = persistentAsr!!.transcribeBuffer(
+                val asrResult = persistentAsr!!.transcribeBufferTimed(
                     wavAudio.samples,
                     config.audioSample.language,
                 )
-                val asrWallMs = SystemClock.elapsedRealtime() - asrStart
+                val rawAsr = asrResult.text
+                val asrWallMs = asrResult.activeMs
                 val asrRtf = BenchmarkStatsHelper.calculateRtf(asrWallMs, wavAudio.durationSeconds)
 
                 val rawWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, rawAsr) else 0.0
                 val rawCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, rawAsr) else 0.0
 
                 onProgress(repFraction, "Rep $rep/$totalReps: Running LLM Cleanup...")
-                val llmStart = SystemClock.elapsedRealtime()
                 val pass = persistentLlm!!.clean(
                     unit = rawAsr,
                     context = null,
                     variant = variant,
                     customRules = customRules,
                 )
-                val llmWallMs = SystemClock.elapsedRealtime() - llmStart
+                val llmWallMs = pass.activeMs
                 val e2eWallMs = SystemClock.elapsedRealtime() - e2eStart
 
                 val cleanedText = if (pass.cleaned && pass.text.isNotBlank()) pass.text else rawAsr
@@ -480,12 +479,12 @@ class BenchmarkEngine(private val context: Context) {
                 }
 
                 onProgress(repFraction, "Rep $rep/$totalReps: Running ASR recognition...")
-                val asrStart = SystemClock.elapsedRealtime()
-                val rawAsr = persistentAsr!!.transcribeBuffer(
+                val asrResult = persistentAsr!!.transcribeBufferTimed(
                     wavAudio.samples,
                     config.audioSample.language,
                 )
-                val asrWallMs = SystemClock.elapsedRealtime() - asrStart
+                val rawAsr = asrResult.text
+                val asrWallMs = asrResult.activeMs
                 val asrRtf = BenchmarkStatsHelper.calculateRtf(asrWallMs, wavAudio.durationSeconds)
 
                 val rawWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, rawAsr) else 0.0
@@ -598,14 +597,13 @@ class BenchmarkEngine(private val context: Context) {
 
                 onProgress(repFraction, "Running LLM repetition $rep/$totalReps...")
                 val engine = checkNotNull(persistentLlm)
-                val llmStart = SystemClock.elapsedRealtime()
                 val pass = engine.clean(
                     unit = prompt,
                     context = null,
                     variant = variant,
                     customRules = customRules,
                 )
-                val llmWallMs = SystemClock.elapsedRealtime() - llmStart
+                val llmWallMs = pass.activeMs
 
                 val decodeSpeed = if (pass.decodeTimeMs > 0.0) (pass.generatedTokens * 1000.0) / pass.decodeTimeMs else 0.0
                 val prefillSpeed = if (pass.promptTimeMs > 0.0 && pass.promptTokens > 0) (pass.promptTokens * 1000.0) / pass.promptTimeMs else 0.0

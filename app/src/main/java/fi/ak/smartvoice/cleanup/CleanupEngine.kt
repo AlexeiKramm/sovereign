@@ -21,11 +21,12 @@ data class CleanupPass(
     val promptTokens: Long = 0L,
     val generatedTokens: Long = 0L,
     val promptSent: String = "",
+    val activeMs: Long = 0L,
 ) {
     companion object {
         /** The fail-closed pass: the unit is returned untouched, and the reason is always stated. */
-        fun failed(unit: String, note: String, promptSent: String = "") =
-            CleanupPass(unit = unit, text = unit, cleaned = false, note = note, promptSent = promptSent)
+        fun failed(unit: String, note: String, promptSent: String = "", activeMs: Long = 0L) =
+            CleanupPass(unit = unit, text = unit, cleaned = false, note = note, promptSent = promptSent, activeMs = activeMs)
     }
 }
 
