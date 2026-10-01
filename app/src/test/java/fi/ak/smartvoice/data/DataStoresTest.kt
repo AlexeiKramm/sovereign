@@ -194,6 +194,7 @@ class DataStoresTest {
         assertTrue(builtin.any { it.id == "smart_clean" })
         assertTrue(builtin.any { it.id == "conservative" })
         assertTrue(builtin.any { it.id == "aggressive_rewrite" })
+        assertEquals("Aggressive Rewrite", builtin.first { it.id == "aggressive_rewrite" }.name)
         assertEquals("smart_clean", store.activeProfile().id)
 
         val custom = CleaningProfile(

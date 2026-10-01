@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -1759,7 +1760,7 @@ private fun PermissionWarningCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (!overlayGranted) {
-                    OutlinedButton(
+                    Button(
                         onClick = {
                             val intent = Intent(
                                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -1767,21 +1768,37 @@ private fun PermissionWarningCard(
                             )
                             context.startActivity(intent)
                         },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
                         shape = CircleShape,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Grant overlay", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            text = "Grant overlay",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
                 if (!accessibilityGranted) {
-                    OutlinedButton(
+                    Button(
                         onClick = {
                             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                         },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
                         shape = CircleShape,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Enable accessibility", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            text = "Enable accessibility",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
             }
