@@ -1,14 +1,7 @@
 package fi.ak.smartvoice.ui.history
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,26 +20,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Input
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -66,20 +49,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import fi.ak.smartvoice.data.DictationRecord
-import fi.ak.smartvoice.theme.BadgeCyan
-import fi.ak.smartvoice.theme.BadgeGreen
-import fi.ak.smartvoice.theme.BadgeOrange
-import fi.ak.smartvoice.theme.BadgeViolet
-import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.ui.DictationViewModel
+import fi.ak.smartvoice.ui.components.InlineDiffMode
 import fi.ak.smartvoice.ui.components.SettingsGroupCard
 import fi.ak.smartvoice.ui.components.SettingsIconBadge
 import fi.ak.smartvoice.ui.components.TopAppBarWithScrollShadow
+import fi.ak.smartvoice.ui.components.TranscriptMetadata
+import fi.ak.smartvoice.ui.components.TranscriptResultCard
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -336,245 +315,28 @@ fun HistoryScreen(
                 }
 
                 items(historyData.records, key = { it.id }) { record ->
-                    HistoryRecordCard(
-                        record = record,
-                        onCopy = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Smart Voice", record.cleanedText))
-                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                        },
-                        onReinsert = {
-                            val injected = viewModel.reinsertHistoryText(record.cleanedText)
-                            if (injected) {
-                                Toast.makeText(context, "Inserted at cursor", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Smart Voice", record.cleanedText))
-                                Toast.makeText(context, "No active field — copied to clipboard", Toast.LENGTH_LONG).show()
-                            }
-                        },
+                    val dateFormat = remember { SimpleDateFormat("MMM d, HH:mm", Locale.US) }
+                    val timeFormatted = remember(record.timestampMs) {
+                        dateFormat.format(Date(record.timestampMs)).uppercase(Locale.US)
+                    }
+
+                    TranscriptResultCard(
+                        title = timeFormatted,
+                        rawText = record.rawText,
+                        cleanedText = record.cleanedText.ifBlank { record.rawText },
+                        initialMode = InlineDiffMode.CLEAN,
                         onDelete = {
                             viewModel.deleteHistoryRecord(record.id)
                             Toast.makeText(context, "Record removed", Toast.LENGTH_SHORT).show()
                         },
+                        metadata = TranscriptMetadata(
+                            audioSeconds = record.durationSeconds,
+                            asrModelName = record.asrModel,
+                            llmEnabled = record.llmModel != null && record.llmModel.isNotBlank(),
+                        ),
                     )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun HistoryRecordCard(
-    record: DictationRecord,
-    onCopy: () -> Unit,
-    onReinsert: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val dateFormat = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
-    val timeFormatted = remember(record.timestampMs) { dateFormat.format(Date(record.timestampMs)) }
-    var showRawDetails by remember { mutableStateOf(false) }
-    val hasCleanupDiff = record.rawText.isNotBlank() && record.rawText != record.cleanedText
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            // Header: time, duration, models
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = timeFormatted,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "•",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = String.format(Locale.US, "%.1f s", record.durationSeconds),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // ASR tag
-                    ModelBadge(text = normalizeModelBadge(record.asrModel), color = MaterialTheme.colorScheme.primary)
-                    // LLM tag
-                    if (record.llmModel != null) {
-                        ModelBadge(text = normalizeModelBadge(record.llmModel), color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Cleaned / Delivered Text
-            Text(
-                text = record.cleanedText.ifBlank { record.rawText },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            // Optional raw diff accordion
-            if (hasCleanupDiff) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    TextButton(
-                        onClick = { showRawDetails = !showRawDetails },
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (showRawDetails) "Hide raw ASR" else "Show raw ASR",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-
-                AnimatedVisibility(visible = showRawDetails, enter = fadeIn(), exit = fadeOut()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(8.dp),
-                            )
-                            .padding(10.dp),
-                    ) {
-                        Text(
-                            text = "Original recognition:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = record.rawText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Actions row: Re-insert, Copy, Delete
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(
-                        onClick = onReinsert,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Input,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Re-insert", style = MaterialTheme.typography.labelMedium)
-                    }
-
-                    OutlinedButton(
-                        onClick = onCopy,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Copy", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Default.DeleteOutline,
-                        contentDescription = "Delete record",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelBadge(text: String, color: Color) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = color.copy(alpha = 0.15f),
-        contentColor = color,
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
-    }
-}
-
-private fun normalizeModelBadge(name: String): String {
-    return when {
-        name.contains("Nemotron", ignoreCase = true) -> "Nemotron 3.5"
-        name.contains("Parakeet", ignoreCase = true) -> "Parakeet v3"
-        name.contains("Whisper", ignoreCase = true) -> {
-            if (name.contains("turbo", ignoreCase = true)) "Whisper Large Turbo"
-            else if (name.contains("small", ignoreCase = true)) "Whisper Small"
-            else "Whisper Base"
-        }
-        name.contains("Gemma", ignoreCase = true) -> {
-            if (name.contains("3", ignoreCase = true)) "Gemma 3 1B"
-            else "Gemma4 E2B"
-        }
-        else -> name.substringBefore("(").trim()
     }
 }

@@ -236,7 +236,175 @@ object WordDiffCalculator {
     private fun normalizeForDiff(token: String): String {
         return token.lowercase().filter { it.isLetterOrDigit() }
     }
+
+    /**
+     * Computes an inline word-level diff aligning [rawText] against [cleanedText].
+     *
+     * - Preserved words (including minor punctuation/casing changes) become [InlineDiffToken.Match].
+     * - Deleted words (fillers, stutters) become [InlineDiffToken.Removal].
+     * - Altered words become [InlineDiffToken.Substitution].
+     * - Inserted words become [InlineDiffToken.Insertion].
+     * Adjacent non-match operations are automatically coalesced into unified edit tokens.
+     */
+    fun computeInlineDiff(rawText: String, cleanedText: String): InlineDiff {
+        if (rawText.isBlank() && cleanedText.isBlank()) {
+            return InlineDiff(emptyList(), hasEdits = false)
+        }
+        if (rawText.isBlank()) {
+            return InlineDiff(listOf(InlineDiffToken.Match(cleanedText)), hasEdits = false)
+        }
+        if (cleanedText.isBlank()) {
+            return InlineDiff(listOf(InlineDiffToken.Removal(rawText)), hasEdits = true)
+        }
+        if (rawText == cleanedText) {
+            return InlineDiff(listOf(InlineDiffToken.Match(cleanedText)), hasEdits = false)
+        }
+
+        val rawWords = rawText.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val cleanWords = cleanedText.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+
+        if (rawWords.isEmpty() && cleanWords.isEmpty()) {
+            return InlineDiff(emptyList(), hasEdits = false)
+        }
+        if (rawWords.isEmpty()) {
+            return InlineDiff(cleanWords.map { InlineDiffToken.Insertion(it) }, hasEdits = true)
+        }
+        if (cleanWords.isEmpty()) {
+            return InlineDiff(rawWords.map { InlineDiffToken.Removal(it) }, hasEdits = true)
+        }
+
+        val m = rawWords.size
+        val n = cleanWords.size
+        val dp = Array(m + 1) { DoubleArray(n + 1) }
+
+        for (i in 0..m) dp[i][0] = i.toDouble()
+        for (j in 0..n) dp[0][j] = j.toDouble()
+
+        for (i in 1..m) {
+            for (j in 1..n) {
+                val r = rawWords[i - 1]
+                val c = cleanWords[j - 1]
+                val cost = when {
+                    r == c -> 0.0
+                    normalizeForDiff(r) == normalizeForDiff(c) && normalizeForDiff(r).isNotEmpty() -> 0.05
+                    else -> 1.0
+                }
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1.0,
+                    dp[i][j - 1] + 1.0,
+                    dp[i - 1][j - 1] + cost,
+                )
+            }
+        }
+
+        var i = m
+        var j = n
+        val rawOps = mutableListOf<StepOp>()
+
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0) {
+                val r = rawWords[i - 1]
+                val c = cleanWords[j - 1]
+                val cost = when {
+                    r == c -> 0.0
+                    normalizeForDiff(r) == normalizeForDiff(c) && normalizeForDiff(r).isNotEmpty() -> 0.05
+                    else -> 1.0
+                }
+                if (Math.abs(dp[i][j] - (dp[i - 1][j - 1] + cost)) < 1e-6) {
+                    if (r == c || (normalizeForDiff(r) == normalizeForDiff(c) && normalizeForDiff(r).isNotEmpty())) {
+                        rawOps.add(StepOp(DiffOpType.MATCH, r, c))
+                    } else {
+                        rawOps.add(StepOp(DiffOpType.SUB, r, c))
+                    }
+                    i--
+                    j--
+                    continue
+                }
+            }
+            if (i > 0 && (j == 0 || Math.abs(dp[i][j] - (dp[i - 1][j] + 1.0)) < 1e-6)) {
+                rawOps.add(StepOp(DiffOpType.DEL, rawWords[i - 1], null))
+                i--
+            } else if (j > 0) {
+                rawOps.add(StepOp(DiffOpType.INS, null, cleanWords[j - 1]))
+                j--
+            }
+        }
+
+        rawOps.reverse()
+
+        val tokens = mutableListOf<InlineDiffToken>()
+        val pendingRaw = mutableListOf<String>()
+        val pendingClean = mutableListOf<String>()
+
+        fun flushPending() {
+            if (pendingRaw.isEmpty() && pendingClean.isEmpty()) return
+            if (pendingRaw.isNotEmpty() && pendingClean.isEmpty()) {
+                tokens.add(InlineDiffToken.Removal(pendingRaw.joinToString(" ")))
+            } else if (pendingRaw.isEmpty() && pendingClean.isNotEmpty()) {
+                tokens.add(InlineDiffToken.Insertion(pendingClean.joinToString(" ")))
+            } else {
+                tokens.add(
+                    InlineDiffToken.Substitution(
+                        original = pendingRaw.joinToString(" "),
+                        replacement = pendingClean.joinToString(" "),
+                    )
+                )
+            }
+            pendingRaw.clear()
+            pendingClean.clear()
+        }
+
+        for (op in rawOps) {
+            when (op.type) {
+                DiffOpType.MATCH -> {
+                    flushPending()
+                    tokens.add(InlineDiffToken.Match(op.cleanWord ?: ""))
+                }
+                DiffOpType.DEL -> {
+                    op.rawWord?.let { pendingRaw.add(it) }
+                }
+                DiffOpType.INS -> {
+                    op.cleanWord?.let { pendingClean.add(it) }
+                }
+                DiffOpType.SUB -> {
+                    op.rawWord?.let { pendingRaw.add(it) }
+                    op.cleanWord?.let { pendingClean.add(it) }
+                }
+            }
+        }
+        flushPending()
+
+        return InlineDiff(tokens)
+    }
 }
+
+private enum class DiffOpType { MATCH, SUB, DEL, INS }
+private data class StepOp(val type: DiffOpType, val rawWord: String?, val cleanWord: String?)
+
+/**
+ * An atomic token within an inline diff comparing raw speech to cleaned text.
+ */
+sealed class InlineDiffToken {
+    /** An unchanged word or phrase (carrying normalized capitalization and punctuation). */
+    data class Match(val text: String) : InlineDiffToken()
+
+    /** Words present in raw speech but deleted/removed in cleanup (e.g. fillers, stutters). */
+    data class Removal(val text: String) : InlineDiffToken()
+
+    /** Words in raw speech substituted by the cleanup model (e.g. grammar, vocabulary fixes). */
+    data class Substitution(val original: String, val replacement: String) : InlineDiffToken()
+
+    /** Words inserted by the cleanup model not present in raw speech. */
+    data class Insertion(val text: String) : InlineDiffToken()
+}
+
+/**
+ * Result of computing an inline diff between raw speech and cleaned text.
+ */
+data class InlineDiff(
+    val tokens: List<InlineDiffToken>,
+    val hasEdits: Boolean = tokens.any { it !is InlineDiffToken.Match },
+)
 
 /**
  * A continuous segment of cleaned text indicating whether it represents a delta spot

@@ -127,4 +127,70 @@ class WordDiffCalculatorTest {
         assertEquals(text, segments[0].text)
         assertEquals(false, segments[0].isModified)
     }
+
+    @Test
+    fun `computeInlineDiff with identical text returns Match without edits`() {
+        val text = "This is a clean sentence."
+        val diff = WordDiffCalculator.computeInlineDiff(text, text)
+        assertEquals(false, diff.hasEdits)
+        assertEquals(1, diff.tokens.size)
+        assertEquals(InlineDiffToken.Match(text), diff.tokens[0])
+    }
+
+    @Test
+    fun `computeInlineDiff with casing and punctuation difference treats as Match without edits`() {
+        val raw = "hello world how are you"
+        val clean = "Hello, world! How are you?"
+        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
+        assertEquals(false, diff.hasEdits)
+        assertEquals(5, diff.tokens.size)
+        assertEquals("Hello,", (diff.tokens[0] as InlineDiffToken.Match).text)
+        assertEquals("world!", (diff.tokens[1] as InlineDiffToken.Match).text)
+    }
+
+    @Test
+    fun `computeInlineDiff with filler removal detects Removal tokens and coalesces adjacent fillers`() {
+        val raw = "So um uh I went to the store"
+        val clean = "So, I went to the store."
+        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
+        assertEquals(true, diff.hasEdits)
+        val removals = diff.tokens.filterIsInstance<InlineDiffToken.Removal>()
+        assertEquals(1, removals.size)
+        assertEquals("um uh", removals[0].text)
+    }
+
+    @Test
+    fun `computeInlineDiff with grammar substitution detects Substitution tokens`() {
+        val raw = "She dont know"
+        val clean = "She doesn't know."
+        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
+        assertEquals(true, diff.hasEdits)
+        val substitutions = diff.tokens.filterIsInstance<InlineDiffToken.Substitution>()
+        assertEquals(1, substitutions.size)
+        assertEquals("dont", substitutions[0].original)
+        assertEquals("doesn't", substitutions[0].replacement)
+    }
+
+    @Test
+    fun `computeInlineDiff with multi-word substitution coalesces into single token`() {
+        val raw = "I wanna go"
+        val clean = "I want to go."
+        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
+        assertEquals(true, diff.hasEdits)
+        val substitutions = diff.tokens.filterIsInstance<InlineDiffToken.Substitution>()
+        assertEquals(1, substitutions.size)
+        assertEquals("wanna", substitutions[0].original)
+        assertEquals("want to", substitutions[0].replacement)
+    }
+
+    @Test
+    fun `computeInlineDiff with insertion detects Insertion tokens`() {
+        val raw = "went store"
+        val clean = "went to the store."
+        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
+        assertEquals(true, diff.hasEdits)
+        val insertions = diff.tokens.filterIsInstance<InlineDiffToken.Insertion>()
+        assertEquals(1, insertions.size)
+        assertEquals("to the", insertions[0].text)
+    }
 }

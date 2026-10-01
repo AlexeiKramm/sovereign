@@ -12,10 +12,9 @@ import java.io.ByteArrayOutputStream
  *
  * No file is ever written — the "no audio to disk" rule (DECISIONS D-012) costs nothing at this
  * duration and keeps the privacy story simple.
- *
- * Source is `MIC`, not `VOICE_RECOGNITION`: the platform's voice-processing path applies
- * device-dependent noise suppression and AGC, and chunk 0 exists to prove the transport, not to
- * tune audio. Switching is a one-line change once there is something to compare against.
+ * Source is `VOICE_RECOGNITION` (DECISIONS D-069): tunes the frequency response for speech
+ * intelligibility, disables non-linear gating that clips soft phonemes, and engages multi-mic
+ * beamforming on device.
  */
 class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
 
@@ -51,7 +50,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
         val bufferSize = maxOf(minBuffer, sampleRate * BYTES_PER_SAMPLE) // >= 1 s of slack
 
         val recorder = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             sampleRate,
             CHANNEL,
             ENCODING,

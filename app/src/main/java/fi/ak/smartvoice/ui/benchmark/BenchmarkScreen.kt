@@ -1328,7 +1328,8 @@ private fun TranscriptionDiffCard(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    val annotatedText = remember(diff) {
+                    val errorColor = MaterialTheme.colorScheme.error
+                    val annotatedText = remember(diff, errorColor) {
                         buildAnnotatedString {
                             diff.forEach { item ->
                                 when (item.op) {
@@ -1337,43 +1338,49 @@ private fun TranscriptionDiffCard(
                                         append(" ")
                                     }
                                     DiffOp.SUBSTITUTION -> {
+                                        append("[")
                                         withStyle(
                                             SpanStyle(
-                                                color = Color(0xFFFF5252),
+                                                color = errorColor,
                                                 textDecoration = TextDecoration.LineThrough,
                                             )
                                         ) {
                                             append(item.text)
                                         }
+                                        append(" → ")
                                         withStyle(
                                             SpanStyle(
                                                 color = BadgeGreen,
                                                 fontWeight = FontWeight.Bold,
                                             )
                                         ) {
-                                            append(" [${item.expected ?: ""}] ")
+                                            append(item.expected ?: "")
                                         }
+                                        append("] ")
                                     }
                                     DiffOp.DELETION -> {
+                                        append("[+ ")
                                         withStyle(
                                             SpanStyle(
                                                 color = BadgeGreen,
                                                 fontWeight = FontWeight.Bold,
                                             )
                                         ) {
-                                            append(" [missing: ${item.expected ?: ""}] ")
+                                            append(item.expected ?: "")
                                         }
+                                        append("] ")
                                     }
                                     DiffOp.INSERTION -> {
+                                        append("[")
                                         withStyle(
                                             SpanStyle(
-                                                color = Color(0xFFFF5252),
+                                                color = errorColor,
                                                 textDecoration = TextDecoration.LineThrough,
                                             )
                                         ) {
                                             append(item.text)
                                         }
-                                        append(" ")
+                                        append("] ")
                                     }
                                 }
                             }

@@ -19,7 +19,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.cleanup.CleanupPrompt
+import fi.ak.smartvoice.ui.components.DiffModeCycleButton
+import fi.ak.smartvoice.ui.components.InlineDiffMode
+import fi.ak.smartvoice.ui.components.InlineDiffText
 import fi.ak.smartvoice.ui.components.StatusConfigurationCard
+import fi.ak.smartvoice.ui.components.TranscriptMetadata
+import fi.ak.smartvoice.ui.components.TranscriptResultCard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -132,8 +137,6 @@ fun TranscribeHubScreen(
             pickedAudioName = name
         }
     }
-
-    var selectedResultTab by remember { mutableIntStateOf(0) }
 
     Column(
         modifier = modifier
@@ -370,203 +373,53 @@ fun TranscribeHubScreen(
             val rawText = doneState.rawText ?: outcome.text
             val diff = doneState.diff
 
-            SettingsGroupCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            SettingsIconBadge(
-                                icon = Icons.Default.Check,
-                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            Text(
-                                text = "Transcription Result",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            // Copy button
-                            IconButton(onClick = {
-                                val textToCopy = if (selectedResultTab == 1) rawText else cleanedText
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("transcription", textToCopy))
-                                scope.launch {
-                                    snackbarHostState?.showSnackbar("Copied to clipboard")
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy text",
-                                )
-                            }
-
-                            // Share button
-                            IconButton(onClick = {
-                                val textToShare = if (selectedResultTab == 1) rawText else cleanedText
-                                val sendIntent = Intent().apply {
-                                    action = Intent.ACTION_SEND
-                                    putExtra(Intent.EXTRA_TEXT, textToShare)
-                                    type = "text/plain"
-                                }
-                                context.startActivity(Intent.createChooser(sendIntent, "Share Transcription"))
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Share transcription",
-                                )
-                            }
-                        }
-                    }
-
-                    // Result Tabs
-                    TabRow(selectedTabIndex = selectedResultTab) {
-                        Tab(
-                            selected = selectedResultTab == 0,
-                            onClick = { selectedResultTab = 0 },
-                            text = { Text("Cleaned") },
-                        )
-                        Tab(
-                            selected = selectedResultTab == 1,
-                            onClick = { selectedResultTab = 1 },
-                            text = { Text("Raw Speech") },
-                        )
-                        Tab(
-                            selected = selectedResultTab == 2,
-                            onClick = { selectedResultTab = 2 },
-                            text = { Text("Edits (${diff?.wordsChanged ?: 0})") },
-                        )
-                    }
-
-                    // Content View
-                    SelectionContainer {
-                        when (selectedResultTab) {
-                            0 -> Text(
-                                text = cleanedText.ifBlank { "(empty text)" },
-                                style = MaterialTheme.typography.bodyLarge,
-                                lineHeight = 24.sp,
-                            )
-                            1 -> Text(
-                                text = rawText.ifBlank { "(empty text)" },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 22.sp,
-                            )
-                            2 -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    if (diff != null) {
-                                        Card(
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                            ),
-                                            modifier = Modifier.fillMaxWidth(),
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(12.dp),
-                                                horizontalArrangement = Arrangement.SpaceAround,
-                                            ) {
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Spoken", style = MaterialTheme.typography.labelSmall)
-                                                    Text("${diff.rawWords} w", fontWeight = FontWeight.Bold)
-                                                }
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Polished", style = MaterialTheme.typography.labelSmall)
-                                                    Text("${diff.deliveredWords} w", fontWeight = FontWeight.Bold)
-                                                }
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Removed", style = MaterialTheme.typography.labelSmall)
-                                                    Text("${diff.wordsRemoved}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                                                }
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Corrected", style = MaterialTheme.typography.labelSmall)
-                                                    Text("${diff.wordsChanged}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                                }
-                                            }
-                                        }
-
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text("Original Speech:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-                                            Text(
-                                                text = rawText.ifBlank { "(empty)" },
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text("Cleaned Text:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                            Text(
-                                                text = cleanedText.ifBlank { "(empty)" },
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                            )
-                                        }
-                                    } else {
-                                        Text(
-                                            text = "No edits were needed for this run.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    // Diagnostics footer
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        val speedMultiplier = if (outcome.elapsedMs > 0 && outcome.audioSeconds > 0) {
-                            (outcome.audioSeconds * 1000.0) / outcome.elapsedMs
-                        } else null
-
-                        Row(
+            TranscriptResultCard(
+                rawText = rawText,
+                cleanedText = cleanedText,
+                title = "Transcription Result",
+                textStyle = MaterialTheme.typography.bodyLarge,
+                textLineHeight = 24.sp,
+                editStatsContent = if (diff != null && diff.wordsCleaned > 0) {
+                    {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                text = "Audio: %.1fs".format(java.util.Locale.US, outcome.audioSeconds),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = if (speedMultiplier != null) {
-                                    "%,d ms (%.1f× real-time)".format(java.util.Locale.US, outcome.elapsedMs, speedMultiplier)
-                                } else {
-                                    "%,d ms".format(java.util.Locale.US, outcome.elapsedMs)
-                                },
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-
-                        if (outcome.note.isNotBlank()) {
-                            Text(
-                                text = outcome.note,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceAround,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Spoken", style = MaterialTheme.typography.labelSmall)
+                                    Text("${diff.rawWords} w", fontWeight = FontWeight.Bold)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Polished", style = MaterialTheme.typography.labelSmall)
+                                    Text("${diff.deliveredWords} w", fontWeight = FontWeight.Bold)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Removed", style = MaterialTheme.typography.labelSmall)
+                                    Text("${diff.wordsRemoved}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Corrected", style = MaterialTheme.typography.labelSmall)
+                                    Text("${diff.wordsChanged}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                         }
                     }
-                }
-            }
+                } else null,
+                metadata = TranscriptMetadata(
+                    audioSeconds = outcome.audioSeconds,
+                    elapsedMs = outcome.elapsedMs,
+                    asrModelName = selectedAsrModel.id,
+                    llmEnabled = cleanupEnabled,
+                ),
+            )
         }
     }
 }

@@ -70,11 +70,9 @@ enum class PermissionItem(val title: String, val why: String, val icon: ImageVec
     ),
 }
 
-fun asrModelTierTitle(modelId: String, fallbackLabel: String = ""): String = when (modelId) {
-    AsrModels.DEFAULT_MODEL_ID -> "Fast & Streaming"
-    AsrModels.PARAKEET_TDT_V3.id -> "Highest Accuracy"
-    AsrModels.WHISPER_BASE.id -> "Lightweight"
-    else -> fallbackLabel.ifBlank { modelId }
+fun asrModelTierTitle(modelId: String, fallbackLabel: String = ""): String {
+    val tier = AsrModels.getTierTitle(modelId)
+    return if (tier == modelId && fallbackLabel.isNotBlank()) fallbackLabel else tier
 }
 
 fun asrModelTierSubtitle(modelId: String): String = when (modelId) {
@@ -268,20 +266,6 @@ fun StatusConfigurationCard(
                                 } else null,
                             )
                         }
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Manage all models…") },
-                            onClick = {
-                                modelMenuExpanded = false
-                                onNavigateToModels()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Tune,
-                                    contentDescription = null,
-                                )
-                            },
-                        )
                     }
                 }
 

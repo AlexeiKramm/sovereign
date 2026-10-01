@@ -631,10 +631,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshHistory()
     }
 
-    fun reinsertHistoryText(text: String): Boolean {
-        return VoiceAccessibilityService.instance?.injectText(text) ?: false
-    }
-
     fun refreshProfiles() {
         _profiles.value = profileStore.allProfiles()
         _activeProfileId.value = profileStore.activeProfile().id

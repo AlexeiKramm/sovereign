@@ -717,7 +717,7 @@ private fun AsrTierCard(
     // Model metadata resolution
     val (tierTitle, badgeText, badgeBg, badgeTextColor, description, latencyVal, qualityVal, ramVal, infoKey) = when (model.id) {
         AsrModels.DEFAULT_MODEL_ID -> ModelMetadata(
-            title = "Fast & Streaming",
+            title = "Lowest Latency",
             badge = "Recommended",
             badgeBg = MaterialTheme.colorScheme.primaryContainer,
             badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1288,7 +1288,7 @@ private data class ModelTechnicalSpec(
 
 private fun getModelTechnicalSpec(key: String): ModelTechnicalSpec? = when (key) {
     "nemotron" -> ModelTechnicalSpec(
-        title = "Fast & Streaming",
+        title = "Lowest Latency",
         subtitle = "Nvidia Nemotron-3.5-ASR-Streaming-0.6B (CPU)",
         overview = "Uses Nvidia's Nemotron-3.5-ASR-Streaming-0.6B (560ms) model under the hood, run on CPU using the sherpa-onnx backend. The model supports 40 different languages.",
         benefits = listOf(

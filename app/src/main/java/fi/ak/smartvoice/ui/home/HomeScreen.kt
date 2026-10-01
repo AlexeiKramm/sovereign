@@ -94,12 +94,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fi.ak.smartvoice.asr.AsrModels
 import fi.ak.smartvoice.data.DictationRecord
 import fi.ak.smartvoice.data.UsageStatsData
 import fi.ak.smartvoice.data.WordDiffCalculator
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.ui.DictationUiState
 import fi.ak.smartvoice.ui.DictationViewModel
+import fi.ak.smartvoice.ui.components.DiffModeCycleButton
+import fi.ak.smartvoice.ui.components.InlineDiffMode
+import fi.ak.smartvoice.ui.components.InlineDiffText
+import fi.ak.smartvoice.ui.components.TranscriptMetadata
+import fi.ak.smartvoice.ui.components.TranscriptResultCard
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -155,12 +161,7 @@ fun HomeScreen(
     val activeProfile = profiles.firstOrNull { it.id == activeProfileId }
     val activeProfileName = activeProfile?.name ?: "Smart Clean"
 
-    val activeModelLabel = when (selectedAsrModel.id) {
-        "nemotron-3.5-streaming" -> "Fast & Streaming"
-        "parakeet-tdt-0.6b-v3" -> "Highest Accuracy"
-        "whisper-base" -> "Lightweight"
-        else -> selectedAsrModel.label
-    }
+    val activeModelLabel = AsrModels.getTierTitle(selectedAsrModel.id)
 
     if (showTimeSavedDialog) {
         TimeSavedExplanationDialog(onDismiss = { showTimeSavedDialog = false })
@@ -237,6 +238,8 @@ fun HomeScreen(
             onStartRecording = { viewModel.startRecording() },
             onStopRecording = { viewModel.stopAndTranscribe() },
             onOpenTranscribe = onOpenTranscribe,
+            selectedAsrModel = selectedAsrModel,
+            cleanupEnabled = cleanupEnabled,
         )
 
         Spacer(modifier = Modifier.height(Spacing.xl))
@@ -320,6 +323,8 @@ private fun TryDictationCard(
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onOpenTranscribe: () -> Unit,
+    selectedAsrModel: AsrModelSpec,
+    cleanupEnabled: Boolean,
 ) {
     val isRecording = state is DictationUiState.Recording
     val isWorking = state is DictationUiState.Working
@@ -460,140 +465,38 @@ private fun TryDictationCard(
             val done = state as? DictationUiState.Done
             if (done != null && done.outcome.text.isNotBlank()) {
                 val diff = done.diff
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        // Raw Speech Segment
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "RAW SPEECH",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            SelectionContainer {
-                                Text(
-                                    text = done.rawText?.ifBlank { done.outcome.text } ?: done.outcome.text,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                        }
+                val raw = done.rawText?.ifBlank { done.outcome.text } ?: done.outcome.text
+                val cleaned = done.outcome.text
 
-                        HorizontalDivider(
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        )
-
-                        // Cleaned Output Segment
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
+                TranscriptResultCard(
+                    rawText = raw,
+                    cleanedText = cleaned,
+                    title = "TRANSCRIPT",
+                    titleBadge = if (diff != null && diff.wordsRemoved > 0) {
+                        {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                             ) {
                                 Text(
-                                    text = "CLEANED OUTPUT",
+                                    text = "${diff.wordsRemoved} fillers removed",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-
-                                if (diff != null && diff.wordsRemoved > 0) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    ) {
-                                        Text(
-                                            text = "${diff.wordsRemoved} fillers removed",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.weight(1f))
-
-                                Surface(
-                                    shape = CircleShape,
+                                    softWrap = false,
+                                    maxLines = 1,
                                     color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("Smart Voice", done.outcome.text))
-                                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                                    },
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimary,
-                                            modifier = Modifier.size(12.dp),
-                                        )
-                                        Text(
-                                            text = "Copy",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                        )
-                                    }
-                                }
-                            }
-
-                            val raw = done.rawText?.ifBlank { done.outcome.text } ?: done.outcome.text
-                            val cleaned = done.outcome.text
-                            val diffSegments = remember(raw, cleaned) {
-                                WordDiffCalculator.calculateWordDiffSegments(raw, cleaned)
-                            }
-                            val primaryContainer = MaterialTheme.colorScheme.primaryContainer
-                            val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
-                            val annotatedCleanedText = remember(diffSegments, primaryContainer, onPrimaryContainer) {
-                                buildAnnotatedString {
-                                    diffSegments.forEach { segment ->
-                                        if (segment.isModified) {
-                                            withStyle(
-                                                SpanStyle(
-                                                    background = primaryContainer.copy(alpha = 0.55f),
-                                                    color = onPrimaryContainer,
-                                                    fontWeight = FontWeight.Bold,
-                                                )
-                                            ) {
-                                                append(segment.text)
-                                            }
-                                        } else {
-                                            append(segment.text)
-                                        }
-                                    }
-                                }
-                            }
-
-                            SelectionContainer {
-                                Text(
-                                    text = annotatedCleanedText,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    lineHeight = 18.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
                         }
-                    }
-                }
+                    } else null,
+                    metadata = TranscriptMetadata(
+                        audioSeconds = done.outcome.audioSeconds,
+                        elapsedMs = done.outcome.elapsedMs,
+                        asrModelName = selectedAsrModel.id,
+                        llmEnabled = cleanupEnabled,
+                    ),
+                )
             } else {
                 // Empty state with dashed border
                 val outlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
@@ -998,70 +901,17 @@ private fun LastDictationCard(
                     )
                 }
             } else {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        SelectionContainer {
-                            Text(
-                                text = lastRecord.cleanedText,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val modelInfo = lastRecord.asrModel + if (lastRecord.llmModel != null) " + ${lastRecord.llmModel}" else ""
-                            Text(
-                                text = modelInfo,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                modifier = Modifier.clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Smart Voice", lastRecord.cleanedText))
-                                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                                },
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(12.dp),
-                                    )
-                                    Text(
-                                        text = "Copy",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                TranscriptResultCard(
+                    rawText = lastRecord.rawText,
+                    cleanedText = lastRecord.cleanedText.ifBlank { lastRecord.rawText },
+                    title = "DELIVERED TEXT",
+                    initialMode = InlineDiffMode.CLEAN,
+                    metadata = TranscriptMetadata(
+                        audioSeconds = lastRecord.durationSeconds,
+                        asrModelName = lastRecord.asrModel,
+                        llmEnabled = lastRecord.llmModel != null && lastRecord.llmModel.isNotBlank(),
+                    ),
+                )
             }
         }
     }

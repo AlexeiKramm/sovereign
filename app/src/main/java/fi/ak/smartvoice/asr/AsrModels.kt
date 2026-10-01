@@ -31,6 +31,7 @@ data class AsrModelSpec(
     val joinerFileName: String = "",
     val modelFileName: String = "",
     val tokensFileName: String = "tokens.txt",
+    val tierTitle: String = "Lowest Latency",
 ) {
     val totalBytes: Long = files.sumOf { it.bytes }
 
@@ -129,6 +130,7 @@ object AsrModels {
     val WHISPER_BASE = AsrModelSpec(
         id = "whisper-base",
         label = "Whisper Base",
+        tierTitle = "Lightweight",
         description = "Compact offline • Lightweight multilingual recognizer with sub-second load (~160 MB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-base",
@@ -159,6 +161,7 @@ object AsrModels {
     val WHISPER_SMALL = AsrModelSpec(
         id = "whisper-small",
         label = "Whisper Small",
+        tierTitle = "Lightweight",
         description = "Multilingual • High accuracy offline model (~375 MB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-small",
@@ -189,6 +192,7 @@ object AsrModels {
     val WHISPER_TURBO = AsrModelSpec(
         id = "whisper-turbo",
         label = "Whisper Large Turbo",
+        tierTitle = "High Performance",
         description = "Highest accuracy • Best for long dictation (~1.0 GB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-turbo",
@@ -219,6 +223,7 @@ object AsrModels {
     val PARAKEET_TDT_V3 = AsrModelSpec(
         id = "parakeet-tdt-v3",
         label = "Parakeet v3",
+        tierTitle = "Highest Accuracy",
         description = "High-throughput offline • Ultra-fast English recognition at 16x–20x realtime (~670 MB)",
         type = AsrModelType.OFFLINE_TRANSDUCER,
         repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
@@ -273,6 +278,25 @@ object AsrModels {
                 WHISPER_TURBO.id -> WHISPER_TURBO
                 else -> NEMOTRON
             }
+
+    fun getTierTitle(modelIdOrName: String?): String {
+        if (modelIdOrName.isNullOrBlank()) return "Lowest Latency"
+        val matched = CATALOG.firstOrNull { it.id == modelIdOrName }
+            ?: when (modelIdOrName) {
+                NEMOTRON_320MS.id -> NEMOTRON_320MS
+                WHISPER_SMALL.id -> WHISPER_SMALL
+                WHISPER_TURBO.id -> WHISPER_TURBO
+                else -> null
+            }
+        if (matched != null) return matched.tierTitle
+        return when {
+            modelIdOrName.contains("Nemotron", ignoreCase = true) || modelIdOrName == DEFAULT_MODEL_ID -> "Lowest Latency"
+            modelIdOrName.contains("Parakeet", ignoreCase = true) -> "Highest Accuracy"
+            modelIdOrName.contains("Turbo", ignoreCase = true) -> "High Performance"
+            modelIdOrName.contains("Whisper", ignoreCase = true) -> "Lightweight"
+            else -> modelIdOrName
+        }
+    }
 
     const val SAMPLE_RATE = 16_000
 }
