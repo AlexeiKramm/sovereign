@@ -209,6 +209,7 @@ fun SettingsScreen(
     val themeSeedColor by viewModel.themeSeedColor.collectAsStateWithLifecycle()
     val themePaletteStyle by viewModel.themePaletteStyle.collectAsStateWithLifecycle()
     val themeUseSystemDynamic by viewModel.themeUseSystemDynamic.collectAsStateWithLifecycle()
+    val themeDepthMode by viewModel.themeDepthMode.collectAsStateWithLifecycle()
 
     val pauseField by viewModel.pauseField.collectAsStateWithLifecycle()
     val stopField by viewModel.stopField.collectAsStateWithLifecycle()
@@ -636,6 +637,8 @@ fun SettingsScreen(
                 onPaletteStyleChange = viewModel::setThemePaletteStyle,
                 useSystemDynamic = themeUseSystemDynamic,
                 onUseSystemDynamicChange = viewModel::setThemeUseSystemDynamic,
+                depthMode = themeDepthMode,
+                onDepthModeChange = viewModel::setThemeDepthMode,
             )
         }
 
@@ -1114,6 +1117,8 @@ private fun AppearanceCard(
     onPaletteStyleChange: (String) -> Unit,
     useSystemDynamic: Boolean,
     onUseSystemDynamicChange: (Boolean) -> Unit,
+    depthMode: Boolean,
+    onDepthModeChange: (Boolean) -> Unit,
 ) {
     var showCustomColorDialog by remember { mutableStateOf(false) }
 
@@ -1162,12 +1167,8 @@ private fun AppearanceCard(
 
             SettingsDivider(startIndent = 0.dp)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column {
                     Text(
                         text = "M3 seed accent",
                         style = MaterialTheme.typography.bodyMedium,
@@ -1181,20 +1182,16 @@ private fun AppearanceCard(
                     )
                 }
 
-                Row(
+                LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    val standardPresets = listOf(
-                        ThemePresets.SIGNATURE_ORANGE,
-                        ThemePresets.PIXEL_BLUE,
-                        ThemePresets.ANDROID_GREEN,
-                    )
-                    standardPresets.forEach { preset ->
+                    items(ThemePresets.ALL) { preset ->
                         val isSelected = !useSystemDynamic && (seedColor and 0x00FFFFFF) == (preset.argb and 0x00FFFFFF)
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(preset.color)
                                 .border(
@@ -1211,50 +1208,52 @@ private fun AppearanceCard(
                             if (isSelected) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Selected",
+                                    contentDescription = "${preset.name} selected",
                                     tint = if (preset.color.luminance() > 0.5f) Color.Black else Color.White,
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }
                     }
 
-                    // 4th slot: Custom Color
-                    val isCustomSelected = !useSystemDynamic && standardPresets.none {
-                        (seedColor and 0x00FFFFFF) == (it.argb and 0x00FFFFFF)
-                    }
-                    val customColor = Color(seedColor)
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isCustomSelected) customColor else MaterialTheme.colorScheme.surfaceContainerHigh
-                            )
-                            .border(
-                                width = if (isCustomSelected) 2.5.dp else 1.dp,
-                                color = if (isCustomSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
-                                shape = CircleShape,
-                            )
-                            .clickable {
-                                showCustomColorDialog = true
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isCustomSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Custom seed selected",
-                                tint = if (customColor.luminance() > 0.5f) Color.Black else Color.White,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Palette,
-                                contentDescription = "Custom color picker",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
+                    item {
+                        // Custom Color slot
+                        val isCustomSelected = !useSystemDynamic && ThemePresets.ALL.none {
+                            (seedColor and 0x00FFFFFF) == (it.argb and 0x00FFFFFF)
+                        }
+                        val customColor = Color(seedColor)
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isCustomSelected) customColor else MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                                .border(
+                                    width = if (isCustomSelected) 2.5.dp else 1.dp,
+                                    color = if (isCustomSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                                    shape = CircleShape,
+                                )
+                                .clickable {
+                                    showCustomColorDialog = true
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isCustomSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Custom seed selected",
+                                    tint = if (customColor.luminance() > 0.5f) Color.Black else Color.White,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = "Custom color picker",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -1269,6 +1268,15 @@ private fun AppearanceCard(
                     onCheckedChange = onUseSystemDynamicChange,
                 )
             }
+
+            SettingsDivider(startIndent = 0.dp)
+
+            SettingsToggleRow(
+                title = "Elevated card contrast",
+                subtitle = "Perceptual depth separation on AMOLED displays",
+                checked = depthMode,
+                onCheckedChange = onDepthModeChange,
+            )
 
             SettingsDivider(startIndent = 0.dp)
 
@@ -1333,18 +1341,18 @@ private fun CustomColorDialog(
 
     val paletteChoices = remember {
         listOf(
-            0xFFFF9248.toInt(), // Orange
-            0xFF1A73E8.toInt(), // Blue
-            0xFF34A853.toInt(), // Green
-            0xFFFA5B52.toInt(), // Coral
-            0xFFD0BCFF.toInt(), // Lilac
-            0xFF26A69A.toInt(), // Mint Teal
-            0xFF546E7A.toInt(), // Slate
-            0xFFFFB300.toInt(), // Amber
+            ThemePresets.SOVEREIGN_CYAN.argb,
+            ThemePresets.SKY_CORE.argb,
+            ThemePresets.TITANIUM_SLATE.argb,
+            ThemePresets.CYBER_TEAL.argb,
+            ThemePresets.TACTICAL_AMBER.argb,
+            ThemePresets.SIGNATURE_ORANGE.argb,
+            ThemePresets.PIXEL_BLUE.argb,
+            ThemePresets.ANDROID_GREEN.argb,
+            ThemePresets.CORAL.argb,
+            ThemePresets.LILAC.argb,
+            ThemePresets.MINT_TEAL.argb,
             0xFF8E24AA.toInt(), // Purple
-            0xFFE91E63.toInt(), // Pink
-            0xFF00BCD4.toInt(), // Cyan
-            0xFF3F51B5.toInt(), // Indigo
         )
     }
 
