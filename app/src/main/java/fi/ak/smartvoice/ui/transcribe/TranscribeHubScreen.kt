@@ -10,7 +10,13 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.cleanup.CleanupPrompt
 import fi.ak.smartvoice.ui.components.StatusConfigurationCard
@@ -179,121 +185,178 @@ fun TranscribeHubScreen(
         val isWorking = state is DictationUiState.Working
 
         // --- LOCAL AUDIO FILE PICKER CARD ---
-        SettingsGroupCard {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+        val workingState = state as? DictationUiState.Working
+        val isActivelyTranscribing = isTranscribingFile && (isDecodingAudio || workingState != null)
+
+        if (isActivelyTranscribing) {
+            val currentProgress = if (isDecodingAudio) 0.05f else (workingState?.progress ?: 0.0f)
+            val stageTitle = if (isDecodingAudio) "Preparing audio…" else (workingState?.stage ?: "Processing speech…")
+            val stageDetails = if (isDecodingAudio) {
+                "Converting audio file to 16 kHz format"
+            } else {
+                workingState?.details ?: "Transcribing and cleaning speech chunks"
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     SettingsIconBadge(
-                        icon = Icons.Default.PlayArrow,
+                        icon = Icons.Default.GraphicEq,
                         badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        size = 52.dp,
+                        iconSize = 28.dp,
                     )
-                    Column {
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Text(
-                            text = "Transcribe Audio File",
+                            text = stageTitle,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Select any audio recording to transcribe and polish on device",
+                            text = stageDetails,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    FilledTonalButton(
-                        onClick = { audioPickerLauncher.launch("audio/*") },
-                        modifier = Modifier.weight(1f),
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(if (pickedAudioName != null) "Change File" else "Select Audio File")
-                    }
-
-                    if (pickedAudioUri != null && !isDecodingAudio && !isWorking) {
-                        Button(
-                            onClick = {
-                                val uri = pickedAudioUri ?: return@Button
-                                val name = pickedAudioName ?: "audio"
-                                isDecodingAudio = true
-                                isTranscribingFile = true
-                                scope.launch {
-                                    try {
-                                        val pcmSamples = AudioDecoder.decodeToPcm(context, uri)
-                                        val durationSec = pcmSamples.size / 16000f
-                                        isDecodingAudio = false
-                                        viewModel.transcribeAudioFile(pcmSamples, name, durationSec)
-                                    } catch (e: Exception) {
-                                        isDecodingAudio = false
-                                        isTranscribingFile = false
-                                        Toast.makeText(context, "Audio decode failed: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            },
+                        LinearProgressIndicator(
+                            progress = { currentProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(CircleShape),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Transcribe")
+                            Text(
+                                text = pickedAudioName ?: "Audio file",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Text(
+                                text = "${(currentProgress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
                         }
                     }
-                }
 
-                pickedAudioName?.let { name ->
-                    Text(
-                        text = "Selected: $name",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                    )
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.cancelFileTranscription()
+                            isTranscribingFile = false
+                            isDecodingAudio = false
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 6.dp),
+                    ) {
+                        Text("Cancel", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-
-                if (isDecodingAudio) {
+            }
+        } else {
+            SettingsGroupCard {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.PlayArrow,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Column {
+                            Text(
+                                text = "Transcribe Audio File",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "Select any audio recording to transcribe and polish on device",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                        Text(
-                            text = "Preparing audio file…",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-
-                val workingState = state as? DictationUiState.Working
-                if (isTranscribingFile && workingState != null) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        FilledTonalButton(
+                            onClick = { audioPickerLauncher.launch("audio/*") },
+                            modifier = Modifier.weight(1f),
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                            Text(
-                                text = workingState.stage,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                            )
+                            Text(if (pickedAudioName != null) "Change File" else "Select Audio File")
                         }
-                        if (workingState.progress != null) {
-                            LinearProgressIndicator(
-                                progress = { workingState.progress },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+
+                        if (pickedAudioUri != null && !isDecodingAudio && !isWorking) {
+                            Button(
+                                onClick = {
+                                    val uri = pickedAudioUri ?: return@Button
+                                    val name = pickedAudioName ?: "audio"
+                                    isDecodingAudio = true
+                                    isTranscribingFile = true
+                                    scope.launch {
+                                        try {
+                                            val pcmSamples = AudioDecoder.decodeToPcm(context, uri)
+                                            val durationSec = pcmSamples.size / 16000f
+                                            isDecodingAudio = false
+                                            viewModel.transcribeAudioFile(pcmSamples, name, durationSec)
+                                        } catch (e: Exception) {
+                                            isDecodingAudio = false
+                                            isTranscribingFile = false
+                                            Toast.makeText(context, "Audio decode failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                            ) {
+                                Text("Transcribe")
+                            }
                         }
+                    }
+
+                    pickedAudioName?.let { name ->
+                        Text(
+                            text = "Selected: $name",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                        )
                     }
                 }
             }

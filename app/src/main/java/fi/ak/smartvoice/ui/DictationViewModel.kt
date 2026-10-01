@@ -56,6 +56,7 @@ import fi.ak.smartvoice.net.StackUnreachableException
 import fi.ak.smartvoice.net.TranscribeClient
 import fi.ak.smartvoice.ui.onboarding.OnboardingModelPreset
 import fi.ak.smartvoice.ui.onboarding.OnboardingModelPresets
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -93,7 +94,12 @@ import fi.ak.smartvoice.floating.VoiceAccessibilityService
 sealed interface DictationUiState {
     data object Idle : DictationUiState
     data class Recording(val seconds: Double, val engine: Engine) : DictationUiState
-    data class Working(val stage: String, val engine: Engine, val progress: Float? = null) : DictationUiState
+    data class Working(
+        val stage: String,
+        val engine: Engine,
+        val progress: Float? = null,
+        val details: String? = null,
+    ) : DictationUiState
     data class Done(
         val outcome: DictationOutcome,
         val roundTripMs: Long?,
@@ -1383,6 +1389,14 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _state.value = DictationUiState.Idle
     }
 
+    private var fileTranscribeJob: Job? = null
+
+    fun cancelFileTranscription() {
+        fileTranscribeJob?.cancel()
+        fileTranscribeJob = null
+        _state.value = DictationUiState.Idle
+    }
+
     /**
      * Transcribes an audio file on-device using the selected ASR model and cleans it with the LLM backend.
      * Chunks audio using [AudioSegmenter] (<= 28s) to satisfy Whisper 30s limits and Parakeet low-RAM bounds,
@@ -1390,8 +1404,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
      */
     fun transcribeAudioFile(samples: FloatArray, fileName: String, audioDurationSec: Float) {
         if (_state.value is DictationUiState.Working || _state.value is DictationUiState.Recording) return
-        _state.value = DictationUiState.Working("Analyzing audio file: $fileName…", Engine.LOCAL, progress = 0.0f)
-        viewModelScope.launch {
+        _state.value = DictationUiState.Working(
+            stage = "Preparing audio…",
+            engine = Engine.LOCAL,
+            progress = 0.05f,
+            details = "Analyzing audio file and speech pauses",
+        )
+        fileTranscribeJob?.cancel()
+        fileTranscribeJob = viewModelScope.launch {
+            var cleanupPipeline: CleanupPipeline? = null
             try {
                 val tracker = PipelineTimingTracker().apply { start() }
 
@@ -1420,140 +1441,157 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
                 val totalChunks = chunks.size
                 val rawUnits = mutableListOf<String>()
-
                 val cleanupEnabled = settings.cleanupEnabled
-                val cleanupPipeline = if (cleanupEnabled) {
+
+                var asrDoneCount = 0
+                var llmDoneCount = 0
+
+                fun reportProgress() {
+                    val totalSteps = if (cleanupEnabled) totalChunks * 2 else totalChunks
+                    val completedSteps = if (cleanupEnabled) asrDoneCount + llmDoneCount else asrDoneCount
+                    val prog = (completedSteps.toFloat() / totalSteps).coerceIn(0.05f, 0.98f)
+                    val activeChunk = if (cleanupEnabled) {
+                        (llmDoneCount + 1).coerceAtMost(totalChunks)
+                    } else {
+                        asrDoneCount.coerceAtMost(totalChunks).coerceAtLeast(1)
+                    }
+                    _state.value = DictationUiState.Working(
+                        stage = "Processing speech…",
+                        engine = Engine.LOCAL,
+                        progress = prog,
+                        details = "Chunk $activeChunk of $totalChunks",
+                    )
+                }
+
+                cleanupPipeline = if (cleanupEnabled) {
                     CleanupPipeline(
                         engine = engine(),
-                        scope = viewModelScope,
+                        scope = this,
                         dispatcher = cleanupDispatcher,
                         rules = { activeProfileVariant() },
                         healingSentencesCount = { settings.healingSentencesCount },
-                        onCommitted = { /* carriedTail accumulates inside pipeline state */ },
+                        onCommitted = {
+                            llmDoneCount++
+                            reportProgress()
+                        },
                     ).also { it.begin() }
                 } else null
 
-                try {
-                    // Step 2: Decode chunks through ASR sequentially, pipelining units into CleanupPipeline
-                    for ((index, chunk) in chunks.withIndex()) {
-                        val asrResult = withContext(asrDispatcher) {
-                            localEngine.decodeSegmentTimed(chunk, settings.language)
-                        }
-                        tracker.recordAsrChunk(asrResult.activeMs)
-                        if (asrResult.text.isNotBlank()) {
-                            rawUnits.add(asrResult.text)
-                            cleanupPipeline?.submit(asrResult.text)
-                        }
-                        val asrProgress = (index + 1).toFloat() / totalChunks
-                        val totalProgress = if (cleanupEnabled) asrProgress * 0.5f else asrProgress
-                        _state.value = DictationUiState.Working(
-                            stage = "Transcribing audio (chunk ${index + 1} of $totalChunks)…",
-                            engine = Engine.LOCAL,
-                            progress = totalProgress,
-                        )
+                // Step 2: Decode chunks through ASR sequentially, pipelining units into CleanupPipeline
+                for ((index, chunk) in chunks.withIndex()) {
+                    val asrResult = withContext(asrDispatcher) {
+                        localEngine.decodeSegmentTimed(chunk, settings.language)
                     }
-
-                    val rawText = rawUnits.joinToString(" ").trim()
-
-                    if (rawText.isBlank()) {
-                        cleanupPipeline?.abort()
-                        val timings = tracker.stop(overrideLlmActiveMs = 0L)
-                        _state.value = DictationUiState.Done(
-                            outcome = DictationOutcome(
-                                text = "(no speech detected in file)",
-                                engine = Engine.LOCAL,
-                                note = "Audio file decoded ($audioDurationSec s) but no speech recognized",
-                                audioSeconds = audioDurationSec.toDouble(),
-                                elapsedMs = timings.wallClockMs,
-                                timings = timings,
-                            ),
-                            roundTripMs = null,
-                            rawText = "",
-                            diff = null,
-                        )
-                        return@launch
+                    tracker.recordAsrChunk(asrResult.activeMs)
+                    asrDoneCount++
+                    if (asrResult.text.isNotBlank()) {
+                        rawUnits.add(asrResult.text)
+                        cleanupPipeline?.submit(asrResult.text)
+                    } else if (cleanupEnabled) {
+                        // Empty pause chunk produces no LLM unit, mark as completed
+                        llmDoneCount++
                     }
-
-                    // Step 3: Drain cleanup pipeline if enabled
-                    if (cleanupPipeline != null) {
-                        _state.value = DictationUiState.Working(
-                            stage = "Polishing with AI…",
-                            engine = Engine.LOCAL,
-                            progress = 0.85f,
-                        )
-                        cleanupPipeline.drain()
-                        val timings = tracker.stop(overrideLlmActiveMs = cleanupPipeline.totalActiveLlmMs)
-                        val cleanedText = cleanupPipeline.state.carriedTail.ifBlank { rawText }
-                        val diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = cleanedText)
-                        val wordsCleaned = diff.wordsChanged + diff.wordsRemoved + diff.wordsAdded
-
-                        UsageStatsStore(app).record(
-                            durationSeconds = audioDurationSec.toDouble(),
-                            rawWords = diff.rawWords,
-                            cleanedWords = wordsCleaned,
-                            engine = Engine.LOCAL.label,
-                            deliveredWords = diff.deliveredWords,
-                            wordsRemoved = diff.wordsRemoved,
-                            wordsChanged = diff.wordsChanged,
-                            wordsAdded = diff.wordsAdded,
-                            asrDurationMs = timings.asrActiveMs,
-                            llmDurationMs = timings.llmActiveMs,
-                            wallClockMs = timings.wallClockMs,
-                        )
-                        refreshUsageStats()
-
-                        _state.value = DictationUiState.Done(
-                            outcome = DictationOutcome(
-                                text = cleanedText,
-                                engine = Engine.LOCAL,
-                                note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s · $totalChunks chunks) · ${timings.formatSummary()}",
-                                audioSeconds = audioDurationSec.toDouble(),
-                                elapsedMs = timings.wallClockMs,
-                                timings = timings,
-                            ),
-                            roundTripMs = null,
-                            rawText = rawText,
-                            diff = diff,
-                        )
-                    } else {
-                        val timings = tracker.stop(overrideLlmActiveMs = 0L)
-                        val diff = WordDiffCalculator.verbatim(rawText)
-
-                        UsageStatsStore(app).record(
-                            durationSeconds = audioDurationSec.toDouble(),
-                            rawWords = diff.rawWords,
-                            cleanedWords = 0,
-                            engine = Engine.LOCAL.label,
-                            deliveredWords = diff.deliveredWords,
-                            wordsRemoved = 0,
-                            wordsChanged = 0,
-                            wordsAdded = 0,
-                            asrDurationMs = timings.asrActiveMs,
-                            llmDurationMs = 0L,
-                            wallClockMs = timings.wallClockMs,
-                        )
-                        refreshUsageStats()
-
-                        _state.value = DictationUiState.Done(
-                            outcome = DictationOutcome(
-                                text = rawText,
-                                engine = Engine.LOCAL,
-                                note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s · $totalChunks chunks) · ASR: %,d ms · Wall: %,d ms (cleanup off)".format(Locale.US, timings.asrActiveMs, timings.wallClockMs),
-                                audioSeconds = audioDurationSec.toDouble(),
-                                elapsedMs = timings.wallClockMs,
-                                timings = timings,
-                            ),
-                            roundTripMs = null,
-                            rawText = rawText,
-                            diff = diff,
-                        )
-                    }
-                } catch (t: Throwable) {
-                    cleanupPipeline?.abort()
-                    throw t
+                    reportProgress()
                 }
+
+                val rawText = rawUnits.joinToString(" ").trim()
+
+                if (rawText.isBlank()) {
+                    cleanupPipeline?.abort()
+                    val timings = tracker.stop(overrideLlmActiveMs = 0L)
+                    _state.value = DictationUiState.Done(
+                        outcome = DictationOutcome(
+                            text = "(no speech detected in file)",
+                            engine = Engine.LOCAL,
+                            note = "Audio file decoded ($audioDurationSec s) but no speech recognized",
+                            audioSeconds = audioDurationSec.toDouble(),
+                            elapsedMs = timings.wallClockMs,
+                            timings = timings,
+                        ),
+                        roundTripMs = null,
+                        rawText = "",
+                        diff = null,
+                    )
+                    return@launch
+                }
+
+                // Step 3: Drain cleanup pipeline if enabled
+                if (cleanupPipeline != null) {
+                    cleanupPipeline.drain()
+                    val timings = tracker.stop(overrideLlmActiveMs = cleanupPipeline.totalActiveLlmMs)
+                    val cleanedText = cleanupPipeline.state.carriedTail.ifBlank { rawText }
+                    val diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = cleanedText)
+                    val wordsCleaned = diff.wordsChanged + diff.wordsRemoved + diff.wordsAdded
+
+                    UsageStatsStore(app).record(
+                        durationSeconds = audioDurationSec.toDouble(),
+                        rawWords = diff.rawWords,
+                        cleanedWords = wordsCleaned,
+                        engine = Engine.LOCAL.label,
+                        deliveredWords = diff.deliveredWords,
+                        wordsRemoved = diff.wordsRemoved,
+                        wordsChanged = diff.wordsChanged,
+                        wordsAdded = diff.wordsAdded,
+                        asrDurationMs = timings.asrActiveMs,
+                        llmDurationMs = timings.llmActiveMs,
+                        wallClockMs = timings.wallClockMs,
+                    )
+                    refreshUsageStats()
+
+                    _state.value = DictationUiState.Done(
+                        outcome = DictationOutcome(
+                            text = cleanedText,
+                            engine = Engine.LOCAL,
+                            note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s · $totalChunks chunks) · ${timings.formatSummary()}",
+                            audioSeconds = audioDurationSec.toDouble(),
+                            elapsedMs = timings.wallClockMs,
+                            timings = timings,
+                        ),
+                        roundTripMs = null,
+                        rawText = rawText,
+                        diff = diff,
+                    )
+                } else {
+                    val timings = tracker.stop(overrideLlmActiveMs = 0L)
+                    val diff = WordDiffCalculator.verbatim(rawText)
+
+                    UsageStatsStore(app).record(
+                        durationSeconds = audioDurationSec.toDouble(),
+                        rawWords = diff.rawWords,
+                        cleanedWords = 0,
+                        engine = Engine.LOCAL.label,
+                        deliveredWords = diff.deliveredWords,
+                        wordsRemoved = 0,
+                        wordsChanged = 0,
+                        wordsAdded = 0,
+                        asrDurationMs = timings.asrActiveMs,
+                        llmDurationMs = 0L,
+                        wallClockMs = timings.wallClockMs,
+                    )
+                    refreshUsageStats()
+
+                    _state.value = DictationUiState.Done(
+                        outcome = DictationOutcome(
+                            text = rawText,
+                            engine = Engine.LOCAL,
+                            note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s · $totalChunks chunks) · ASR: %,d ms · Wall: %,d ms (cleanup off)".format(Locale.US, timings.asrActiveMs, timings.wallClockMs),
+                            audioSeconds = audioDurationSec.toDouble(),
+                            elapsedMs = timings.wallClockMs,
+                            timings = timings,
+                        ),
+                        roundTripMs = null,
+                        rawText = rawText,
+                        diff = diff,
+                    )
+                }
+            } catch (_: CancellationException) {
+                cleanupPipeline?.abort()
+                _state.value = DictationUiState.Idle
             } catch (e: Exception) {
-                _state.value = DictationUiState.Failed("file_transcribe", e.message ?: "Failed to transcribe audio file")
+                cleanupPipeline?.abort()
+                _state.value = DictationUiState.Failed("transcribe_error", e.message ?: "Transcription failed")
+            } finally {
+                fileTranscribeJob = null
             }
         }
     }
