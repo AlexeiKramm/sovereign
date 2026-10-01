@@ -7,9 +7,12 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,9 +86,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -97,6 +104,7 @@ import fi.ak.smartvoice.data.AppSettings
 import fi.ak.smartvoice.data.AppThemeMode
 import fi.ak.smartvoice.data.LiteRtProcessor
 import fi.ak.smartvoice.engine.EnginePreference
+import fi.ak.smartvoice.theme.ColorHsvUtils
 import fi.ak.smartvoice.theme.Spacing
 import fi.ak.smartvoice.theme.ThemePaletteStyle
 import fi.ak.smartvoice.theme.ThemePresets
@@ -117,7 +125,11 @@ import fi.ak.smartvoice.ui.models.ModelsScreen
 import fi.ak.smartvoice.ui.stats.StatsScreen
 import fi.ak.smartvoice.ui.transcribe.TranscribeHubScreen
 import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 enum class SettingsSubScreen {
     MAIN,
@@ -1325,9 +1337,21 @@ private fun CustomColorDialog(
     onDismissRequest: () -> Unit,
     onColorSelected: (Int) -> Unit,
 ) {
+    val initialHsv = remember(initialColor) {
+        ColorHsvUtils.colorToHsv(Color(initialColor))
+    }
+    var hue by remember { mutableFloatStateOf(initialHsv.first) }
+    var saturation by remember { mutableFloatStateOf(initialHsv.second) }
+    var value by remember { mutableFloatStateOf(initialHsv.third) }
+
     var hexInput by remember {
         mutableStateOf(String.format(Locale.US, "#%06X", initialColor and 0x00FFFFFF))
     }
+
+    val currentColor = remember(hue, saturation, value) {
+        ColorHsvUtils.hsvToColor(hue, saturation, value)
+    }
+
     val parsedColor = remember(hexInput) {
         val clean = hexInput.trim().removePrefix("#").removePrefix("0x").removePrefix("0X")
         if (clean.length == 6) {
@@ -1339,86 +1363,80 @@ private fun CustomColorDialog(
         }
     }
 
-    val paletteChoices = remember {
-        listOf(
-            ThemePresets.SOVEREIGN_CYAN.argb,
-            ThemePresets.SKY_CORE.argb,
-            ThemePresets.TITANIUM_SLATE.argb,
-            ThemePresets.CYBER_TEAL.argb,
-            ThemePresets.TACTICAL_AMBER.argb,
-            ThemePresets.SIGNATURE_ORANGE.argb,
-            ThemePresets.PIXEL_BLUE.argb,
-            ThemePresets.ANDROID_GREEN.argb,
-            ThemePresets.CORAL.argb,
-            ThemePresets.LILAC.argb,
-            ThemePresets.MINT_TEAL.argb,
-            0xFF8E24AA.toInt(), // Purple
-        )
-    }
-
     AlertDialog(
         onDismissRequest = onDismissRequest,
         title = {
             Text(
-                text = "Custom Theme Color",
+                text = "Custom Seed Color",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "Pick a curated tone or enter a hex code to generate your dynamic Material 3 palette.",
+                    text = "Touch and drag on the color wheel to select hue and saturation, adjust brightness, or enter a hex code.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Palette grid (2 rows of 6)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    paletteChoices.chunked(6).forEach { rowColors ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            rowColors.forEach { argb ->
-                                val color = Color(argb)
-                                val isCurSelected = parsedColor != null && (parsedColor and 0x00FFFFFF) == (argb and 0x00FFFFFF)
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(color)
-                                        .border(
-                                            width = if (isCurSelected) 2.5.dp else 1.dp,
-                                            color = if (isCurSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                            shape = CircleShape,
-                                        )
-                                        .clickable {
-                                            hexInput = String.format(Locale.US, "#%06X", argb and 0x00FFFFFF)
-                                        },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (isCurSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            tint = if (color.luminance() > 0.5f) Color.Black else Color.White,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                // 1. Interactive Color Wheel
+                ColorWheelPicker(
+                    hue = hue,
+                    saturation = saturation,
+                    value = value,
+                    onColorChanged = { newHue, newSat ->
+                        hue = newHue
+                        saturation = newSat
+                        val c = ColorHsvUtils.hsvToColor(newHue, newSat, value)
+                        hexInput = String.format(Locale.US, "#%06X", c.toArgb() and 0x00FFFFFF)
+                    },
+                    modifier = Modifier.size(210.dp),
+                )
+
+                // 2. Brightness / Value Slider
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Brightness",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "${(value * 100f).roundToInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                    Slider(
+                        value = value,
+                        onValueChange = { newVal ->
+                            value = newVal
+                            val c = ColorHsvUtils.hsvToColor(hue, saturation, newVal)
+                            hexInput = String.format(Locale.US, "#%06X", c.toArgb() and 0x00FFFFFF)
+                        },
+                        valueRange = 0.15f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                // Hex input with real-time preview
+                // 3. Hex code input with real-time preview swatch
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1428,9 +1446,9 @@ private fun CustomColorDialog(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(parsedColor?.let { Color(it) } ?: MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .background(currentColor)
                             .border(
-                                width = 1.5.dp,
+                                width = 2.dp,
                                 color = MaterialTheme.colorScheme.outlineVariant,
                                 shape = CircleShape,
                             ),
@@ -1441,6 +1459,18 @@ private fun CustomColorDialog(
                         onValueChange = { input ->
                             if (input.length <= 9) {
                                 hexInput = input
+                                val clean = input.trim().removePrefix("#").removePrefix("0x").removePrefix("0X")
+                                val parsed = if (clean.length == 6) {
+                                    clean.toLongOrNull(16)?.let { (0xFF000000L or it).toInt() }
+                                } else if (clean.length == 8) {
+                                    clean.toLongOrNull(16)?.toInt()
+                                } else null
+                                if (parsed != null) {
+                                    val (newH, newS, newV) = ColorHsvUtils.colorToHsv(Color(parsed))
+                                    hue = newH
+                                    saturation = newS
+                                    value = newV
+                                }
                             }
                         },
                         label = { Text("Hex code") },
@@ -1449,7 +1479,7 @@ private fun CustomColorDialog(
                         isError = parsedColor == null,
                         supportingText = {
                             if (parsedColor == null) {
-                                Text("Enter a valid hex code (e.g. #7C4DFF)")
+                                Text("Enter a valid hex code (e.g. #00B4D8)")
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -1460,9 +1490,8 @@ private fun CustomColorDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    parsedColor?.let { onColorSelected(it) }
+                    onColorSelected(currentColor.toArgb())
                 },
-                enabled = parsedColor != null,
             ) {
                 Text("Apply")
             }
@@ -1473,6 +1502,128 @@ private fun CustomColorDialog(
             }
         },
     )
+}
+
+@Composable
+private fun ColorWheelPicker(
+    hue: Float,
+    saturation: Float,
+    value: Float,
+    onColorChanged: (hue: Float, saturation: Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val sweepColors = remember {
+        listOf(
+            Color.Red,
+            Color.Yellow,
+            Color.Green,
+            Color.Cyan,
+            Color.Blue,
+            Color.Magenta,
+            Color.Red,
+        )
+    }
+
+    Canvas(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val radius = minOf(centerX, centerY)
+                    val dx = offset.x - centerX
+                    val dy = offset.y - centerY
+                    val dist = sqrt(dx * dx + dy * dy)
+                    val sat = (dist / radius).coerceIn(0f, 1f)
+                    val angleRad = atan2(dy, dx)
+                    val angleDeg = (Math.toDegrees(angleRad.toDouble()).toFloat() + 360f) % 360f
+                    onColorChanged(angleDeg, sat)
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+                    val radius = minOf(centerX, centerY)
+                    val dx = change.position.x - centerX
+                    val dy = change.position.y - centerY
+                    val dist = sqrt(dx * dx + dy * dy)
+                    val sat = (dist / radius).coerceIn(0f, 1f)
+                    val angleRad = atan2(dy, dx)
+                    val angleDeg = (Math.toDegrees(angleRad.toDouble()).toFloat() + 360f) % 360f
+                    onColorChanged(angleDeg, sat)
+                }
+            }
+    ) {
+        val centerOffset = Offset(size.width / 2f, size.height / 2f)
+        val radius = minOf(size.width, size.height) / 2f
+
+        // 1. Hue sweep gradient
+        drawCircle(
+            brush = Brush.sweepGradient(sweepColors, center = centerOffset),
+            radius = radius,
+            center = centerOffset,
+        )
+
+        // 2. Saturation radial gradient (white in center fading to transparent at edge)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.White, Color.Transparent),
+                center = centerOffset,
+                radius = radius,
+            ),
+            radius = radius,
+            center = centerOffset,
+        )
+
+        // 3. Brightness overlay if value < 1f
+        if (value < 1f) {
+            drawCircle(
+                color = Color.Black.copy(alpha = (1f - value).coerceIn(0f, 1f)),
+                radius = radius,
+                center = centerOffset,
+            )
+        }
+
+        // 4. Subtle wheel outer rim
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.25f),
+            radius = radius,
+            center = centerOffset,
+            style = Stroke(width = 2.dp.toPx()),
+        )
+
+        // 5. Thumb / handle at current (hue, saturation)
+        val angleRad = Math.toRadians(hue.toDouble())
+        val handleDist = saturation * radius
+        val handleX = centerOffset.x + (handleDist * cos(angleRad)).toFloat()
+        val handleY = centerOffset.y + (handleDist * sin(angleRad)).toFloat()
+        val handleCenter = Offset(handleX, handleY)
+
+        val currentColor = ColorHsvUtils.hsvToColor(hue, saturation, value)
+
+        // Outer dark drop shadow
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.5f),
+            radius = 14.dp.toPx(),
+            center = handleCenter,
+            style = Stroke(width = 2.dp.toPx()),
+        )
+        // White border ring
+        drawCircle(
+            color = Color.White,
+            radius = 12.dp.toPx(),
+            center = handleCenter,
+            style = Stroke(width = 3.dp.toPx()),
+        )
+        // Current color fill inside thumb
+        drawCircle(
+            color = currentColor,
+            radius = 9.dp.toPx(),
+            center = handleCenter,
+        )
+    }
 }
 
 // ----------------------------------------------------------------------------

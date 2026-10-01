@@ -116,4 +116,27 @@ class DynamicThemeTest {
         assertEquals(Color.White, elevatedLight.surfaceContainer)
         assertTrue(elevatedLight.surfaceContainer.luminance() > elevatedLight.background.luminance())
     }
+
+    @Test
+    fun `ColorHsvUtils converts between HSV and Color reliably`() {
+        val cyan = Color(0xFF00B4D8)
+        val (h, s, v) = ColorHsvUtils.colorToHsv(cyan)
+        assertEquals(190.0f, h, 1.0f)
+        assertEquals(1.0f, s, 0.05f)
+        assertEquals(0.85f, v, 0.05f)
+
+        val reconstructed = ColorHsvUtils.hsvToColor(h, s, v)
+        assertEquals(cyan.red, reconstructed.red, 0.02f)
+        assertEquals(cyan.green, reconstructed.green, 0.02f)
+        assertEquals(cyan.blue, reconstructed.blue, 0.02f)
+
+        for (testColor in listOf(Color.Red, Color.Green, Color.Blue, Color.White, Color.Black)) {
+            val (th, ts, tv) = ColorHsvUtils.colorToHsv(testColor)
+            val recon = ColorHsvUtils.hsvToColor(th, ts, tv)
+            assertEquals(testColor.red, recon.red, 0.02f)
+            assertEquals(testColor.green, recon.green, 0.02f)
+            assertEquals(testColor.blue, recon.blue, 0.02f)
+        }
+    }
 }
+
