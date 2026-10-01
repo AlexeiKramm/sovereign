@@ -1,5 +1,6 @@
 package fi.ak.smartvoice.ui.home
 
+import fi.ak.smartvoice.R
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -261,37 +262,13 @@ private fun BrandHero(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Waveform Brand Mark: 4 vertical rounded bars
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(3.5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val primary = MaterialTheme.colorScheme.primary
-                Box(
-                    modifier = Modifier
-                        .size(width = 4.dp, height = 15.dp)
-                        .clip(CircleShape)
-                        .background(primary),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(width = 4.dp, height = 26.dp)
-                        .clip(CircleShape)
-                        .background(primary),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(width = 4.dp, height = 11.dp)
-                        .clip(CircleShape)
-                        .background(primary),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(width = 4.dp, height = 19.dp)
-                        .clip(CircleShape)
-                        .background(primary),
-                )
-            }
+            // Official Sovereign Brand Stencil
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.ic_notification),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
 
             Text(
                 text = "Sovereign",
