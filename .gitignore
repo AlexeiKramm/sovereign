@@ -45,3 +45,7 @@ tools/*.tar.gz
 *.mp3
 *.opus
 !fixtures/**
+
+# Agent local operational notes
+AGENTS.md
+
