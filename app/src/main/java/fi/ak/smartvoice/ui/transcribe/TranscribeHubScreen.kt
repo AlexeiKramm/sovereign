@@ -1,11 +1,9 @@
 package fi.ak.smartvoice.ui.transcribe
 
-import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -13,15 +11,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import fi.ak.smartvoice.asr.AsrModelType
 import fi.ak.smartvoice.cleanup.CleanupPrompt
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import fi.ak.smartvoice.ui.components.StatusConfigurationCard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +34,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -52,6 +46,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -59,7 +55,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -75,14 +70,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fi.ak.smartvoice.audio.AudioDecoder
 import fi.ak.smartvoice.ui.DictationUiState
@@ -105,19 +96,9 @@ fun TranscribeHubScreen(
     val scope = rememberCoroutineScope()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedAsrModel by viewModel.selectedAsrModel.collectAsStateWithLifecycle()
-    val selectedLitertModel by viewModel.selectedLitertModel.collectAsStateWithLifecycle()
-    val cleanupVariant by viewModel.cleanupVariant.collectAsStateWithLifecycle()
-
-    var micGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED,
-        )
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> micGranted = granted }
+    val cleanupEnabled by viewModel.cleanupEnabled.collectAsStateWithLifecycle()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val activeProfileId by viewModel.activeProfileId.collectAsStateWithLifecycle()
 
     var pickedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var pickedAudioName by remember { mutableStateOf<String?>(null) }
@@ -157,303 +138,45 @@ fun TranscribeHubScreen(
     ) {
         Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
 
-        // --- HEADER & MODEL BADGES ---
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (onNavigateUp != null) {
-                    IconButton(onClick = onNavigateUp) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
+        // --- HEADER ---
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (onNavigateUp != null) {
+                IconButton(onClick = onNavigateUp) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                    )
                 }
-                Text(
-                    text = "Transcribe Hub",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                )
             }
             Text(
-                text = "Private on-device voice dictation and AI cleanup",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "Transcribe Hub",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
             )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Mic,
-                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            size = 32.dp,
-                            iconSize = 18.dp,
-                        )
-                        Column {
-                            Text("Voice", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                selectedAsrModel.label.substringBefore("(").trim(),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Edit,
-                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            size = 32.dp,
-                            iconSize = 18.dp,
-                        )
-                        Column {
-                            Text("AI Cleanup", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                selectedLitertModel.label,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
-            }
         }
 
-        // --- PROFILE QUICK SWITCHER ---
-        SettingsGroupCard {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    SettingsIconBadge(
-                        icon = Icons.Default.Edit,
-                        badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Column {
-                        Text(
-                            text = "Cleanup Style",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Choose rewrite aggressiveness",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CleanupPrompt.Variant.entries.forEach { variant ->
-                        FilterChip(
-                            selected = cleanupVariant == variant,
-                            onClick = { viewModel.onCleanupVariantChange(variant) },
-                            label = {
-                                Text(
-                                    variant.name.split('_').joinToString(" ") { word ->
-                                        word.lowercase().replaceFirstChar { it.uppercase() }
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = if (cleanupVariant == variant) FontWeight.Bold else FontWeight.Normal,
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-        }
-
-        // --- HERO LIVE RECORDING CARD ---
-        val isRecording = state is DictationUiState.Recording
-        val isWorking = state is DictationUiState.Working
-
-        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-        val pulseScale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = if (isRecording) 1.15f else 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(800, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "pulseScale",
+        // --- STANDARDIZED STATUS & ENGINE CONFIGURATION CARD ---
+        StatusConfigurationCard(
+            allGreen = true,
+            missingPermissions = emptyList(),
+            onGrantPermission = {},
+            selectedAsrModel = selectedAsrModel,
+            asrModels = viewModel.asrCatalog,
+            onSelectAsrModel = { viewModel.selectAsrModel(it) },
+            onNavigateToModels = {},
+            cleanupEnabled = cleanupEnabled,
+            onToggleCleanup = { viewModel.toggleCleanupEnabled() },
+            activeProfileId = activeProfileId,
+            profiles = profiles,
+            onSelectProfile = { viewModel.setActiveProfile(it.id) },
+            onNavigateToProfiles = {},
+            statusSubtitle = "On-device speech engine & cleanup active",
         )
 
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    1.dp,
-                    if (isRecording) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                    RoundedCornerShape(24.dp),
-                ),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isRecording) {
-                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
-                },
-            ),
-            shape = RoundedCornerShape(24.dp),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 24.dp, horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                // Timer / Status
-                when (val current = state) {
-                    is DictationUiState.Recording -> {
-                        val totalSec = current.seconds.toInt()
-                        val mins = totalSec / 60
-                        val secs = totalSec % 60
-                        Text(
-                            text = "%02d:%02d".format(mins, secs),
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = "Listening… Tap to stop",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    is DictationUiState.Working -> {
-                        CircularProgressIndicator(modifier = Modifier.size(36.dp))
-                        Text(
-                            text = current.stage,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        current.progress?.let { p ->
-                            LinearProgressIndicator(
-                                progress = { p },
-                                modifier = Modifier.fillMaxWidth(0.6f),
-                            )
-                        }
-                    }
-                    is DictationUiState.Failed -> {
-                        Text(
-                            text = "Transcription Failed",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = current.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    else -> {
-                        Text(
-                            text = "00:00",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        )
-                        Text(
-                            text = "Tap the microphone to speak",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                // Big Record Button
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(96.dp)
-                        .scale(pulseScale),
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                if (!micGranted) {
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    return@clickable
-                                }
-                                if (isRecording) {
-                                    viewModel.stopAndTranscribe()
-                                } else if (!isWorking) {
-                                    viewModel.startRecording()
-                                }
-                            },
-                        color = if (isRecording) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.primary
-                        },
-                        shadowElevation = 8.dp,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            if (isRecording) {
-                                // Stop icon (square)
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .background(MaterialTheme.colorScheme.onError, RoundedCornerShape(4.dp)),
-                                )
-                            } else {
-                                // Mic icon
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = "Start Recording",
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(36.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (isRecording) {
-                    OutlinedButton(onClick = { viewModel.cancelRecording() }) {
-                        Text("Cancel")
-                    }
-                }
-            }
-        }
+        val isWorking = state is DictationUiState.Working
 
         // --- LOCAL AUDIO FILE PICKER CARD ---
         SettingsGroupCard {

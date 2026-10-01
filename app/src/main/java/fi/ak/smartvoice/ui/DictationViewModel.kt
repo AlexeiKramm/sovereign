@@ -565,6 +565,14 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _cleanupEnabled = MutableStateFlow(settings.cleanupEnabled)
     val cleanupEnabled: StateFlow<Boolean> = _cleanupEnabled.asStateFlow()
 
+    fun activeProfileVariant(): CleanupPrompt.Variant {
+        return when (profileStore.activeProfile().id) {
+            "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
+            "aggressive_rewrite" -> CleanupPrompt.Variant.AGGRESSIVE_REWRITE
+            else -> CleanupPrompt.Variant.SMART_CLEAN
+        }
+    }
+
     fun toggleCleanupEnabled() {
         val updated = !settings.cleanupEnabled
         settings.cleanupEnabled = updated
@@ -1419,7 +1427,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                         engine = engine(),
                         scope = viewModelScope,
                         dispatcher = cleanupDispatcher,
-                        rules = { _cleanupVariant.value },
+                        rules = { activeProfileVariant() },
                         healingSentencesCount = { settings.healingSentencesCount },
                         onCommitted = { /* carriedTail accumulates inside pipeline state */ },
                     ).also { it.begin() }

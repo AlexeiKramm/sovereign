@@ -42,6 +42,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
@@ -53,12 +54,18 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import fi.ak.smartvoice.asr.AsrModelSpec
+import fi.ak.smartvoice.asr.AsrModelType
+import fi.ak.smartvoice.ui.components.PermissionItem
+import fi.ak.smartvoice.ui.components.StatusConfigurationCard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -172,15 +179,9 @@ fun HomeScreen(
         BrandHero(modifier = Modifier.fillMaxWidth())
 
         // Card 1: Status & Active Configuration
-        StatusConfigCard(
+        StatusConfigurationCard(
             allGreen = missingPermissions.isEmpty(),
             missingPermissions = missingPermissions,
-            cleanupEnabled = cleanupEnabled,
-            onToggleCleanup = { viewModel.toggleCleanupEnabled() },
-            activeProfileName = activeProfileName,
-            activeModelLabel = activeModelLabel,
-            onNavigateToProfiles = onNavigateToProfiles,
-            onNavigateToModels = onNavigateToModels,
             onGrantPermission = { item ->
                 when (item) {
                     PermissionItem.Microphone ->
@@ -204,9 +205,31 @@ fun HomeScreen(
                     }
                 }
             },
+            selectedAsrModel = selectedAsrModel,
+            asrModels = viewModel.asrCatalog,
+            onSelectAsrModel = { viewModel.selectAsrModel(it) },
+            onNavigateToModels = onNavigateToModels,
+            cleanupEnabled = cleanupEnabled,
+            onToggleCleanup = { viewModel.toggleCleanupEnabled() },
+            activeProfileId = activeProfileId,
+            profiles = profiles,
+            onSelectProfile = { viewModel.setActiveProfile(it.id) },
+            onNavigateToProfiles = onNavigateToProfiles,
         )
 
-        // Card 2: Try Dictation
+        // Card 2: Usage Statistics
+        UsageStatisticsCard(
+            stats = stats,
+            onOpenTimeSaved = { showTimeSavedDialog = true },
+        )
+
+        // Card 3: Last Dictation Snippet
+        LastDictationCard(
+            lastRecord = historyData.records.firstOrNull(),
+            onOpenHistory = onOpenHistory,
+        )
+
+        // Card 4: Try Dictation
         TryDictationCard(
             state = dictationState,
             micGranted = micGranted,
@@ -214,18 +237,6 @@ fun HomeScreen(
             onStartRecording = { viewModel.startRecording() },
             onStopRecording = { viewModel.stopAndTranscribe() },
             onOpenTranscribe = onOpenTranscribe,
-        )
-
-        // Card 3: Usage Statistics
-        UsageStatisticsCard(
-            stats = stats,
-            onOpenTimeSaved = { showTimeSavedDialog = true },
-        )
-
-        // Card 4: Last Dictation Snippet
-        LastDictationCard(
-            lastRecord = historyData.records.firstOrNull(),
-            onOpenHistory = onOpenHistory,
         )
 
         Spacer(modifier = Modifier.height(Spacing.xl))
@@ -298,305 +309,7 @@ private fun BrandHero(modifier: Modifier = Modifier) {
 }
 
 // ----------------------------------------------------------------------------
-// B. Card 1: Status & Active Configuration
-// ----------------------------------------------------------------------------
-
-private enum class PermissionItem(val title: String, val why: String, val icon: ImageVector) {
-    Microphone(
-        title = "Microphone permission required",
-        why = "Required for speech recognition to hear your voice.",
-        icon = Icons.Default.Mic,
-    ),
-    Overlay(
-        title = "Display over other apps",
-        why = "Required for the floating pill to appear over your keyboard.",
-        icon = Icons.Default.Layers,
-    ),
-    Accessibility(
-        title = "Accessibility service disabled",
-        why = "Required to insert dictated text directly at your cursor.",
-        icon = Icons.Default.Accessibility,
-    ),
-}
-
-@Composable
-private fun StatusConfigCard(
-    allGreen: Boolean,
-    missingPermissions: List<PermissionItem>,
-    cleanupEnabled: Boolean,
-    onToggleCleanup: () -> Unit,
-    activeProfileName: String,
-    activeModelLabel: String,
-    onNavigateToProfiles: () -> Unit,
-    onNavigateToModels: () -> Unit,
-    onGrantPermission: (PermissionItem) -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            // Status Header Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Status Icon Badge (36dp circle)
-                val badgeBg = if (allGreen) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                } else {
-                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                }
-                val iconTint = if (allGreen) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                }
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(badgeBg),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = if (allGreen) Icons.Default.Check else Icons.Default.PriorityHigh,
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (allGreen) "All systems green" else "Setup required",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = if (allGreen) "Floating pill active · Ready in all apps" else "Missing required permissions",
-                        fontSize = 11.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                // Quick Toggle: [LLM polish ON / OFF]
-                val toggleBg = if (cleanupEnabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                }
-                val toggleText = if (cleanupEnabled) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                Surface(
-                    shape = CircleShape,
-                    color = toggleBg,
-                    modifier = Modifier.clickable(onClick = onToggleCleanup),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(toggleText),
-                        )
-                        Text(
-                            text = "LLM polish ${if (cleanupEnabled) "ON" else "OFF"}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = toggleText,
-                        )
-                    }
-                }
-            }
-
-            // Permission alert if any missing
-            if (missingPermissions.isNotEmpty()) {
-                missingPermissions.forEach { item ->
-                    PermissionAlertBanner(
-                        item = item,
-                        onGrant = { onGrantPermission(item) },
-                    )
-                }
-            }
-
-            // Configuration Status Tiles (Bottom Row)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                // Tile 1: Profile
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(onClick = onNavigateToProfiles),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.size(14.dp),
-                            )
-                            Text(
-                                text = "PROFILE",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            text = activeProfileName,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-
-                // Tile 2: Model
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(onClick = onNavigateToModels),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Memory,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp),
-                            )
-                            Text(
-                                text = "MODEL",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            text = activeModelLabel,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PermissionAlertBanner(
-    item: PermissionItem,
-    onGrant: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.title,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = item.why,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Button(
-                onClick = onGrant,
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = "Enable in system settings",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// C. Card 2: Try Dictation
+// B. Card 2: Try Dictation
 // ----------------------------------------------------------------------------
 
 @Composable
