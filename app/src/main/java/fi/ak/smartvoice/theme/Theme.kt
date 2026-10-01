@@ -102,6 +102,12 @@ fun SovereignTheme(
     seedColor: Int? = null,
     paletteStyle: String? = null,
     useSystemDynamic: Boolean? = null,
+    depthMode: Boolean? = null,
+    darkBgTone: Float? = null,
+    darkCardTone: Float? = null,
+    darkBorderTone: Float? = null,
+    lightBgTone: Float? = null,
+    lightBorderTone: Float? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = appThemeIsDark(themeMode)
@@ -109,7 +115,9 @@ fun SovereignTheme(
 
     val resolvedColorScheme = colorScheme ?: run {
         val effectiveUseSystem = useSystemDynamic ?: dynamicColor
-        if (effectiveUseSystem && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val settings = runCatching { AppSettings(context) }.getOrNull()
+
+        val baseScheme = if (effectiveUseSystem && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         } else if (seedColor != null) {
             val style = ThemePaletteStyle.fromId(paletteStyle)
@@ -119,12 +127,33 @@ fun SovereignTheme(
                 paletteStyle = style,
             )
         } else {
-            val settings = runCatching { AppSettings(context) }.getOrNull()
             if (settings != null) {
-                DynamicThemeEngine.resolveColorScheme(context, settings, darkTheme)
+                // If using settings directly and no override parameters were provided, resolveColorScheme handles it
+                if (depthMode == null && darkBgTone == null && darkCardTone == null &&
+                    darkBorderTone == null && lightBgTone == null && lightBorderTone == null
+                ) {
+                    return@run DynamicThemeEngine.resolveColorScheme(context, settings, darkTheme)
+                }
+                val seed = androidx.compose.ui.graphics.Color(settings.themeSeedColor or -0x1000000)
+                val style = ThemePaletteStyle.fromId(settings.themePaletteStyle)
+                DynamicThemeEngine.createColorScheme(seedColor = seed, isDark = darkTheme, paletteStyle = style)
             } else {
                 if (darkTheme) DarkColorScheme else LightColorScheme
             }
+        }
+
+        val effectiveDepthMode = depthMode ?: settings?.themeDepthMode ?: AppSettings.DEFAULT_THEME_DEPTH_MODE
+        if (effectiveDepthMode) {
+            baseScheme.elevatedSovereignPop(
+                isDark = darkTheme,
+                darkBgTone = darkBgTone ?: settings?.themeDarkBgTone ?: AppSettings.DEFAULT_THEME_DARK_BG_TONE,
+                darkCardTone = darkCardTone ?: settings?.themeDarkCardTone ?: AppSettings.DEFAULT_THEME_DARK_CARD_TONE,
+                darkBorderTone = darkBorderTone ?: settings?.themeDarkBorderTone ?: AppSettings.DEFAULT_THEME_DARK_BORDER_TONE,
+                lightBgTone = lightBgTone ?: settings?.themeLightBgTone ?: AppSettings.DEFAULT_THEME_LIGHT_BG_TONE,
+                lightBorderTone = lightBorderTone ?: settings?.themeLightBorderTone ?: AppSettings.DEFAULT_THEME_LIGHT_BORDER_TONE,
+            )
+        } else {
+            baseScheme
         }
     }
 
@@ -141,4 +170,12 @@ fun SmartVoiceTheme(
     paletteStyle: String? = null,
     useSystemDynamic: Boolean? = null,
     content: @Composable () -> Unit,
-) = SovereignTheme(themeMode, dynamicColor, colorScheme, seedColor, paletteStyle, useSystemDynamic, content)
+) = SovereignTheme(
+    themeMode = themeMode,
+    dynamicColor = dynamicColor,
+    colorScheme = colorScheme,
+    seedColor = seedColor,
+    paletteStyle = paletteStyle,
+    useSystemDynamic = useSystemDynamic,
+    content = content,
+)

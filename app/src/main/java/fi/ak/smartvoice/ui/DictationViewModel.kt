@@ -377,6 +377,24 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _themeUseSystemDynamic = MutableStateFlow(settings.themeUseSystemDynamic)
     val themeUseSystemDynamic: StateFlow<Boolean> = _themeUseSystemDynamic.asStateFlow()
 
+    private val _themeDepthMode = MutableStateFlow(settings.themeDepthMode)
+    val themeDepthMode: StateFlow<Boolean> = _themeDepthMode.asStateFlow()
+
+    private val _themeDarkBgTone = MutableStateFlow(settings.themeDarkBgTone)
+    val themeDarkBgTone: StateFlow<Float> = _themeDarkBgTone.asStateFlow()
+
+    private val _themeDarkCardTone = MutableStateFlow(settings.themeDarkCardTone)
+    val themeDarkCardTone: StateFlow<Float> = _themeDarkCardTone.asStateFlow()
+
+    private val _themeDarkBorderTone = MutableStateFlow(settings.themeDarkBorderTone)
+    val themeDarkBorderTone: StateFlow<Float> = _themeDarkBorderTone.asStateFlow()
+
+    private val _themeLightBgTone = MutableStateFlow(settings.themeLightBgTone)
+    val themeLightBgTone: StateFlow<Float> = _themeLightBgTone.asStateFlow()
+
+    private val _themeLightBorderTone = MutableStateFlow(settings.themeLightBorderTone)
+    val themeLightBorderTone: StateFlow<Float> = _themeLightBorderTone.asStateFlow()
+
     fun setThemeMode(mode: AppThemeMode) {
         settings.themeMode = mode
         _themeMode.value = mode
@@ -396,6 +414,44 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setThemeUseSystemDynamic(useSystem: Boolean) {
         settings.themeUseSystemDynamic = useSystem
         _themeUseSystemDynamic.value = useSystem
+    }
+
+    fun setThemeDepthMode(enabled: Boolean) {
+        settings.themeDepthMode = enabled
+        _themeDepthMode.value = enabled
+    }
+
+    fun setThemeDarkBgTone(tone: Float) {
+        settings.themeDarkBgTone = tone
+        _themeDarkBgTone.value = tone
+    }
+
+    fun setThemeDarkCardTone(tone: Float) {
+        settings.themeDarkCardTone = tone
+        _themeDarkCardTone.value = tone
+    }
+
+    fun setThemeDarkBorderTone(tone: Float) {
+        settings.themeDarkBorderTone = tone
+        _themeDarkBorderTone.value = tone
+    }
+
+    fun setThemeLightBgTone(tone: Float) {
+        settings.themeLightBgTone = tone
+        _themeLightBgTone.value = tone
+    }
+
+    fun setThemeLightBorderTone(tone: Float) {
+        settings.themeLightBorderTone = tone
+        _themeLightBorderTone.value = tone
+    }
+
+    fun resetThemeTones() {
+        setThemeDarkBgTone(AppSettings.DEFAULT_THEME_DARK_BG_TONE)
+        setThemeDarkCardTone(AppSettings.DEFAULT_THEME_DARK_CARD_TONE)
+        setThemeDarkBorderTone(AppSettings.DEFAULT_THEME_DARK_BORDER_TONE)
+        setThemeLightBgTone(AppSettings.DEFAULT_THEME_LIGHT_BG_TONE)
+        setThemeLightBorderTone(AppSettings.DEFAULT_THEME_LIGHT_BORDER_TONE)
     }
 
     // ------------------------------------------------------------------ settings
@@ -716,6 +772,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _themeSeedColor.value = settings.themeSeedColor
         _themePaletteStyle.value = settings.themePaletteStyle
         _themeUseSystemDynamic.value = settings.themeUseSystemDynamic
+        _themeDepthMode.value = settings.themeDepthMode
+        _themeDarkBgTone.value = settings.themeDarkBgTone
+        _themeDarkCardTone.value = settings.themeDarkCardTone
+        _themeDarkBorderTone.value = settings.themeDarkBorderTone
+        _themeLightBgTone.value = settings.themeLightBgTone
+        _themeLightBorderTone.value = settings.themeLightBorderTone
         _pauseField.value = field(settings.pauseSilenceSeconds)
         _stopField.value = field(settings.stopAfterSilenceSeconds)
         _healingSentencesCount.value = settings.healingSentencesCount
@@ -1630,6 +1692,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             _themeSeedColor.value = settings.themeSeedColor
             _themePaletteStyle.value = settings.themePaletteStyle
             _themeUseSystemDynamic.value = settings.themeUseSystemDynamic
+            _themeDepthMode.value = settings.themeDepthMode
+            _themeDarkBgTone.value = settings.themeDarkBgTone
+            _themeDarkCardTone.value = settings.themeDarkCardTone
+            _themeDarkBorderTone.value = settings.themeDarkBorderTone
+            _themeLightBgTone.value = settings.themeLightBgTone
+            _themeLightBorderTone.value = settings.themeLightBorderTone
         }
     }
 

@@ -46,6 +46,12 @@ class MainActivity : ComponentActivity() {
             val themeSeedColor by viewModel.themeSeedColor.collectAsStateWithLifecycle()
             val themePaletteStyle by viewModel.themePaletteStyle.collectAsStateWithLifecycle()
             val themeUseSystemDynamic by viewModel.themeUseSystemDynamic.collectAsStateWithLifecycle()
+            val themeDepthMode by viewModel.themeDepthMode.collectAsStateWithLifecycle()
+            val themeDarkBgTone by viewModel.themeDarkBgTone.collectAsStateWithLifecycle()
+            val themeDarkCardTone by viewModel.themeDarkCardTone.collectAsStateWithLifecycle()
+            val themeDarkBorderTone by viewModel.themeDarkBorderTone.collectAsStateWithLifecycle()
+            val themeLightBgTone by viewModel.themeLightBgTone.collectAsStateWithLifecycle()
+            val themeLightBorderTone by viewModel.themeLightBorderTone.collectAsStateWithLifecycle()
             val darkTheme = appThemeIsDark(themeMode)
 
             // `enableEdgeToEdge` chooses the status/navigation bar icon colour from the *system*
@@ -79,6 +85,12 @@ class MainActivity : ComponentActivity() {
                 seedColor = themeSeedColor,
                 paletteStyle = themePaletteStyle,
                 useSystemDynamic = themeUseSystemDynamic,
+                depthMode = themeDepthMode,
+                darkBgTone = themeDarkBgTone,
+                darkCardTone = themeDarkCardTone,
+                darkBorderTone = themeDarkBorderTone,
+                lightBgTone = themeLightBgTone,
+                lightBorderTone = themeLightBorderTone,
             ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (showWizard) {

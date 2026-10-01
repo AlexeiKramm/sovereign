@@ -171,6 +171,30 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_THEME_USE_SYSTEM_DYNAMIC, DEFAULT_THEME_USE_SYSTEM_DYNAMIC)
         set(value) = prefs.edit { putBoolean(KEY_THEME_USE_SYSTEM_DYNAMIC, value) }
 
+    var themeDepthMode: Boolean
+        get() = prefs.getBoolean(KEY_THEME_DEPTH_MODE, DEFAULT_THEME_DEPTH_MODE)
+        set(value) = prefs.edit { putBoolean(KEY_THEME_DEPTH_MODE, value) }
+
+    var themeDarkBgTone: Float
+        get() = prefs.getFloat(KEY_THEME_DARK_BG_TONE, DEFAULT_THEME_DARK_BG_TONE)
+        set(value) = prefs.edit { putFloat(KEY_THEME_DARK_BG_TONE, value) }
+
+    var themeDarkCardTone: Float
+        get() = prefs.getFloat(KEY_THEME_DARK_CARD_TONE, DEFAULT_THEME_DARK_CARD_TONE)
+        set(value) = prefs.edit { putFloat(KEY_THEME_DARK_CARD_TONE, value) }
+
+    var themeDarkBorderTone: Float
+        get() = prefs.getFloat(KEY_THEME_DARK_BORDER_TONE, DEFAULT_THEME_DARK_BORDER_TONE)
+        set(value) = prefs.edit { putFloat(KEY_THEME_DARK_BORDER_TONE, value) }
+
+    var themeLightBgTone: Float
+        get() = prefs.getFloat(KEY_THEME_LIGHT_BG_TONE, DEFAULT_THEME_LIGHT_BG_TONE)
+        set(value) = prefs.edit { putFloat(KEY_THEME_LIGHT_BG_TONE, value) }
+
+    var themeLightBorderTone: Float
+        get() = prefs.getFloat(KEY_THEME_LIGHT_BORDER_TONE, DEFAULT_THEME_LIGHT_BORDER_TONE)
+        set(value) = prefs.edit { putFloat(KEY_THEME_LIGHT_BORDER_TONE, value) }
+
     /**
      * Calls [onChange] whenever any theme preference (mode, seed color, palette style, or dynamic flag)
      * changes. The floating pill is its own window with its own theme, so this signal updates it
@@ -375,17 +399,35 @@ class AppSettings(context: Context) {
         private const val KEY_THEME_SEED_COLOR = "theme_seed_color"
         private const val KEY_THEME_PALETTE_STYLE = "theme_palette_style"
         private const val KEY_THEME_USE_SYSTEM_DYNAMIC = "theme_use_system_dynamic"
+        private const val KEY_THEME_DEPTH_MODE = "theme_depth_mode"
+        private const val KEY_THEME_DARK_BG_TONE = "theme_dark_bg_tone"
+        private const val KEY_THEME_DARK_CARD_TONE = "theme_dark_card_tone"
+        private const val KEY_THEME_DARK_BORDER_TONE = "theme_dark_border_tone"
+        private const val KEY_THEME_LIGHT_BG_TONE = "theme_light_bg_tone"
+        private const val KEY_THEME_LIGHT_BORDER_TONE = "theme_light_border_tone"
 
         private val THEME_KEYS = setOf(
             KEY_THEME_MODE,
             KEY_THEME_SEED_COLOR,
             KEY_THEME_PALETTE_STYLE,
             KEY_THEME_USE_SYSTEM_DYNAMIC,
+            KEY_THEME_DEPTH_MODE,
+            KEY_THEME_DARK_BG_TONE,
+            KEY_THEME_DARK_CARD_TONE,
+            KEY_THEME_DARK_BORDER_TONE,
+            KEY_THEME_LIGHT_BG_TONE,
+            KEY_THEME_LIGHT_BORDER_TONE,
         )
 
-        const val DEFAULT_THEME_SEED_COLOR: Int = 0xFFFF9248.toInt()
+        const val DEFAULT_THEME_SEED_COLOR: Int = 0xFF00B4D8.toInt()
         const val DEFAULT_THEME_PALETTE_STYLE: String = "VIBRANT"
         const val DEFAULT_THEME_USE_SYSTEM_DYNAMIC: Boolean = false
+        const val DEFAULT_THEME_DEPTH_MODE: Boolean = true
+        const val DEFAULT_THEME_DARK_BG_TONE: Float = 8.0f
+        const val DEFAULT_THEME_DARK_CARD_TONE: Float = 16.0f
+        const val DEFAULT_THEME_DARK_BORDER_TONE: Float = 25.0f
+        const val DEFAULT_THEME_LIGHT_BG_TONE: Float = 91.5f
+        const val DEFAULT_THEME_LIGHT_BORDER_TONE: Float = 82.0f
         // Seconds-valued keys, deliberately new names: the earlier millisecond keys hold Ints, and
         // reading one of those back as a Float throws. The old keys are simply abandoned.
         private const val KEY_PAUSE_SILENCE_S = "pause_silence_s"

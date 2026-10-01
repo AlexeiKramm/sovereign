@@ -13,9 +13,15 @@ class DynamicThemeTest {
 
     @Test
     fun `default theme settings match locked decisions`() {
-        assertEquals(0xFFFF9248.toInt(), AppSettings.DEFAULT_THEME_SEED_COLOR)
+        assertEquals(0xFF00B4D8.toInt(), AppSettings.DEFAULT_THEME_SEED_COLOR)
         assertEquals("VIBRANT", AppSettings.DEFAULT_THEME_PALETTE_STYLE)
         assertEquals(false, AppSettings.DEFAULT_THEME_USE_SYSTEM_DYNAMIC)
+        assertEquals(true, AppSettings.DEFAULT_THEME_DEPTH_MODE)
+        assertEquals(8.0f, AppSettings.DEFAULT_THEME_DARK_BG_TONE, 0.01f)
+        assertEquals(16.0f, AppSettings.DEFAULT_THEME_DARK_CARD_TONE, 0.01f)
+        assertEquals(25.0f, AppSettings.DEFAULT_THEME_DARK_BORDER_TONE, 0.01f)
+        assertEquals(91.5f, AppSettings.DEFAULT_THEME_LIGHT_BG_TONE, 0.01f)
+        assertEquals(82.0f, AppSettings.DEFAULT_THEME_LIGHT_BORDER_TONE, 0.01f)
     }
 
     @Test
@@ -32,7 +38,11 @@ class DynamicThemeTest {
     }
 
     @Test
-    fun `presets include signature orange and expected palette seeds`() {
+    fun `presets include sovereign cyan and signature orange`() {
+        val cyan = ThemePresets.ALL.firstOrNull { it.hex == "#00B4D8" }
+        assertNotNull("Sovereign cyan preset must exist", cyan)
+        assertEquals("Sovereign Cyan", cyan?.name)
+
         val orange = ThemePresets.ALL.firstOrNull { it.hex == "#FF9248" }
         assertNotNull("Signature orange preset must exist", orange)
         assertEquals("Signature Orange", orange?.name)
@@ -85,5 +95,25 @@ class DynamicThemeTest {
 
         assertTrue("Vibrant and Tonal Spot should generate distinct color assignments", huesOrTokensDiffer)
         assertNotEquals(vibrantDark.secondary, tonalSpotDark.secondary)
+    }
+
+    @Test
+    fun `elevatedSovereignPop expands background to card separation in dark and light modes`() {
+        val cyan = Color(0xFF00B4D8)
+        val darkBase = DynamicThemeEngine.createColorScheme(cyan, isDark = true, ThemePaletteStyle.VIBRANT)
+        val elevatedDark = darkBase.elevatedSovereignPop(isDark = true)
+
+        // In elevated dark mode, card surface container is brighter than the background
+        assertTrue(elevatedDark.surfaceContainer.luminance() > elevatedDark.background.luminance())
+        // Hairline outline border is distinct
+        assertNotNull(elevatedDark.outline)
+        assertNotNull(elevatedDark.outlineVariant)
+
+        val lightBase = DynamicThemeEngine.createColorScheme(cyan, isDark = false, ThemePaletteStyle.VIBRANT)
+        val elevatedLight = lightBase.elevatedSovereignPop(isDark = false)
+
+        // In elevated light mode, card container is pure white, background is titanium canvas
+        assertEquals(Color.White, elevatedLight.surfaceContainer)
+        assertTrue(elevatedLight.surfaceContainer.luminance() > elevatedLight.background.luminance())
     }
 }
