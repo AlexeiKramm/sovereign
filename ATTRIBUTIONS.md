@@ -50,6 +50,7 @@ Sovereign is built on top of high-quality open-source software, fonts, and open-
 
 Sovereign does not bundle or redistribute model weights within the application package. Users may download compatible pre-trained model weights on demand directly to their device under the respective author licenses:
 
-- **NVIDIA Nemotron / FastConformer:** Developed by NVIDIA Corporation under the NVIDIA Open Model License / CC-BY-4.0.
+- **NVIDIA Nemotron & Parakeet (FastConformer):** Developed by NVIDIA Corporation under the NVIDIA Open Model License / CC-BY-4.0 ([https://github.com/NVIDIA/NeMo](https://github.com/NVIDIA/NeMo)).
+- **OpenAI Whisper:** Developed by OpenAI under the MIT License ([https://github.com/openai/whisper](https://github.com/openai/whisper)).
 - **Gemma 4 Models:** Developed by Google LLC under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
-- **Qwen Models:** Developed by Alibaba Cloud under the Apache 2.0 / Qwen Community License.
+- **Qwen Models:** Developed by Alibaba Cloud under the Apache 2.0 / Qwen Community License ([https://github.com/QwenLM/Qwen2.5](https://github.com/QwenLM/Qwen2.5)).
