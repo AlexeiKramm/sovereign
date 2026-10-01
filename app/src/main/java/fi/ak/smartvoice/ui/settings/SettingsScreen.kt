@@ -1044,10 +1044,10 @@ fun SettingsScreen(
             }
         }
 
-        // --- 7. ABOUT SMART VOICE ---
+        // --- 7. ABOUT SOVEREIGN ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
-                text = "ABOUT SMART VOICE",
+                text = "ABOUT SOVEREIGN",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -1071,13 +1071,13 @@ fun SettingsScreen(
                         )
                         Column {
                             Text(
-                                text = "Smart Voice v${buildVersion(context)}",
+                                text = "Sovereign v${buildVersion(context)}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = "100% on-device AI voice dictation with LLM cleanup",
+                                text = "100% on-device smart dictation with LLM cleanup",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1087,7 +1087,7 @@ fun SettingsScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                     Text(
-                        text = "Smart Voice runs entirely locally on your phone hardware. Audio recordings and transcriptions never leave your device.",
+                        text = "Sovereign runs entirely locally on your phone hardware. Audio recordings and transcriptions never leave your device.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp,

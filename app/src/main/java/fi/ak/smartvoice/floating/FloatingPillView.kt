@@ -106,7 +106,7 @@ import fi.ak.smartvoice.data.CleaningProfile
 import fi.ak.smartvoice.theme.Motion
 import fi.ak.smartvoice.theme.Radius
 import fi.ak.smartvoice.theme.Spacing
-import fi.ak.smartvoice.theme.SmartVoiceTheme
+import fi.ak.smartvoice.theme.SovereignTheme
 import fi.ak.smartvoice.ui.rememberPinnedToBottom
 import kotlin.math.exp
 import kotlinx.coroutines.withTimeoutOrNull
@@ -281,7 +281,7 @@ fun FloatingDictationOverlay(
 ) {
     // The overlay lives in a service window, so it does not inherit the Activity's theme: the
     // service resolves the app's theme mode (falling back to the system) and passes it in.
-    SmartVoiceTheme(
+    SovereignTheme(
         themeMode = if (darkTheme) AppThemeMode.DARK else AppThemeMode.LIGHT,
         colorScheme = colorScheme,
     ) {

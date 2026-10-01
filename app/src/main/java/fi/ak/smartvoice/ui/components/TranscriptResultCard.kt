@@ -222,7 +222,7 @@ fun TranscriptResultCard(
                     CopyPillButton(
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Smart Voice", clean.ifBlank { raw }))
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Sovereign", clean.ifBlank { raw }))
                             if (onCopyFeedback != null) {
                                 onCopyFeedback()
                             } else {

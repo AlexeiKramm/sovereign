@@ -90,7 +90,7 @@ fun appThemeIsDark(themeMode: AppThemeMode): Boolean = when (themeMode) {
 }
 
 @Composable
-fun SmartVoiceTheme(
+fun SovereignTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     /**
      * Off by default: the app has its own warm-cream/lilac identity, and
@@ -130,3 +130,15 @@ fun SmartVoiceTheme(
 
     MaterialTheme(colorScheme = resolvedColorScheme, typography = Typography, content = content)
 }
+
+@Deprecated("Use SovereignTheme instead", ReplaceWith("SovereignTheme(themeMode, dynamicColor, colorScheme, seedColor, paletteStyle, useSystemDynamic, content)"))
+@Composable
+fun SmartVoiceTheme(
+    themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    dynamicColor: Boolean = false,
+    colorScheme: ColorScheme? = null,
+    seedColor: Int? = null,
+    paletteStyle: String? = null,
+    useSystemDynamic: Boolean? = null,
+    content: @Composable () -> Unit,
+) = SovereignTheme(themeMode, dynamicColor, colorScheme, seedColor, paletteStyle, useSystemDynamic, content)

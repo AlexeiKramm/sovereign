@@ -186,7 +186,7 @@ fun OnboardingScreen(
                     OnboardingStep.MICROPHONE -> PermissionStep(
                         icon = Icons.Default.Mic,
                         title = "Microphone",
-                        why = "So Smart Voice can hear your voice.",
+                        why = "So Sovereign can hear your voice.",
                         granted = micGranted,
                         actionLabel = "Allow microphone",
                         onAction = { micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
@@ -345,7 +345,7 @@ private fun ModelsStep(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Smart Voice runs entirely on your phone. Download a model so it can hear " +
+                text = "Sovereign runs entirely on your phone. Download a model so it can hear " +
                     "you — nothing is sent anywhere.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -502,7 +502,7 @@ private fun DoneStep(hasSpeechModel: Boolean, onStart: () -> Unit) {
             shape = RoundedCornerShape(Radius.pill),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Start using Smart Voice", fontWeight = FontWeight.SemiBold)
+            Text("Start using Sovereign", fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -321,7 +321,7 @@ fun BackupScreen(
                     Button(
                         onClick = {
                             val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                            val suggestedName = "smartvoice-backup-$dateStr.json"
+                            val suggestedName = "sovereign-backup-$dateStr.json"
                             exportLauncher.launch(suggestedName)
                         },
                         shape = RoundedCornerShape(10.dp),
@@ -451,7 +451,7 @@ private fun RestoreConfirmDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "A valid Smart Voice backup was found. Restoring will replace your current dictionary corrections, custom profiles, and settings.",
+                    text = "A valid Sovereign backup was found. Restoring will replace your current dictionary corrections, custom profiles, and settings.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
 

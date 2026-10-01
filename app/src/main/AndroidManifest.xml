@@ -22,7 +22,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:windowSoftInputMode="adjustResize"
-        android:theme="@style/Theme.SmartVoice"
+        android:theme="@style/Theme.Sovereign"
         android:enableOnBackInvokedCallback="true"
         android:largeHeap="true"
         android:usesCleartextTraffic="true">

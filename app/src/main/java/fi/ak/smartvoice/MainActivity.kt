@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import fi.ak.smartvoice.theme.SmartVoiceTheme
+import fi.ak.smartvoice.theme.SovereignTheme
 import fi.ak.smartvoice.theme.appThemeIsDark
 import fi.ak.smartvoice.ui.DictationViewModel
 import fi.ak.smartvoice.ui.MainScreen
@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
             } ?: fi.ak.smartvoice.ui.onboarding.OnboardingStep.MICROPHONE
 
             var showWizard by rememberSaveable { mutableStateOf(forceWizard || viewModel.shouldShowOnboarding()) }
-            SmartVoiceTheme(
+            SovereignTheme(
                 themeMode = themeMode,
                 seedColor = themeSeedColor,
                 paletteStyle = themePaletteStyle,

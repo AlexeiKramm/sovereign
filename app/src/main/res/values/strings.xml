@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Smart Voice</string>
-    <string name="accessibility_service_name">Smart Voice Dictation Pill</string>
+    <string name="app_name">Sovereign</string>
+    <string name="accessibility_service_name">Sovereign Dictation Service</string>
     <string name="accessibility_service_desc">Enables the floating dictation pill over your keyboard and injects transcribed text into active fields.</string>
-    <string name="floating_service_name">Smart Voice Floating Pill</string>
+    <string name="floating_service_name">Sovereign Floating Pill</string>
 </resources>

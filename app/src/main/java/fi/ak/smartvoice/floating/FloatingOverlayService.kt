@@ -644,7 +644,7 @@ class FloatingOverlayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Smart Voice Service",
+                "Sovereign Service",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = "Keeps the floating dictation pill active"
@@ -657,7 +657,7 @@ class FloatingOverlayService : Service() {
 
     private fun startForegroundWithNotification() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Smart Voice")
+            .setContentTitle("Sovereign")
             .setContentText("Floating Dictation Pill active")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -1843,7 +1843,7 @@ class FloatingOverlayService : Service() {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasMic) {
-            Toast.makeText(this, "Microphone permission required for Smart Voice", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Microphone permission required for Sovereign", Toast.LENGTH_SHORT).show()
             return
         }
 

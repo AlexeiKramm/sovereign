@@ -294,7 +294,7 @@ private fun BrandHero(modifier: Modifier = Modifier) {
             }
 
             Text(
-                text = "Smart Voice",
+                text = "Sovereign",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = (-0.5).sp,
@@ -303,7 +303,7 @@ private fun BrandHero(modifier: Modifier = Modifier) {
         }
 
         Text(
-            text = "On-device voice dictation with LLM cleanup",
+            text = "On-device speech-to-text with LLM cleanup",
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -963,7 +963,7 @@ private fun TimeSavedExplanationDialog(onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Smart Voice measures productivity by comparing manual mobile typing time against spoken dictation:",
+                    text = "Sovereign measures productivity by comparing manual mobile typing time against spoken dictation:",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

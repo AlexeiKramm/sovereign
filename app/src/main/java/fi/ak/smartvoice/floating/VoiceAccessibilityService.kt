@@ -135,7 +135,7 @@ class VoiceAccessibilityService : AccessibilityService() {
     fun injectText(text: String): Boolean {
         if (text.isBlank()) return false
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Smart Voice", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Sovereign", text))
 
         // Two attempts: the first lookup can land on a stale node (a WebView editor that rebuilt
         // itself, or a window that lost focus as the pill expanded), and a fresh resolve usually
