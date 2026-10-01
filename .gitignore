@@ -37,3 +37,11 @@ tools/*.tar.gz
 
 # VS Code Counter
 .VSCodeCounter/
+
+# Stray audio recordings (benchmarks in fixtures/ are explicitly kept)
+*.wav
+*.pcm
+*.m4a
+*.mp3
+*.opus
+!fixtures/**
