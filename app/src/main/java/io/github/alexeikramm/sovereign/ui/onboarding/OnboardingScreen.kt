@@ -46,9 +46,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +67,7 @@ import io.github.alexeikramm.sovereign.theme.Radius
 import io.github.alexeikramm.sovereign.theme.Spacing
 import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.ModelStatus
+import kotlinx.coroutines.delay
 
 /** The wizard's screens, in order. [DONE] is the closing screen, not a `Step N of 4`. */
 enum class OnboardingStep {
@@ -81,6 +84,12 @@ private val WIZARD_STEPS = listOf(
     OnboardingStep.ACCESSIBILITY,
     OnboardingStep.MODELS,
 )
+
+/**
+ * How long the wizard shows the "Granted" badge before moving on by itself: long enough to read,
+ * short enough not to feel stuck.
+ */
+private const val AUTO_ADVANCE_DELAY_MS = 450L
 
 /**
  * The first-launch walkthrough: the three permissions the app cannot dictate without, then
@@ -276,6 +285,20 @@ private fun PermissionStep(
     onAction: () -> Unit,
     onContinue: () -> Unit,
 ) {
+    // A permission already granted when this step appeared (the "Run setup again" path) must stop
+    // here and wait for Continue; only a grant that happens while the step is showing advances on
+    // its own. `grantedOnEntry` is captured once per step because the step is keyed.
+    val grantedOnEntry = remember { granted }
+    var autoAdvanced by remember { mutableStateOf(false) }
+
+    LaunchedEffect(granted, grantedOnEntry) {
+        if (granted && !grantedOnEntry && !autoAdvanced) {
+            autoAdvanced = true
+            delay(AUTO_ADVANCE_DELAY_MS)
+            onContinue()
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
