@@ -460,7 +460,7 @@ fun BenchmarkScreen(
                                     Text(
                                         if (modelSupportsMtp) "Drafting heads for parallel candidate tokens" else "Unsupported by this model",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (modelSupportsMtp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                        color = if (modelSupportsMtp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 Switch(
@@ -534,7 +534,7 @@ fun BenchmarkScreen(
                                         "1 cold load recorded, followed by warm steady-state reps"
                                     },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Switch(
@@ -549,7 +549,11 @@ fun BenchmarkScreen(
                             enabled = !isRunning,
                             modifier = Modifier.fillMaxWidth(),
                             shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.primary,
+                                disabledContentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
                         ) {
                             if (isRunning) {
                                 CircularProgressIndicator(
@@ -703,7 +707,7 @@ fun BenchmarkScreen(
                             Text(
                                 "Saved to filesDir/benchmarks.csv and logged to Logcat (tag: SovereignBenchmark).",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -1244,7 +1248,7 @@ private fun TranscriptionDiffCard(
                     Text(
                         text = "Differences: $substitutions substitutions, $deletions missing, $insertions extra",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
