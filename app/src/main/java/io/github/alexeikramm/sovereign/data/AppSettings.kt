@@ -498,9 +498,11 @@ class AppSettings(context: Context) {
 
         /**
          * Boundary timings. D-037 raised the first tuned values (1.2 s / 1.8 s / 3.0 s) because a
-         * breath ended a unit. S17 round 1 set the user-facing values afresh: "Pause sensitivity"
-         * lowered to 1.0 s and auto-stop raised to 8.0 s. [DEFAULT_STABLE_SILENCE_S] is unchanged —
-         * it is the endpointing fallback, not a user-facing control.
+         * breath ended a unit — a real constraint while cleanup seams were still visible. Seam
+         * healing (D-065) and per-unit pipelining have since removed that need, so S17 round 1 set
+         * the user-facing values afresh: "Pause sensitivity" 1.0 s and auto-stop 8.0 s.
+         * [DEFAULT_STABLE_SILENCE_S] is unchanged — it is the endpointing fallback, not a
+         * user-facing control.
          */
         const val DEFAULT_PAUSE_SILENCE_S = 1.0f
         const val DEFAULT_STABLE_SILENCE_S = 3.0f
