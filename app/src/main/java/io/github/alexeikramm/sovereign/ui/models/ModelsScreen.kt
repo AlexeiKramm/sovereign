@@ -88,6 +88,7 @@ fun ModelsScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
     onOpenBenchmark: () -> Unit = {},
+    onOpenStreamingBenchmark: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
@@ -478,23 +479,44 @@ fun ModelsScreen(
                 )
             }
 
-            Surface(
-                onClick = onOpenBenchmark,
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    onClick = onOpenBenchmark,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
                 ) {
-                    Text(text = "⚡", fontSize = 12.sp)
-                    Text(
-                        text = "Benchmark",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(text = "⚡", fontSize = 12.sp)
+                        Text(
+                            text = "Benchmark",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                Surface(
+                    onClick = onOpenStreamingBenchmark,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(text = "🎙", fontSize = 12.sp)
+                        Text(
+                            text = "Streaming",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
                 }
             }
         }

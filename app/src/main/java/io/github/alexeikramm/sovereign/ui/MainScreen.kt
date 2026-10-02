@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.alexeikramm.sovereign.ui.benchmark.BenchmarkScreen
+import io.github.alexeikramm.sovereign.ui.benchmark.StreamingBenchmarkScreen
 import io.github.alexeikramm.sovereign.ui.history.HistoryScreen
 import io.github.alexeikramm.sovereign.ui.home.HomeScreen
 import io.github.alexeikramm.sovereign.ui.models.ModelsScreen
@@ -108,11 +109,13 @@ fun MainScreen(
     var showHistory by rememberSaveable { mutableStateOf(false) }
     var showTranscribe by rememberSaveable { mutableStateOf(false) }
     var showBenchmark by rememberSaveable { mutableStateOf(false) }
+    var showStreamingBenchmark by rememberSaveable { mutableStateOf(false) }
 
     val selectTab: (Int) -> Unit = { index ->
         focusManager.clearFocus(force = true)
         showHistory = false
         showBenchmark = false
+        showStreamingBenchmark = false
         showTranscribe = false
         if (tabHistory.lastOrNull() != index) {
             tabHistory = tabHistory + index
@@ -126,10 +129,13 @@ fun MainScreen(
     BackHandler(enabled = !showHistory && showBenchmark) {
         showBenchmark = false
     }
-    BackHandler(enabled = !showHistory && !showBenchmark && showTranscribe) {
+    BackHandler(enabled = !showHistory && !showBenchmark && showStreamingBenchmark) {
+        showStreamingBenchmark = false
+    }
+    BackHandler(enabled = !showHistory && !showBenchmark && !showStreamingBenchmark && showTranscribe) {
         showTranscribe = false
     }
-    BackHandler(enabled = !showHistory && !showBenchmark && !showTranscribe && tabHistory.size > 1) {
+    BackHandler(enabled = !showHistory && !showBenchmark && !showStreamingBenchmark && !showTranscribe && tabHistory.size > 1) {
         tabHistory = tabHistory.dropLast(1)
     }
 
@@ -189,7 +195,7 @@ fun MainScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         tabs.forEachIndexed { index, tab ->
-                            val isSelected = !showHistory && !showBenchmark && !showTranscribe && (currentTabIndex == index)
+                            val isSelected = !showHistory && !showBenchmark && !showStreamingBenchmark && !showTranscribe && (currentTabIndex == index)
                             val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
                             NavigationBarItem(
                                 selected = isSelected,
@@ -228,6 +234,11 @@ fun MainScreen(
                             onNavigateUp = { showBenchmark = false },
                         )
 
+                        showStreamingBenchmark -> StreamingBenchmarkScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            onNavigateUp = { showStreamingBenchmark = false },
+                        )
+
                         showTranscribe -> TranscribeHubScreen(
                             viewModel = viewModel,
                             modifier = Modifier.fillMaxSize(),
@@ -257,6 +268,7 @@ fun MainScreen(
                                     viewModel = viewModel,
                                     modifier = Modifier.fillMaxSize(),
                                     onOpenBenchmark = { showBenchmark = true },
+                                    onOpenStreamingBenchmark = { showStreamingBenchmark = true },
                                 )
 
                                 NavTab.PROFILES -> ProfilesScreen(

@@ -61,14 +61,19 @@ object StreamingMatrix {
     val PAUSES: List<Float> = listOf(0.5f, 0.75f, 1.0f)
     val HEALINGS: List<Int> = listOf(2, 3, 4)
 
-    fun cells(models: List<AsrModelSpec>, cleanupOptions: List<Boolean> = listOf(true, false)): List<StreamingCell> {
+    fun cells(
+        models: List<AsrModelSpec>,
+        cleanupOptions: List<Boolean> = listOf(true, false),
+        pauses: List<Float> = PAUSES,
+        healings: List<Int> = HEALINGS,
+    ): List<StreamingCell> {
         val out = mutableListOf<StreamingCell>()
         for (model in models) {
             for (cleanup in cleanupOptions) {
-                for (pause in PAUSES) {
+                for (pause in pauses) {
                     for (cold in listOf(false, true)) {
                         if (cleanup) {
-                            for (healing in HEALINGS) {
+                            for (healing in healings) {
                                 out.add(StreamingCell(model, true, pause, healing, cold))
                             }
                         } else {
