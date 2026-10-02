@@ -10,14 +10,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -92,6 +98,7 @@ fun StreamingBenchmarkScreen(
     var progressFraction by remember { mutableFloatStateOf(0f) }
     var results by remember { mutableStateOf<List<StreamingCellResult>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showInfo by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val models = withContext(Dispatchers.IO) {
@@ -180,7 +187,7 @@ fun StreamingBenchmarkScreen(
                                 contentDescription = "Streaming benchmark",
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Real-Time Harness",
                                     style = MaterialTheme.typography.titleMedium,
@@ -193,9 +200,16 @@ fun StreamingBenchmarkScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            IconButton(onClick = { showInfo = true }) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = "What these measurements mean",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
 
-                        Label("Fixture")
+                        Label("Audio sample")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             DictationFixtures.FIXTURES.take(4).forEach { fixture ->
                                 FilterChip(
@@ -215,7 +229,7 @@ fun StreamingBenchmarkScreen(
                             }
                         }
 
-                        Label("Recogniser")
+                        Label("Transcription model")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             installedModels.forEach { model ->
                                 val selected = model.id in selectedModelIds
@@ -236,7 +250,7 @@ fun StreamingBenchmarkScreen(
                             )
                         }
 
-                        Label("Endpoint pause")
+                        Label("Pause sensitivity")
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             StreamingMatrix.PAUSES.forEach { pause ->
                                 FilterChip(
@@ -253,7 +267,7 @@ fun StreamingBenchmarkScreen(
                                 FilterChip(
                                     selected = count == healing,
                                     onClick = { healing = count },
-                                    label = { Text("$count sentences") },
+                                    label = { Text("$count") },
                                 )
                             }
                         }
@@ -279,17 +293,24 @@ fun StreamingBenchmarkScreen(
                             onClick = { startRun() },
                             enabled = !isRunning && cells.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.primary,
+                                disabledContentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
                         ) {
                             if (isRunning) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.height(18.dp).width(18.dp),
-                                    strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp,
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Running…")
+                            } else {
+                                Text("Run ${cells.size} cells", fontWeight = FontWeight.SemiBold)
                             }
-                            Text(if (isRunning) "Running…" else "Run ${cells.size} cells")
                         }
                     }
                 }
@@ -360,6 +381,52 @@ fun StreamingBenchmarkScreen(
     } else {
         content(PaddingValues(horizontal = 16.dp, vertical = 8.dp))
     }
+
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) { Text("Got it") }
+            },
+            title = { Text("What these measurements mean") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    InfoLine("Time to first text", "How long after the audio starts before anything appears.")
+                    InfoLine("Dead air", "Words had already been recognised but the screen still showed nothing.")
+                    InfoLine("Pause gating", "How much of the dead air is Pause sensitivity waiting for a pause before cutting a segment.")
+                    InfoLine("Cleanup lag", "The extra time cleanup adds after a segment is cut, before it appears.")
+                    InfoLine("Tail latency", "From when the audio stops to the final text — what hold-to-dictate feels like.")
+                    InfoLine("Visible cadence", "The gaps between visible updates while speaking.")
+                    InfoLine("Transcription time", "Active on-device recognition compute for the run.")
+                    InfoLine("Cleanup time", "Active LLM cleanup compute for the run.")
+                    InfoLine("Wall time", "Total run duration, including model loads.")
+                    InfoLine("Cold / warm", "Cold loads the transcription model during the run, so a short utterance feels it. Warm loads it beforehand.")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun InfoLine(term: String, meaning: String) {
+    Column {
+        Text(
+            text = term,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = meaning,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
@@ -392,13 +459,13 @@ private fun StreamingResultCard(result: StreamingCellResult) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
             MetricRow("Time to first text", ms(result.timeToFirstTextMs))
             MetricRow("Dead air", ms(result.deadAirMs))
-            MetricRow("Endpoint gating", ms(result.endpointGatingMs))
+            MetricRow("Pause gating", ms(result.endpointGatingMs))
             MetricRow("Cleanup lag", ms(result.cleanupLagMs))
             MetricRow("Tail latency", ms(result.tailLatencyMs))
             MetricRow("Visible cadence", StreamingMetrics.describeCadence(result.visibleCadenceMs))
-            MetricRow("ASR active", ms(result.asrActiveMs))
-            MetricRow("LLM active", ms(result.llmActiveMs))
-            MetricRow("Wall", ms(result.wallMs))
+            MetricRow("Transcription time", ms(result.asrActiveMs))
+            MetricRow("Cleanup time", ms(result.llmActiveMs))
+            MetricRow("Wall time", ms(result.wallMs))
             if (result.committedText.isNotBlank()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
                 Text(
