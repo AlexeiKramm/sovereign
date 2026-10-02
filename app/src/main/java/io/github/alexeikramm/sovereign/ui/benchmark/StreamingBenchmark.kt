@@ -1,6 +1,7 @@
 package io.github.alexeikramm.sovereign.ui.benchmark
 
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
+import java.util.Locale
 
 /**
  * One cell of the streaming benchmark matrix: which recogniser, whether cleanup runs, the endpoint
@@ -50,6 +51,19 @@ data class StreamingCellResult(
     val wallMs: Long,
     val committedText: String,
     val rawText: String,
+)
+
+/** What the harness is doing right now, so the screen can show a live, specific status. */
+enum class StreamingPhase { PREPARING_AUDIO, STREAMING, SETTLING }
+
+data class StreamingProgress(
+    val phase: StreamingPhase,
+    /** Seconds of audio streamed so far. */
+    val audioElapsedSec: Float = 0f,
+    /** Length of the fixture being streamed. */
+    val audioTotalSec: Float = 0f,
+    /** True on a cold cell while the models are still loading. */
+    val modelsLoading: Boolean = false,
 )
 
 /**
@@ -106,4 +120,23 @@ object StreamingMetrics {
     /** A compact "n gaps, median x ms, max y ms" summary for the table. */
     fun describeCadence(values: List<Long>): String =
         if (values.isEmpty()) "—" else "${values.size} · med ${median(values)} ms · max ${values.maxOrNull() ?: 0} ms"
+
+    /** How far through one cell we are, so the bar advances within a cell rather than in jumps. */
+    fun cellFraction(progress: StreamingProgress): Float = when (progress.phase) {
+        StreamingPhase.PREPARING_AUDIO -> 0f
+        StreamingPhase.SETTLING -> 1f
+        StreamingPhase.STREAMING ->
+            if (progress.audioTotalSec <= 0f) 0f
+            else (progress.audioElapsedSec / progress.audioTotalSec).coerceIn(0f, 1f)
+    }
+
+    /** A live, human status for the cell in progress. */
+    fun describeProgress(progress: StreamingProgress): String = when (progress.phase) {
+        StreamingPhase.PREPARING_AUDIO -> "Preparing audio sample…"
+        StreamingPhase.SETTLING -> "Audio done — waiting for the last cleanup pass…"
+        StreamingPhase.STREAMING -> buildString {
+            append(String.format(Locale.US, "Streaming %.1f / %.1f s", progress.audioElapsedSec, progress.audioTotalSec))
+            if (progress.modelsLoading) append(" — models still loading")
+        }
+    }
 }

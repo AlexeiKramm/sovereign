@@ -1,5 +1,6 @@
 package io.github.alexeikramm.sovereign.ui.benchmark
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -63,6 +65,7 @@ import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
 import io.github.alexeikramm.sovereign.ui.components.SettingsIconBadge
 import io.github.alexeikramm.sovereign.ui.components.TopAppBarWithScrollShadow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -94,8 +97,11 @@ fun StreamingBenchmarkScreen(
     var cleanupOff by remember { mutableStateOf(false) }
 
     var isRunning by remember { mutableStateOf(false) }
-    var statusText by remember { mutableStateOf("") }
-    var progressFraction by remember { mutableFloatStateOf(0f) }
+    var currentCell by remember { mutableStateOf<StreamingCell?>(null) }
+    var currentProgress by remember { mutableStateOf<StreamingProgress?>(null) }
+    var completedCells by remember { mutableIntStateOf(0) }
+    var runStartedAtMs by remember { mutableLongStateOf(0L) }
+    var elapsedMs by remember { mutableLongStateOf(0L) }
     var results by remember { mutableStateOf<List<StreamingCellResult>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showInfo by remember { mutableStateOf(false) }
@@ -123,21 +129,26 @@ fun StreamingBenchmarkScreen(
         isRunning = true
         errorMessage = null
         results = emptyList()
-        progressFraction = 0f
-        statusText = "Starting…"
+        completedCells = 0
+        currentCell = null
+        currentProgress = null
+        runStartedAtMs = SystemClock.elapsedRealtime()
+        elapsedMs = 0L
         scope.launch {
             val engine = StreamingBenchmarkEngine(context)
             val collected = mutableListOf<StreamingCellResult>()
             try {
                 cells.forEachIndexed { index, cell ->
-                    statusText = "Cell ${index + 1}/${cells.size}: ${cell.label}"
-                    val result = engine.runCell(cell, selectedFixture) { note -> statusText = note }
+                    currentCell = cell
+                    currentProgress = StreamingProgress(StreamingPhase.PREPARING_AUDIO)
+                    val result = engine.runCell(cell, selectedFixture) { progress -> currentProgress = progress }
                     StreamingCsvLogger.log(context, result)
                     collected.add(result)
                     results = collected.toList()
-                    progressFraction = (index + 1).toFloat() / cells.size
+                    completedCells = index + 1
                 }
-                statusText = "Complete — ${cells.size} cells"
+                currentCell = null
+                currentProgress = null
             } catch (e: Exception) {
                 Log.e("StreamingBenchmark", "Streaming run failed", e)
                 errorMessage = e.message ?: "Run failed"
@@ -145,6 +156,24 @@ fun StreamingBenchmarkScreen(
                 isRunning = false
             }
         }
+    }
+
+    // A half-second tick so the elapsed time and ETA move while a cell runs.
+    LaunchedEffect(isRunning) {
+        if (!isRunning) return@LaunchedEffect
+        while (true) {
+            elapsedMs = SystemClock.elapsedRealtime() - runStartedAtMs
+            delay(500L)
+        }
+    }
+
+    val withinCell = currentProgress?.let { StreamingMetrics.cellFraction(it) } ?: 0f
+    val overall = if (cells.isEmpty()) 0f else ((completedCells + withinCell) / cells.size).coerceIn(0f, 1f)
+    val etaMs = if (completedCells > 0) {
+        val avgPerCell = elapsedMs.toFloat() / completedCells
+        (avgPerCell * (cells.size - completedCells) - withinCell * avgPerCell).coerceAtLeast(0f).toLong()
+    } else {
+        0L
     }
 
     val content: @Composable (PaddingValues) -> Unit = { padding ->
@@ -319,11 +348,30 @@ fun StreamingBenchmarkScreen(
             if (isRunning) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        currentCell?.let { cell ->
+                            Text(
+                                text = cell.label,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        Text(
+                            text = currentProgress?.let { StreamingMetrics.describeProgress(it) } ?: "Starting…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         LinearProgressIndicator(
-                            progress = { progressFraction },
+                            progress = { overall },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Text(statusText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val cellNumber = (completedCells + 1).coerceAtMost(cells.size).coerceAtLeast(1)
+                        val eta = if (etaMs > 0L) " · ~${formatDuration(etaMs)} left" else ""
+                        Text(
+                            text = "Cell $cellNumber of ${cells.size} · ${formatDuration(elapsedMs)} elapsed$eta",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -496,3 +544,9 @@ private fun MetricRow(label: String, value: String) {
 }
 
 private fun ms(value: Long): String = if (value < 0L) "—" else "$value ms"
+
+/** `m:ss` for elapsed/ETA readouts. */
+private fun formatDuration(valueMs: Long): String {
+    val totalSeconds = (valueMs / 1000L).coerceAtLeast(0L)
+    return "${totalSeconds / 60}:${(totalSeconds % 60).toString().padStart(2, '0')}"
+}

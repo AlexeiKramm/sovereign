@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs one [StreamingCell] through the real [DictationPipeline] on the device, streaming the fixture
@@ -45,7 +46,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
     suspend fun runCell(
         cell: StreamingCell,
         fixture: DictationFixture,
-        onProgress: (String) -> Unit = {},
+        onProgress: (StreamingProgress) -> Unit = {},
     ): StreamingCellResult {
         val settings = AppSettings(context)
         val dictionaryStore = DictionaryStore(context)
@@ -101,19 +102,20 @@ class StreamingBenchmarkEngine(private val context: Context) {
         )
 
         try {
-            onProgress("Loading audio sample ${fixture.id}")
+            onProgress(StreamingProgress(StreamingPhase.PREPARING_AUDIO))
             val wav = withContext(Dispatchers.IO) { WavReader.read(context.assets.open(fixture.assetWavPath)) }
             val samples = wav.samples
+            val totalSec = samples.size.toFloat() / AsrModels.SAMPLE_RATE
             val frameSamples = AsrModels.SAMPLE_RATE / 10 // 100 ms
 
             val language = cell.asrModel.defaultLanguage
+            val warmed = AtomicBoolean(false)
 
             // Warm = steady state: both models resident *before* the utterance begins, so
             // `cleanup.begin` opens a KV-cache session on a loaded engine — exactly like a warm pill.
             // Cold deliberately does not preload (see below), so `startSession` no-ops and cleanup
             // lazy-loads on its first unit.
             if (!cell.cold) {
-                onProgress("Warming models")
                 if (cell.cleanup) llmDelegate.load().getOrThrow()
             }
 
@@ -127,6 +129,14 @@ class StreamingBenchmarkEngine(private val context: Context) {
                     val pcm = floatToS16Le(samples, index, end)
                     pipeline.onFrames(pcm, pcm.size)
                     index = end
+                    onProgress(
+                        StreamingProgress(
+                            phase = StreamingPhase.STREAMING,
+                            audioElapsedSec = index.toFloat() / AsrModels.SAMPLE_RATE,
+                            audioTotalSec = totalSec,
+                            modelsLoading = cell.cold && !warmed.get(),
+                        ),
+                    )
                     val target = t0 + (index.toLong() * 1000L) / AsrModels.SAMPLE_RATE
                     val now = MonotonicClock.nowMs()
                     if (target > now) delay(target - now)
@@ -137,23 +147,23 @@ class StreamingBenchmarkEngine(private val context: Context) {
                 // Mirror the pill's warmEngines: with the stage prepared and nothing loaded, start
                 // both model loads eagerly in the background while the audio streams. The first chunk
                 // waits for the in-flight cleanup load, then reuses one conversation for the rest.
-                onProgress("Streaming — models warm as audio arrives")
                 t0 = MonotonicClock.nowMs()
                 val warmJob = scope.launch {
                     withContext(asrDispatcher) { asr.load() }
                     if (cell.cleanup) withContext(cleanupDispatcher) { llmDelegate.load() }
+                    warmed.set(true)
                 }
                 val openJob = scope.launch { pipeline.open(language) }
                 feed()
                 openJob.join()
                 warmJob.join()
             } else {
-                onProgress("Streaming — models warm")
                 pipeline.open(language)
                 t0 = MonotonicClock.nowMs()
                 feed()
             }
 
+            onProgress(StreamingProgress(StreamingPhase.SETTLING, totalSec, totalSec))
             val stopAt = MonotonicClock.nowMs()
             pipeline.finish()
             withContext(mainDispatcher) { /* flush queued pipeline callbacks */ }

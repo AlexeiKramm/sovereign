@@ -61,4 +61,27 @@ class StreamingBenchmarkTest {
         assertTrue(summary.contains("200 ms"))
         assertTrue(summary.contains("300 ms"))
     }
+
+    @Test
+    fun `progress describes each phase in human terms`() {
+        assertEquals(
+            "Preparing audio sample…",
+            StreamingMetrics.describeProgress(StreamingProgress(StreamingPhase.PREPARING_AUDIO)),
+        )
+        val streaming = StreamingMetrics.describeProgress(StreamingProgress(StreamingPhase.STREAMING, 3f, 10f))
+        assertTrue(streaming.contains("3.0 / 10.0"))
+        val cold = StreamingMetrics.describeProgress(
+            StreamingProgress(StreamingPhase.STREAMING, 3f, 10f, modelsLoading = true),
+        )
+        assertTrue(cold.contains("loading"))
+        assertTrue(StreamingMetrics.describeProgress(StreamingProgress(StreamingPhase.SETTLING)).contains("cleanup"))
+    }
+
+    @Test
+    fun `cell fraction moves through a cell and clamps`() {
+        assertEquals(0f, StreamingMetrics.cellFraction(StreamingProgress(StreamingPhase.PREPARING_AUDIO)), 0.001f)
+        assertEquals(0.5f, StreamingMetrics.cellFraction(StreamingProgress(StreamingPhase.STREAMING, 5f, 10f)), 0.001f)
+        assertEquals(1f, StreamingMetrics.cellFraction(StreamingProgress(StreamingPhase.STREAMING, 20f, 10f)), 0.001f)
+        assertEquals(1f, StreamingMetrics.cellFraction(StreamingProgress(StreamingPhase.SETTLING)), 0.001f)
+    }
 }
