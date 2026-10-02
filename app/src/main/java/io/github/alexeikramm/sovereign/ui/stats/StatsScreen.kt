@@ -527,7 +527,7 @@ private fun UtteranceRecordRow(record: UtteranceRecord) {
         Text(
             text = timeStr,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

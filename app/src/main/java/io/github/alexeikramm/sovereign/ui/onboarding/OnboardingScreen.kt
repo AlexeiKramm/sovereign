@@ -388,7 +388,7 @@ private fun ModelsStep(
             Text(
                 text = "You can change or download models later in Settings.",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 

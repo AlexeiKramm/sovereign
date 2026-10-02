@@ -292,7 +292,7 @@ fun TranscriptResultCard(
                                 val llmText = if (metadata.llmEnabled) "LLM Cleanup ON" else "LLM Cleanup OFF"
                                 ModelBadge(
                                     text = llmText,
-                                    color = if (metadata.llmEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    color = if (metadata.llmEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
