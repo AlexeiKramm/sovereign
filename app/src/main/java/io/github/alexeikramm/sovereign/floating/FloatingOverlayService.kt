@@ -2634,7 +2634,7 @@ class FloatingOverlayService : Service() {
 
     companion object {
         private const val TAG = "FloatingOverlay"
-        private const val CHANNEL_ID = "smartvoice_floating_pill"
+        private const val CHANNEL_ID = "sovereign_floating_pill"
         private const val NOTIFICATION_ID = 4001
 
         /** Below this release speed a fling is not worth starting; the pill just settles. */
