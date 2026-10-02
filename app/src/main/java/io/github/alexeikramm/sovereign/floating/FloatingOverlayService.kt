@@ -43,11 +43,9 @@ import io.github.alexeikramm.sovereign.theme.DynamicThemeEngine
 import android.os.Handler
 import android.os.Looper
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
-import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.audio.WavRecorder
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
-import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
 import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.SeamHealer
@@ -60,6 +58,7 @@ import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.ProfileStore
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
+import io.github.alexeikramm.sovereign.dictation.DictationPipeline
 import io.github.alexeikramm.sovereign.engine.Engine
 import io.github.alexeikramm.sovereign.engine.ModelResidency
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
@@ -106,8 +105,7 @@ class FloatingOverlayService : Service() {
     private lateinit var historyStore: DictationHistoryStore
     private lateinit var recorder: WavRecorder
     private lateinit var localEngine: LocalAsrEngine
-    private lateinit var localSession: LocalAsrSession
-    private lateinit var cleanupPipeline: CleanupPipeline
+    private lateinit var pipeline: DictationPipeline
     private var cleanupEngine: CleanupEngine? = null
 
     // Compose State
@@ -488,10 +486,6 @@ class FloatingOverlayService : Service() {
         }
     }
 
-    // Accumulators
-    private val rawTextAccumulator = StringBuilder()
-    private val committedText = StringBuilder()
-    private var cleanupEngaged = false
     private var inFlightJob: Job? = null
     private var silenceMonitoringJob: Job? = null
 
@@ -688,36 +682,24 @@ class FloatingOverlayService : Service() {
             assetManager = assets,
         )
 
-        localSession = LocalAsrSession(
-            engine = localEngine,
-            dispatcher = asrDispatcher,
+        pipeline = DictationPipeline(
+            asrEngine = localEngine,
+            asrDispatcher = asrDispatcher,
+            cleanupEngine = CurrentCleanupEngine(),
+            cleanupDispatcher = cleanupDispatcher,
             scope = scope,
-            onUnit = ::onAsrUnit,
+            mainDispatcher = Dispatchers.Main.immediate,
             timings = { settings.listenerTimings() },
-        )
-
-        cleanupPipeline = CleanupPipeline(
-            engine = CurrentCleanupEngine(),
-            scope = scope,
-            dispatcher = cleanupDispatcher,
-            rules = {
+            cleanupVariant = {
                 val active = profileStore.activeProfile()
                 CleanupPrompt.Variant.fromId(active.id)
             },
             healingSentencesCount = { settings.healingSentencesCount },
-            onCommitted = { commit ->
-                withContext(Dispatchers.Main.immediate) {
-                    if (commit.overlapToDelete.isNotEmpty() && committedText.endsWith(commit.overlapToDelete)) {
-                        committedText.setLength(committedText.length - commit.overlapToDelete.length)
-                    }
-                    committedText.append(commit.prefix)
-                    committedText.append(commit.text)
-                    previewText = committedText.toString()
-                    if (cleanupPipeline.lastPass?.cleaned == false) {
-                        errorMessage = CLEANUP_UNAVAILABLE
-                    }
-                }
-            }
+            onText = { committed, raw ->
+                previewText = committed
+                rawText = raw
+            },
+            onCleanupUnavailable = { errorMessage = CLEANUP_UNAVAILABLE },
         )
     }
 
@@ -1445,7 +1427,8 @@ class FloatingOverlayService : Service() {
      * a pause), so serialising costs almost nothing in perceived latency.
      *
      * Called from [beginCapture] only: nothing loads because a keyboard appeared or the service
-     * started. The lazy load in [onAsrUnit] stays as the safety net if this warm-up loses a race.
+     * started. The lazy load in `LocalAsrSession.open` stays as the safety net if this warm-up loses
+     * a race.
      */
     private fun warmEngines() {
         scope.launch {
@@ -1876,20 +1859,13 @@ class FloatingOverlayService : Service() {
         if (fresh) {
             previewText = ""
             rawText = ""
-            rawTextAccumulator.clear()
-            committedText.clear()
         }
         if (quick) {
             quickStatus = null
             quickStatusIsError = false
         }
         reprocessActiveLlmMs = null
-        if (settings.cleanupEnabled) {
-            cleanupPipeline.begin(committedText.toString())
-            cleanupEngaged = true
-        } else {
-            cleanupEngaged = false
-        }
+        pipeline.begin(fresh = fresh, cleanupEnabled = settings.cleanupEnabled)
 
         localEngine.applyModel(settings.asrModel, filesDir)
         localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
@@ -1898,9 +1874,9 @@ class FloatingOverlayService : Service() {
         // a resident model that no longer matches the settings.
         warmEngines()
 
-        localSession.begin()
+        pipeline.beginSession()
         recorder.frameSink = { buffer, read ->
-            localSession.onFrames(buffer, read)
+            pipeline.onFrames(buffer, read)
             // Raw RMS only: the visual level is derived on a perceptual (dB) scale by the overlay,
             // so the mic gain is not baked in here.
             audioLevel = calculatePcmRms(buffer, read).coerceIn(0f, 1f)
@@ -1920,7 +1896,7 @@ class FloatingOverlayService : Service() {
         startSilenceMonitoring()
 
         scope.launch {
-            val availability = localSession.open(settings.language)
+            val availability = pipeline.open(settings.language)
             asrModelLoaded = availability is LocalAsrEngine.Availability.Loaded
             if (availability !is LocalAsrEngine.Availability.Loaded) {
                 val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: "model not ready"
@@ -2116,21 +2092,7 @@ class FloatingOverlayService : Service() {
             recorder.stop()
         }
         refreshKeepScreenOn()
-        val totalUtterance = localSession.finish()
-
-        if (settings.cleanupEnabled && cleanupEngaged) {
-            cleanupPipeline.drain()
-        } else {
-            withContext(Dispatchers.Main.immediate) {
-                if (committedText.isBlank() && totalUtterance.isNotBlank()) {
-                    committedText.clear()
-                    committedText.append(totalUtterance)
-                    previewText = committedText.toString()
-                }
-            }
-        }
-
-        finalizePunctuation()
+        pipeline.finish()
     }
 
     /** Folds the running capture into [recordedMillis]; the counterpart to `recordStartedAtMs`. */
@@ -2148,7 +2110,7 @@ class FloatingOverlayService : Service() {
         val latency = if (turnaroundLatencyMs > 0L) turnaroundLatencyMs else (if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L)
         captureStoppedAtMs = 0L
         turnaroundLatencyMs = 0L
-        val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
+        val textToInject = pipeline.deliveryText.trim()
         if (textToInject.isBlank()) {
             showQuickResult("Nothing heard")
         } else {
@@ -2255,7 +2217,7 @@ class FloatingOverlayService : Service() {
             val latency = if (turnaroundLatencyMs > 0L) turnaroundLatencyMs else (if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L)
             captureStoppedAtMs = 0L
             turnaroundLatencyMs = 0L
-            val textToInject = previewText.ifBlank { rawTextAccumulator.toString() }.trim()
+            val textToInject = pipeline.deliveryText.trim()
             var injected = false
             if (textToInject.isNotBlank()) {
                 // A trailing space separates this session from the next: the pill has no memory of where
@@ -2281,11 +2243,11 @@ class FloatingOverlayService : Service() {
      * most of what the user actually dictated.
      */
     private fun recordUsageStats(deliveredText: String, latencyMs: Long = 0L) {
-        val raw = rawTextAccumulator.toString().trim()
+        val raw = pipeline.rawText.trim()
         if (raw.isEmpty() && deliveredText.isEmpty()) return
 
-        val asrMs = localSession.totalActiveAsrMs
-        val llmMs = reprocessActiveLlmMs ?: if (cleanupEngaged || settings.cleanupEnabled) cleanupPipeline.totalActiveLlmMs else 0L
+        val asrMs = pipeline.totalActiveAsrMs
+        val llmMs = reprocessActiveLlmMs ?: if (pipeline.isCleanupEngaged || settings.cleanupEnabled) pipeline.totalActiveLlmMs else 0L
 
         val diff = if (raw.isNotEmpty() && (llmMs > 0L || deliveredText != raw)) {
             WordDiffCalculator.calculate(rawText = raw, cleanedText = deliveredText)
@@ -2312,11 +2274,11 @@ class FloatingOverlayService : Service() {
 
     private fun recordHistory(deliveredText: String, insertedSuccessfully: Boolean) {
         if (!settings.historyEnabled) return
-        val raw = rawTextAccumulator.toString().trim()
+        val raw = pipeline.rawText.trim()
         val cleaned = deliveredText.trim()
         if (raw.isEmpty() && cleaned.isEmpty()) return
 
-        val llmMs = reprocessActiveLlmMs ?: if (cleanupEngaged || settings.cleanupEnabled) cleanupPipeline.totalActiveLlmMs else 0L
+        val llmMs = reprocessActiveLlmMs ?: if (pipeline.isCleanupEngaged || settings.cleanupEnabled) pipeline.totalActiveLlmMs else 0L
 
         val diff = if (raw.isNotEmpty() && (llmMs > 0L || cleaned != raw)) {
             WordDiffCalculator.calculate(rawText = raw, cleanedText = cleaned)
@@ -2332,7 +2294,7 @@ class FloatingOverlayService : Service() {
                 rawText = raw.ifEmpty { cleaned },
                 cleanedText = cleaned.ifEmpty { raw },
                 asrModel = settings.asrModel.label,
-                llmModel = if (cleanupEngaged || llmMs > 0L) settings.litertModel.label else null,
+                llmModel = if (pipeline.isCleanupEngaged || llmMs > 0L) settings.litertModel.label else null,
                 wordsCleaned = diff.wordsCleaned,
                 insertedSuccessfully = insertedSuccessfully,
             ),
@@ -2354,7 +2316,7 @@ class FloatingOverlayService : Service() {
      * User-requested feature: Reprocesses the ENTIRE transcript from scratch with the LLM.
      */
     private fun reprocessFullText() {
-        val textToRewrite = rawTextAccumulator.toString().trim()
+        val textToRewrite = pipeline.rawText.trim()
         if (textToRewrite.isBlank() || isProcessing) return
         // The transcript is about to be rewritten wholesale, so any selected word's range is stale.
         dismissWordSelection()
@@ -2396,9 +2358,7 @@ class FloatingOverlayService : Service() {
                 if (pass.cleaned) {
                     val costMs = (pass.promptTimeMs + pass.decodeTimeMs).toInt()
                     reprocessActiveLlmMs = if (pass.activeMs > 0L) pass.activeMs else costMs.toLong()
-                    previewText = pass.text
-                    committedText.clear()
-                    committedText.append(pass.text)
+                    pipeline.replaceCommitted(pass.text)
                     statusNote = "Reprocessed full text (${costMs}ms)"
                 } else {
                     statusNote = "Reprocess failed: ${pass.note.ifBlank { "unknown" }}"
@@ -2442,13 +2402,11 @@ class FloatingOverlayService : Service() {
         settingsOpen = false
         dismissWordSelection()
         isProcessing = false
-        rawTextAccumulator.clear()
-        committedText.clear()
+        pipeline.reset()
         recordStartedAtMs = 0L
         recordedMillis = 0L
         captureStoppedAtMs = 0L
         turnaroundLatencyMs = 0L
-        cleanupEngaged = false
         // A session that was cancelled (rather than finalised) still ends the capture; the engines
         // are idle from here. Harmless when a finalised capture already armed the same timer.
         onCaptureFinished()
@@ -2474,53 +2432,9 @@ class FloatingOverlayService : Service() {
             runCatching { recorder.stop() }
         }
         refreshKeepScreenOn()
-        localSession.abort()
+        pipeline.abort()
         captureStoppedAtMs = 0L
         turnaroundLatencyMs = 0L
-        if (cleanupEngaged) {
-            cleanupPipeline.abort()
-            cleanupEngaged = false
-        }
-    }
-
-    private fun onAsrUnit(unit: String) {
-        if (unit.isBlank()) return
-        synchronized(rawTextAccumulator) {
-            if (rawTextAccumulator.isNotEmpty() && !rawTextAccumulator.endsWith(" ")) {
-                rawTextAccumulator.append(" ")
-            }
-            rawTextAccumulator.append(unit)
-        }
-        scope.launch(Dispatchers.Main.immediate) {
-            rawText = rawTextAccumulator.toString()
-        }
-
-        if (settings.cleanupEnabled && cleanupEngaged) {
-            cleanupPipeline.submit(unit)
-        } else {
-            scope.launch(Dispatchers.Main.immediate) {
-                if (committedText.isNotEmpty() && !committedText.endsWith(" ") && !unit.startsWith(" ")) {
-                    committedText.append(" ")
-                }
-                committedText.append(unit)
-                previewText = committedText.toString()
-            }
-        }
-    }
-
-    private fun finalizePunctuation() {
-        val action = UtteranceFinalizer.resolve(committedText)
-        if (action == UtteranceFinalizer.Action.REPLACE_COMMA) {
-            val trimLen = committedText.trimEnd().length
-            if (trimLen > 0) {
-                committedText.setLength(trimLen - 1)
-                committedText.append('.')
-                previewText = committedText.toString()
-            }
-        } else if (action == UtteranceFinalizer.Action.APPEND_PERIOD) {
-            committedText.append('.')
-            previewText = committedText.toString()
-        }
     }
 
     private fun startAudioMetering() {
@@ -2536,7 +2450,7 @@ class FloatingOverlayService : Service() {
         silenceMonitoringJob = scope.launch {
             while (isActive && recorder.isRecording) {
                 delay(100L)
-                val state = localSession.boundaryState
+                val state = pipeline.boundaryState
                 val stopAfter = settings.stopAfterSilenceSeconds
                 // 1. Normal speech pause auto-stop. Skipped during quick capture: the finger is
                 //    still down, and lifting it is what ends the utterance (D-quick-dictate).

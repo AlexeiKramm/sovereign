@@ -41,7 +41,7 @@ class LocalAsrEngine(
     pauseSilenceSeconds: Float = DEFAULT_PAUSE_SILENCE_SECONDS,
     modelSpec: AsrModelSpec = AsrModels.NEMOTRON,
     private val assetManager: AssetManager? = null,
-) {
+) : AsrEngine {
 
     @Volatile
     var modelDirectory: File = modelDirectory
@@ -137,7 +137,7 @@ class LocalAsrEngine(
         }
     }
 
-    fun load(): Availability {
+    override fun load(): Availability {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().load()
         }
@@ -197,7 +197,7 @@ class LocalAsrEngine(
         }
     }
 
-    fun startSession(language: String, hotwords: String = "") {
+    override fun startSession(language: String, hotwords: String) {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             getOrCreateOfflineEngine().startSession(language, hotwords)
             return
@@ -213,7 +213,7 @@ class LocalAsrEngine(
         pendingEndpoint = false
     }
 
-    fun accept(samples: FloatArray, count: Int = samples.size): String? {
+    override fun accept(samples: FloatArray, count: Int): String? {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().accept(samples, count)
         }
@@ -234,7 +234,7 @@ class LocalAsrEngine(
         return recognizer?.getResult(active)?.text
     }
 
-    fun result(): String {
+    override fun result(): String {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().result()
         }
@@ -242,7 +242,7 @@ class LocalAsrEngine(
         return recognizer?.getResult(active)?.text.orEmpty()
     }
 
-    fun resetSegment() {
+    override fun resetSegment() {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             getOrCreateOfflineEngine().resetSegment()
             return
@@ -252,7 +252,7 @@ class LocalAsrEngine(
         pendingEndpoint = false
     }
 
-    fun isEndpoint(): Boolean {
+    override fun isEndpoint(): Boolean {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().isEndpoint()
         }
@@ -261,7 +261,7 @@ class LocalAsrEngine(
         return endpoint
     }
 
-    fun isSpeechDetected(): Boolean {
+    override fun isSpeechDetected(): Boolean {
         return if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             offlineEngine?.isSpeechDetected() == true
         } else {
@@ -269,7 +269,7 @@ class LocalAsrEngine(
         }
     }
 
-    fun finish(): String {
+    override fun finish(): String {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().finish()
         }
@@ -377,7 +377,7 @@ class LocalAsrEngine(
         chunkSize: Int = 1600,
     ): String = transcribeBufferTimed(samples, language).text
 
-    fun abort() {
+    override fun abort() {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             offlineEngine?.abort()
             return

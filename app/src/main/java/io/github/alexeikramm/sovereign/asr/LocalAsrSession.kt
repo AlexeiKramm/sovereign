@@ -1,6 +1,6 @@
 package io.github.alexeikramm.sovereign.asr
 
-import android.os.SystemClock
+import io.github.alexeikramm.sovereign.engine.MonotonicClock
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,10 +27,10 @@ import kotlinx.coroutines.withContext
  * streaming session is serial by contract (D-020), and two threads feeding one stream is a bug.
  */
 class LocalAsrSession(
-    private val engine: LocalAsrEngine,
+    private val engine: AsrEngine,
     private val dispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
-    private val onPartialWords: (Int) -> Unit = {},
+    private val onPartialText: (String) -> Unit = {},
     /**
      * A **completed unit** — the text up to a pause (D-032). Called on the ASR worker, in order, and
      * including the final unit that [finish] produces from the flush, so a caller that commits per
@@ -123,13 +123,13 @@ class LocalAsrSession(
         }
 
         feedJob = scope.launch(dispatcher) {
-            engine.startSession(language)
+            engine.startSession(language, "")
             var lastText = ""
             for (frames in queue) {
-                val acceptStart = SystemClock.elapsedRealtime()
-                val text = engine.accept(frames).orEmpty()
+                val acceptStart = MonotonicClock.nowMs()
+                val text = engine.accept(frames, frames.size).orEmpty()
                 if (text.isNotBlank()) {
-                    onPartialWords(text.count { it == ' ' } + 1)
+                    onPartialText(text)
                 }
                 val isSpeech = engine.isSpeechDetected()
                 val frameDuration = if (frames.isNotEmpty()) frames.size.toDouble() / AsrModels.SAMPLE_RATE else 0.0
@@ -147,7 +147,7 @@ class LocalAsrSession(
                     boundary.markCut()
                     emitUnit(unit)
                 }
-                totalActiveAsrMs += (SystemClock.elapsedRealtime() - acceptStart)
+                totalActiveAsrMs += (MonotonicClock.nowMs() - acceptStart)
 
                 // The partial is published for the panel's preview only; it is never committed (D-041).
                 val newState = boundary.snapshot(quietSeconds, heardSpeech, text)
@@ -182,9 +182,9 @@ class LocalAsrSession(
         return withContext(dispatcher) {
             // The tail D-020 measured at 39-120 ms: the flush, then whatever the last segment still
             // held. It is emitted like any other unit so there is one commit path, not two.
-            val finishStart = SystemClock.elapsedRealtime()
+            val finishStart = MonotonicClock.nowMs()
             val tail = engine.finish()
-            totalActiveAsrMs += (SystemClock.elapsedRealtime() - finishStart)
+            totalActiveAsrMs += (MonotonicClock.nowMs() - finishStart)
             emitUnit(tail)
             utterance.toString()
         }
