@@ -66,15 +66,15 @@ enum class NavTab(
         selectedIcon = Icons.Filled.Home,
         unselectedIcon = Icons.Outlined.Home,
     ),
-    MODELS(
-        title = "Models",
-        selectedIcon = Icons.Filled.Memory,
-        unselectedIcon = Icons.Outlined.Memory,
-    ),
     PROFILES(
         title = "Profiles",
         selectedIcon = Icons.Filled.Tune,
         unselectedIcon = Icons.Outlined.Tune,
+    ),
+    MODELS(
+        title = "Models",
+        selectedIcon = Icons.Filled.Memory,
+        unselectedIcon = Icons.Outlined.Memory,
     ),
     SETTINGS(
         title = "Settings",
