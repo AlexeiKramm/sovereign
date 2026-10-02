@@ -174,6 +174,14 @@ class LiteRtLmCleanupEngine(
 
         val loadMs = lastLoadMs
 
+        // The session is normally opened by startSession at the start of the utterance. On a cold
+        // start the engine was not loaded then, so startSession no-op'd; now that ensureLoaded has it,
+        // open the session so the rest of the utterance reuses the KV cache instead of rebuilding the
+        // prompt (system + growing context) for every chunk.
+        if (sessionConversation == null) {
+            startSession(variant, customRules)
+        }
+
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null

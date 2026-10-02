@@ -35,10 +35,10 @@ import java.util.concurrent.Executors
  * throughput sweep). Collects the timestamps the pipeline emits and folds them into a
  * [StreamingCellResult].
  *
- * Cold/warm: a **warm** cell loads the ASR model before `t0`; a **cold** cell calls `open` alongside
- * the feed, so the model load is inside the measured window (which is what a short utterance feels).
- * The cleanup model is loaded up front for either, because [io.github.alexeikramm.sovereign.cleanup.CleanupPipeline]
- * needs it before its first unit; so "cold" here means *ASR cold*.
+ * Cold/warm mirrors the pill: a **warm** cell has both models resident *before* the utterance starts
+ * (steady state, cleanup session open on a loaded engine), while a **cold** cell warms them *while*
+ * the audio streams — ASR on the ASR worker, cleanup lazy-loading on its first unit on the cleanup
+ * worker, overlapping the next ASR segment. Nothing is preloaded sequentially.
  */
 class StreamingBenchmarkEngine(private val context: Context) {
 
@@ -101,20 +101,24 @@ class StreamingBenchmarkEngine(private val context: Context) {
         )
 
         try {
-            onProgress("Loading fixture ${fixture.id}")
+            onProgress("Loading audio sample ${fixture.id}")
             val wav = withContext(Dispatchers.IO) { WavReader.read(context.assets.open(fixture.assetWavPath)) }
             val samples = wav.samples
             val frameSamples = AsrModels.SAMPLE_RATE / 10 // 100 ms
 
-            pipeline.begin(fresh = true, cleanupEnabled = cell.cleanup)
-            pipeline.beginSession()
+            val language = cell.asrModel.defaultLanguage
 
-            if (cell.cleanup) {
-                onProgress("Loading cleanup model")
-                llmDelegate.load().getOrThrow()
+            // Warm = steady state: both models resident *before* the utterance begins, so
+            // `cleanup.begin` opens a KV-cache session on a loaded engine — exactly like a warm pill.
+            // Cold deliberately does not preload (see below), so `startSession` no-ops and cleanup
+            // lazy-loads on its first unit.
+            if (!cell.cold) {
+                onProgress("Warming models")
+                if (cell.cleanup) llmDelegate.load().getOrThrow()
             }
 
-            val language = cell.asrModel.defaultLanguage
+            pipeline.begin(fresh = true, cleanupEnabled = cell.cleanup)
+            pipeline.beginSession()
 
             suspend fun feed() {
                 var index = 0
@@ -130,14 +134,21 @@ class StreamingBenchmarkEngine(private val context: Context) {
             }
 
             if (cell.cold) {
-                // Load inside the measured window: `open` runs alongside the feed so frames queue
-                // while the model loads, exactly as the pill does when you start talking immediately.
+                // Mirror the pill's warmEngines: with the stage prepared and nothing loaded, start
+                // both model loads eagerly in the background while the audio streams. The first chunk
+                // waits for the in-flight cleanup load, then reuses one conversation for the rest.
+                onProgress("Streaming — models warm as audio arrives")
                 t0 = MonotonicClock.nowMs()
+                val warmJob = scope.launch {
+                    withContext(asrDispatcher) { asr.load() }
+                    if (cell.cleanup) withContext(cleanupDispatcher) { llmDelegate.load() }
+                }
                 val openJob = scope.launch { pipeline.open(language) }
                 feed()
                 openJob.join()
+                warmJob.join()
             } else {
-                onProgress("Warming the recogniser")
+                onProgress("Streaming — models warm")
                 pipeline.open(language)
                 t0 = MonotonicClock.nowMs()
                 feed()
