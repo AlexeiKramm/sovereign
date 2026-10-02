@@ -14,7 +14,7 @@ class DynamicThemeTest {
     @Test
     fun `default theme settings match locked decisions`() {
         assertEquals(0xFF00B4D8.toInt(), AppSettings.DEFAULT_THEME_SEED_COLOR)
-        assertEquals("VIBRANT", AppSettings.DEFAULT_THEME_PALETTE_STYLE)
+        assertEquals("TONAL_SPOT", AppSettings.DEFAULT_THEME_PALETTE_STYLE)
         assertEquals(false, AppSettings.DEFAULT_THEME_USE_SYSTEM_DYNAMIC)
         assertEquals(true, AppSettings.DEFAULT_THEME_DEPTH_MODE)
         assertEquals(8.0f, AppSettings.DEFAULT_THEME_DARK_BG_TONE, 0.01f)

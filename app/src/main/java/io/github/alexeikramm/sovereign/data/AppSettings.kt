@@ -420,7 +420,7 @@ class AppSettings(context: Context) {
         )
 
         const val DEFAULT_THEME_SEED_COLOR: Int = 0xFF00B4D8.toInt()
-        const val DEFAULT_THEME_PALETTE_STYLE: String = "VIBRANT"
+        const val DEFAULT_THEME_PALETTE_STYLE: String = "TONAL_SPOT"
         const val DEFAULT_THEME_USE_SYSTEM_DYNAMIC: Boolean = false
         const val DEFAULT_THEME_DEPTH_MODE: Boolean = true
         const val DEFAULT_THEME_DARK_BG_TONE: Float = 8.0f
@@ -497,12 +497,14 @@ class AppSettings(context: Context) {
         val IDLE_TIMEOUT_OPTIONS = listOf(0, 1, 2, 5, 10, 15)
 
         /**
-         * Raised from the first tuned values (1.2 s / 1.8 s / 3.0 s) after real use: they read as far too
-         * eager — a breath ended a unit, and a thought pause ended the recording (D-037).
+         * Boundary timings. D-037 raised the first tuned values (1.2 s / 1.8 s / 3.0 s) because a
+         * breath ended a unit. S17 round 1 set the user-facing values afresh: "Pause sensitivity"
+         * lowered to 1.0 s and auto-stop raised to 8.0 s. [DEFAULT_STABLE_SILENCE_S] is unchanged —
+         * it is the endpointing fallback, not a user-facing control.
          */
-        const val DEFAULT_PAUSE_SILENCE_S = 2.0f
+        const val DEFAULT_PAUSE_SILENCE_S = 1.0f
         const val DEFAULT_STABLE_SILENCE_S = 3.0f
-        const val DEFAULT_STOP_AFTER_SILENCE_S = 6.0f
+        const val DEFAULT_STOP_AFTER_SILENCE_S = 8.0f
 
         /** What the text fields accept: seconds, at most a minute, and no negatives. */
         const val MAX_TIMING_SECONDS = 60f
