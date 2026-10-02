@@ -1,0 +1,84 @@
+{
+  "language": "en",
+  "source": "Recorded on the Android for the streaming dictation benchmark; converted to 16 kHz mono s16le and trimmed to 100 ms margins.",
+  "audio_format": {
+    "codec": "pcm_s16le",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "bits_per_sample": 16
+  },
+  "fixtures": {
+    "d01_okay_thanks": {
+      "file": "d01_okay_thanks.wav",
+      "name": "Short — acknowledgement",
+      "duration_seconds": 1.340,
+      "pause_density": "n/a",
+      "features": [],
+      "script": "Okay, thanks.",
+      "notes": "Shortest take; probes model cold-load dominance."
+    },
+    "d02_short_command": {
+      "file": "d02_short_command.wav",
+      "name": "Short — command",
+      "duration_seconds": 3.330,
+      "pause_density": "pausing",
+      "features": ["numbers", "proper-nouns"],
+      "script": "Remind me to call Alex tomorrow at nine.",
+      "notes": ""
+    },
+    "d03_fillers_selfcorrection": {
+      "file": "d03_fillers_selfcorrection.wav",
+      "name": "Medium — fillers and self-correction",
+      "duration_seconds": 12.150,
+      "pause_density": "pausing",
+      "features": ["fillers", "self-correction"],
+      "script": "So, um, I was thinking that we should, uh, you know, move the meeting to Thursday. Actually, no — let's do Friday at two p.m.",
+      "notes": ""
+    },
+    "d04_spoken_list": {
+      "file": "d04_spoken_list.wav",
+      "name": "Medium — spoken list",
+      "duration_seconds": 10.420,
+      "pause_density": "pausing",
+      "features": ["list"],
+      "script": "Here's the plan. First, we draft the proposal. Second, we send it to Sarah. And third, we follow up next week.",
+      "notes": ""
+    },
+    "d05_numbers_dates": {
+      "file": "d05_numbers_dates.wav",
+      "name": "Medium — numbers and dates",
+      "duration_seconds": 12.350,
+      "pause_density": "pausing",
+      "features": ["numbers", "dates"],
+      "script": "The invoice is for one thousand two hundred and fifty dollars, dated March third, twenty twenty-six, and it's due in thirty days.",
+      "notes": ""
+    },
+    "d06_proper_nouns": {
+      "file": "d06_proper_nouns.wav",
+      "name": "Medium — proper nouns",
+      "duration_seconds": 9.060,
+      "pause_density": "pausing",
+      "features": ["proper-nouns"],
+      "script": "I met Doctor Kowalski in Helsinki last Tuesday, and he mentioned the project with Acme Corporation.",
+      "notes": ""
+    },
+    "d07_continuous": {
+      "file": "d07_continuous.wav",
+      "name": "Long — continuous, no pauses",
+      "duration_seconds": 19.320,
+      "pause_density": "continuous",
+      "features": ["fillers", "self-correction", "list", "numbers", "dates", "proper-nouns"],
+      "script": "Alright, so, um, here's the update from the, uh, the Helsinki meeting with Doctor Kowalski. First, we agreed that the budget is two hundred and fifty thousand euros. Second, the deadline moves to March third, twenty twenty-six. And third, Sarah will own the rollout — no wait, actually Anna will own the rollout. So yeah, that's the update, thanks.",
+      "notes": "Same script as d08; read without pausing. Exposes dead air."
+    },
+    "d08_pausing": {
+      "file": "d08_pausing.wav",
+      "name": "Long — pausing between sentences",
+      "duration_seconds": 32.179,
+      "pause_density": "pausing",
+      "features": ["fillers", "self-correction", "list", "numbers", "dates", "proper-nouns"],
+      "script": "Alright, so, um, here's the update from the, uh, the Helsinki meeting with Doctor Kowalski. First, we agreed that the budget is two hundred and fifty thousand euros. Second, the deadline moves to March third, twenty twenty-six. And third, Sarah will own the rollout — no wait, actually Anna will own the rollout. So yeah, that's the update, thanks.",
+      "notes": "Same script as d07; read with ~1 s pauses between sentences."
+    }
+  }
+}
