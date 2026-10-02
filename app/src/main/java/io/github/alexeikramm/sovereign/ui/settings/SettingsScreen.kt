@@ -390,15 +390,6 @@ fun SettingsScreen(
                     SettingsDivider(startIndent = 0.dp)
 
                     SettingsToggleRow(
-                        title = "Hold the pill to dictate",
-                        subtitle = "Press and hold the pill to speak, then release to immediately insert text",
-                        checked = quickDictateOnHold,
-                        onCheckedChange = viewModel::setQuickDictateOnHold,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
                         title = "Haptic feedback on hold",
                         subtitle = "Vibrate lightly when hold-to-dictate starts and stops",
                         checked = hapticFeedbackOnHold,
@@ -672,15 +663,6 @@ fun SettingsScreen(
 
                     SettingsDivider(startIndent = 0.dp)
 
-                    SettingsToggleRow(
-                        title = "Speculative decoding (MTP)",
-                        subtitle = "Predicts multiple tokens at once for faster cleanup pass",
-                        checked = litertSpeculativeDecoding,
-                        onCheckedChange = viewModel::setLitertSpeculativeDecoding,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
                     SettingsStepperRow(
                         title = "Healing context sentences",
                         subtitle = "How many previous sentences the LLM uses as context across pauses",
@@ -862,6 +844,24 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(top = 4.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
+                                SettingsToggleRow(
+                                    title = "Hold the pill to dictate",
+                                    subtitle = "Press and hold the pill to speak, then release to immediately insert text",
+                                    checked = quickDictateOnHold,
+                                    onCheckedChange = viewModel::setQuickDictateOnHold,
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
+                                SettingsToggleRow(
+                                    title = "Speculative decoding (MTP)",
+                                    subtitle = "Predicts multiple tokens at once for faster cleanup pass",
+                                    checked = litertSpeculativeDecoding,
+                                    onCheckedChange = viewModel::setLitertSpeculativeDecoding,
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
                                 SettingsItemRow(
                                     title = "Usage & battery statistics",
                                     subtitle = "Audio hours & thermal state (legacy; scheduled for removal)",
