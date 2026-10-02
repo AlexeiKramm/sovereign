@@ -67,12 +67,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModelType
@@ -309,7 +305,7 @@ fun BenchmarkScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = "Measure on-device speech recognition, LLM cleanup throughput, and RAM.",
+                            text = "Measure on-device speech recognition and LLM cleanup throughput.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -340,7 +336,7 @@ fun BenchmarkScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Text(
-                                    text = "Standard fixtures • Statistical throughput • RAM tracking",
+                                    text = "Standard fixtures • Statistical throughput",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -486,7 +482,7 @@ fun BenchmarkScreen(
                                     FilterChip(
                                         selected = false,
                                         onClick = {
-                                            samplePromptText = BenchmarkAudioSample.readGroundTruth(context, fixture)
+                                            samplePromptText = BenchmarkAudioSample.readTranscript(context, fixture)
                                         },
                                         label = { Text(fixture.name.substringBefore(" ")) },
                                     )
@@ -641,7 +637,7 @@ fun BenchmarkScreen(
                                 }
                             }
 
-                            // 2) ASR SECTION (Speed, RTF, Raw Accuracy)
+                            // 2) ASR SECTION (Speed, RTF)
                             if (summary.mode != BenchmarkMode.LLM_ONLY) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
                                 SectionHeader("2. ASR Performance (Speech → Text)")
@@ -655,15 +651,9 @@ fun BenchmarkScreen(
                                     "Real-Time Factor (RTF):",
                                     "%.3f (%.1fx realtime)".format(Locale.US, summary.asrRtfStat.mean, speedup),
                                 )
-                                if (summary.groundTruth.isNotBlank()) {
-                                    ResultRow(
-                                        "Raw ASR Accuracy:",
-                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.rawWer * 100, summary.rawCer * 100),
-                                    )
-                                }
                             }
 
-                            // 3) LLM SECTION (Speed, Latency, Decode, Cleaned Accuracy)
+                            // 3) LLM SECTION (Speed, Latency, Decode)
                             if (summary.mode != BenchmarkMode.ASR_ONLY) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
                                 SectionHeader(
@@ -688,19 +678,6 @@ fun BenchmarkScreen(
                                     "LLM Wall Time:",
                                     "%.1f ± %.1f ms".format(Locale.US, summary.llmWallStat.mean, summary.llmWallStat.stdDev),
                                 )
-                                if (summary.mode == BenchmarkMode.FULL_PIPELINE && summary.groundTruth.isNotBlank()) {
-                                    ResultRow(
-                                        "Cleaned Accuracy:",
-                                        "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
-                                        valueColor = if (summary.cleanedWer <= summary.rawWer) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                    )
-                                    val werDelta = (summary.rawWer - summary.cleanedWer) * 100
-                                    ResultRow(
-                                        "Accuracy Delta vs Raw:",
-                                        if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
-                                        valueColor = if (werDelta >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                    )
-                                }
                             }
 
                             // CSV NOTE
@@ -711,20 +688,6 @@ fun BenchmarkScreen(
                             )
                         }
                     }
-                }
-
-                // TRANSCRIPTION DIFF COMPARISON CARD (Replacing redundant repetition cards)
-                item {
-                    val displayHypothesis = if (summary.mode == BenchmarkMode.ASR_ONLY) {
-                        summary.rawAsrText
-                    } else {
-                        summary.cleanedText.ifBlank { summary.rawAsrText }
-                    }
-                    TranscriptionDiffCard(
-                        groundTruth = summary.groundTruth,
-                        hypothesisText = displayHypothesis,
-                        mode = summary.mode,
-                    )
                 }
             }
         }
@@ -1202,177 +1165,6 @@ private fun LlmModelDropdownSelector(
                                 onModelSelected(item)
                                 expanded = false
                             },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TranscriptionDiffCard(
-    groundTruth: String,
-    hypothesisText: String,
-    mode: BenchmarkMode,
-) {
-    SettingsGroupCard {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = if (mode == BenchmarkMode.ASR_ONLY) "ASR Output vs Ground Truth" else "Cleaned Output vs Ground Truth",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            if (groundTruth.isNotBlank()) {
-                val diff = remember(groundTruth, hypothesisText) {
-                    WerCalculator.computeDiff(groundTruth, hypothesisText)
-                }
-                val errorCount = diff.count { it.op != DiffOp.MATCH }
-
-                if (errorCount == 0) {
-                    Text(
-                        text = "✓ Perfect Match (100% accurate)",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                } else {
-                    val substitutions = diff.count { it.op == DiffOp.SUBSTITUTION }
-                    val deletions = diff.count { it.op == DiffOp.DELETION }
-                    val insertions = diff.count { it.op == DiffOp.INSERTION }
-                    Text(
-                        text = "Differences: $substitutions substitutions, $deletions missing, $insertions extra",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                // Reference (Ground Truth) display
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-                        .padding(10.dp),
-                ) {
-                    Text(
-                        "Expected (Ground Truth):",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        groundTruth,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-
-                // Annotated Cleaned / Output Text
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-                        .padding(10.dp),
-                ) {
-                    Text(
-                        if (mode == BenchmarkMode.ASR_ONLY) "Actual ASR Output (with corrections):" else "Actual Cleaned Output (with corrections):",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    val errorColor = MaterialTheme.colorScheme.error
-                    val successColor = MaterialTheme.colorScheme.primary
-                    val annotatedText = remember(diff, errorColor, successColor) {
-                        buildAnnotatedString {
-                            diff.forEach { item ->
-                                when (item.op) {
-                                    DiffOp.MATCH -> {
-                                        append(item.text)
-                                        append(" ")
-                                    }
-                                    DiffOp.SUBSTITUTION -> {
-                                        append("[")
-                                        withStyle(
-                                            SpanStyle(
-                                                color = errorColor,
-                                                textDecoration = TextDecoration.LineThrough,
-                                            )
-                                        ) {
-                                            append(item.text)
-                                        }
-                                        append(" → ")
-                                        withStyle(
-                                            SpanStyle(
-                                                color = successColor,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        ) {
-                                            append(item.expected ?: "")
-                                        }
-                                        append("] ")
-                                    }
-                                    DiffOp.DELETION -> {
-                                        append("[+ ")
-                                        withStyle(
-                                            SpanStyle(
-                                                color = successColor,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        ) {
-                                            append(item.expected ?: "")
-                                        }
-                                        append("] ")
-                                    }
-                                    DiffOp.INSERTION -> {
-                                        append("[")
-                                        withStyle(
-                                            SpanStyle(
-                                                color = errorColor,
-                                                textDecoration = TextDecoration.LineThrough,
-                                            )
-                                        ) {
-                                            append(item.text)
-                                        }
-                                        append("] ")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = annotatedText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            } else {
-                if (hypothesisText.isNotBlank()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-                            .padding(10.dp),
-                    ) {
-                        Text(
-                            "Model Output:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            hypothesisText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }

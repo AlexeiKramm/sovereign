@@ -89,13 +89,8 @@ class BenchmarkEngineTest {
             llmDecodeStat = MetricStat(45.2, 1.8),
             llmWallStat = MetricStat(420.0, 15.0),
             e2eWallStat = MetricStat(1270.0, 35.0),
-            groundTruth = "They were now illuminated.",
             rawAsrText = "they were now illuminated",
-            rawWer = 0.08,
-            rawCer = 0.02,
             cleanedText = "They were now illuminated.",
-            cleanedWer = 0.0,
-            cleanedCer = 0.0,
             repetitions = emptyList(),
         )
 
@@ -103,7 +98,5 @@ class BenchmarkEngineTest {
         // Here we verify the summary data class integrity and metric values
         assertEquals(BenchmarkMode.FULL_PIPELINE, summary.mode)
         assertEquals(3, summary.repsCount)
-        assertEquals(0.08, summary.rawWer, 0.001)
-        assertEquals(0.0, summary.cleanedWer, 0.001)
     }
 }

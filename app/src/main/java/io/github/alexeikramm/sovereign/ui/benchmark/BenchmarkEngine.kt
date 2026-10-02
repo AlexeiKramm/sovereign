@@ -68,11 +68,12 @@ data class BenchmarkAudioSample(
             ),
         )
 
-        fun readGroundTruth(context: Context, sample: BenchmarkAudioSample): String {
+        /** The fixture's own transcript, used to seed the LLM-only prompt. */
+        fun readTranscript(context: Context, sample: BenchmarkAudioSample): String {
             return try {
                 context.assets.open(sample.assetTxtPath).bufferedReader().use { it.readText() }.trim()
             } catch (e: Exception) {
-                Log.w("BenchmarkEngine", "Failed to read ground truth from ${sample.assetTxtPath}: ${e.message}")
+                Log.w("BenchmarkEngine", "Failed to read transcript from ${sample.assetTxtPath}: ${e.message}")
                 ""
             }
         }
@@ -99,15 +100,11 @@ data class RepetitionMeasurement(
     val asrWallMs: Long = 0L,
     val asrRtf: Double = 0.0,
     val rawAsrText: String = "",
-    val rawWer: Double = 0.0,
-    val rawCer: Double = 0.0,
     val llmTtftMs: Double = 0.0,
     val llmPrefillTokPerSec: Double = 0.0,
     val llmDecodeTokPerSec: Double = 0.0,
     val llmWallMs: Long = 0L,
     val cleanedText: String = "",
-    val cleanedWer: Double = 0.0,
-    val cleanedCer: Double = 0.0,
     val e2eWallMs: Long = 0L,
 )
 
@@ -134,13 +131,8 @@ data class BenchmarkSummary(
     val llmDecodeStat: MetricStat,
     val llmWallStat: MetricStat,
     val e2eWallStat: MetricStat,
-    val groundTruth: String,
     val rawAsrText: String,
-    val rawWer: Double,
-    val rawCer: Double,
     val cleanedText: String,
-    val cleanedWer: Double,
-    val cleanedCer: Double,
     val repetitions: List<RepetitionMeasurement>,
 )
 
@@ -166,8 +158,8 @@ object BenchmarkCsvLogger {
         "timestamp,mode,asr_model,llm_model,compute_target,mtp,sample_name,audio_dur_sec,reps,cold_reload," +
             "cold_asr_load_ms,cold_llm_load_ms,asr_wall_mean_ms,asr_wall_std_ms,asr_rtf_mean,asr_rtf_std," +
             "llm_ttft_mean_ms,llm_ttft_std_ms,llm_prefill_mean_tps,llm_decode_mean_tps,llm_decode_std_tps," +
-            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms,raw_wer,raw_cer,cleaned_wer,cleaned_cer," +
-            "ground_truth,raw_asr_text,cleaned_text"
+            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms," +
+            "raw_asr_text,cleaned_text"
 
     fun log(context: Context, summary: BenchmarkSummary): String {
         val isoTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
@@ -197,17 +189,11 @@ object BenchmarkCsvLogger {
             String.format(Locale.US, "%.1f", summary.llmWallStat.stdDev),
             String.format(Locale.US, "%.1f", summary.e2eWallStat.mean),
             String.format(Locale.US, "%.1f", summary.e2eWallStat.stdDev),
-            String.format(Locale.US, "%.4f", summary.rawWer),
-            String.format(Locale.US, "%.4f", summary.rawCer),
-            String.format(Locale.US, "%.4f", summary.cleanedWer),
-            String.format(Locale.US, "%.4f", summary.cleanedCer),
-            escapeCsv(summary.groundTruth),
             escapeCsv(summary.rawAsrText),
             escapeCsv(summary.cleanedText),
         ).joinToString(",")
 
         Log.i("SovereignBenchmark", "CSV: $csvLine")
-        Log.i("SovereignBenchmark", "GroundTruth: ${summary.groundTruth}")
         Log.i("SovereignBenchmark", "Raw ASR: ${summary.rawAsrText}")
         Log.i("SovereignBenchmark", "Cleaned: ${summary.cleanedText}")
 
@@ -253,7 +239,6 @@ class BenchmarkEngine(private val context: Context) {
 
         onProgress(0.05f, "Loading audio fixture...")
         val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
-        val groundTruth = BenchmarkAudioSample.readGroundTruth(context, config.audioSample)
 
         val profileStore = ProfileStore(context)
         val dictionaryStore = DictionaryStore(context)
@@ -354,9 +339,6 @@ class BenchmarkEngine(private val context: Context) {
                 val asrWallMs = asrResult.activeMs
                 val asrRtf = BenchmarkStatsHelper.calculateRtf(asrWallMs, wavAudio.durationSeconds)
 
-                val rawWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, rawAsr) else 0.0
-                val rawCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, rawAsr) else 0.0
-
                 onProgress(repFraction, "Rep $rep/$totalReps: Running LLM Cleanup...")
                 val pass = persistentLlm!!.clean(
                     unit = rawAsr,
@@ -368,8 +350,6 @@ class BenchmarkEngine(private val context: Context) {
                 val e2eWallMs = SystemClock.elapsedRealtime() - e2eStart
 
                 val cleanedText = if (pass.cleaned && pass.text.isNotBlank()) pass.text else rawAsr
-                val cleanedWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, cleanedText) else 0.0
-                val cleanedCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, cleanedText) else 0.0
 
                 val decodeSpeed = if (pass.decodeTimeMs > 0.0) (pass.generatedTokens * 1000.0) / pass.decodeTimeMs else 0.0
                 val prefillSpeed = if (pass.promptTimeMs > 0.0 && pass.promptTokens > 0) (pass.promptTokens * 1000.0) / pass.promptTimeMs else 0.0
@@ -383,15 +363,11 @@ class BenchmarkEngine(private val context: Context) {
                         asrWallMs = asrWallMs,
                         asrRtf = asrRtf,
                         rawAsrText = rawAsr,
-                        rawWer = rawWer,
-                        rawCer = rawCer,
                         llmTtftMs = pass.ttftMs,
                         llmPrefillTokPerSec = prefillSpeed,
                         llmDecodeTokPerSec = decodeSpeed,
                         llmWallMs = llmWallMs,
                         cleanedText = cleanedText,
-                        cleanedWer = cleanedWer,
-                        cleanedCer = cleanedCer,
                         e2eWallMs = e2eWallMs,
                     )
                 )
@@ -404,7 +380,6 @@ class BenchmarkEngine(private val context: Context) {
 
             val summary = buildSummary(
                 config = config,
-                groundTruth = groundTruth,
                 audioDurationSec = wavAudio.durationSeconds,
                 initialAsrColdLoadMs = initialAsrColdLoadMs,
                 initialLlmColdLoadMs = initialLlmColdLoadMs,
@@ -428,7 +403,6 @@ class BenchmarkEngine(private val context: Context) {
 
         onProgress(0.05f, "Loading audio fixture...")
         val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
-        val groundTruth = BenchmarkAudioSample.readGroundTruth(context, config.audioSample)
 
         var persistentAsr: LocalAsrEngine? = null
         var initialAsrColdLoadMs = 0L
@@ -487,9 +461,6 @@ class BenchmarkEngine(private val context: Context) {
                 val asrWallMs = asrResult.activeMs
                 val asrRtf = BenchmarkStatsHelper.calculateRtf(asrWallMs, wavAudio.durationSeconds)
 
-                val rawWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, rawAsr) else 0.0
-                val rawCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, rawAsr) else 0.0
-
                 repetitions.add(
                     RepetitionMeasurement(
                         repIndex = rep,
@@ -498,8 +469,6 @@ class BenchmarkEngine(private val context: Context) {
                         asrWallMs = asrWallMs,
                         asrRtf = asrRtf,
                         rawAsrText = rawAsr,
-                        rawWer = rawWer,
-                        rawCer = rawCer,
                         e2eWallMs = asrWallMs,
                     )
                 )
@@ -511,7 +480,6 @@ class BenchmarkEngine(private val context: Context) {
 
             val summary = buildSummary(
                 config = config,
-                groundTruth = groundTruth,
                 audioDurationSec = wavAudio.durationSeconds,
                 initialAsrColdLoadMs = initialAsrColdLoadMs,
                 initialLlmColdLoadMs = 0L,
@@ -617,15 +585,11 @@ class BenchmarkEngine(private val context: Context) {
                         asrWallMs = 0L,
                         asrRtf = 0.0,
                         rawAsrText = prompt,
-                        rawWer = 0.0,
-                        rawCer = 0.0,
                         llmTtftMs = pass.ttftMs,
                         llmPrefillTokPerSec = prefillSpeed,
                         llmDecodeTokPerSec = decodeSpeed,
                         llmWallMs = llmWallMs,
                         cleanedText = if (pass.cleaned) pass.text else prompt,
-                        cleanedWer = 0.0,
-                        cleanedCer = 0.0,
                         e2eWallMs = llmWallMs,
                     )
                 )
@@ -637,7 +601,6 @@ class BenchmarkEngine(private val context: Context) {
 
             val summary = buildSummary(
                 config = config,
-                groundTruth = "",
                 audioDurationSec = 0f,
                 initialAsrColdLoadMs = 0L,
                 initialLlmColdLoadMs = initialLlmColdLoadMs,
@@ -654,7 +617,6 @@ class BenchmarkEngine(private val context: Context) {
 
     private fun buildSummary(
         config: BenchmarkConfig,
-        groundTruth: String,
         audioDurationSec: Float,
         initialAsrColdLoadMs: Long,
         initialLlmColdLoadMs: Long,
@@ -673,10 +635,6 @@ class BenchmarkEngine(private val context: Context) {
         val lastRep = repetitions.lastOrNull()
         val rawAsrText = lastRep?.rawAsrText ?: ""
         val cleanedText = lastRep?.cleanedText ?: ""
-        val rawWer = lastRep?.rawWer ?: 0.0
-        val rawCer = lastRep?.rawCer ?: 0.0
-        val cleanedWer = lastRep?.cleanedWer ?: 0.0
-        val cleanedCer = lastRep?.cleanedCer ?: 0.0
 
         return BenchmarkSummary(
             mode = config.mode,
@@ -699,13 +657,8 @@ class BenchmarkEngine(private val context: Context) {
             llmDecodeStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmDecodes),
             llmWallStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmWalls),
             e2eWallStat = BenchmarkStatsHelper.calculateMeanAndStdDev(e2eWalls),
-            groundTruth = groundTruth,
             rawAsrText = rawAsrText,
-            rawWer = rawWer,
-            rawCer = rawCer,
             cleanedText = cleanedText,
-            cleanedWer = cleanedWer,
-            cleanedCer = cleanedCer,
             repetitions = repetitions,
         )
     }
