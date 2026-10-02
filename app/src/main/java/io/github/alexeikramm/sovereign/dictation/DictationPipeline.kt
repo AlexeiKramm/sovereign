@@ -52,6 +52,10 @@ class DictationPipeline(
     private val onCleanupUnavailable: () -> Unit = {},
     /** ASR partial text, as it is recognised — not committed. Measurement hook for the harness. */
     private val onPartialText: (String) -> Unit = {},
+    /** A unit was cut from the recogniser (the endpoint fired). Measurement hook for the harness. */
+    private val onUnitCut: (String) -> Unit = {},
+    /** A unit's settled text became visible. Measurement hook for the harness. */
+    private val onUnitCommitted: (String) -> Unit = {},
 ) {
 
     private val raw = StringBuilder()
@@ -162,6 +166,7 @@ class DictationPipeline(
     /** Runs on the ASR worker: accumulate raw, then route the unit to cleanup or straight to text. */
     private fun onUnit(unit: String) {
         if (unit.isBlank()) return
+        onUnitCut(unit)
         synchronized(raw) {
             if (raw.isNotEmpty() && !raw.endsWith(" ")) raw.append(" ")
             raw.append(unit)
@@ -177,6 +182,7 @@ class DictationPipeline(
                 }
                 committed.append(unit)
                 emit()
+                onUnitCommitted(committed.toString())
             }
         }
     }
@@ -190,6 +196,7 @@ class DictationPipeline(
             committed.append(commit.prefix)
             committed.append(commit.text)
             emit()
+            onUnitCommitted(committed.toString())
             if (cleanup.lastPass?.cleaned == false) onCleanupUnavailable()
         }
     }
