@@ -45,7 +45,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
@@ -306,10 +305,12 @@ fun SettingsScreen(
             )
         }
 
-        // --- 1. DICTATION FEEL ---
+        // --- 1. DICTATION FEEL (merged into Floating pill) ---
+
+        // --- 2. FLOATING PILL ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
-                text = "DICTATION FEEL",
+                text = "FLOATING PILL",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -326,20 +327,20 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         SettingsIconBadge(
-                            icon = Icons.Default.GraphicEq,
+                            icon = Icons.Default.Mic,
                             badgeColor = MaterialTheme.colorScheme.primaryContainer,
                             iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             contentDescription = null,
                         )
                         Column {
                             Text(
-                                text = "Dictation feel",
+                                text = "Floating pill",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = "Hold-to-dictate, haptic feedback, and silence detection",
+                                text = "Overlay behaviour, hold-to-dictate, and silence detection",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -347,6 +348,24 @@ fun SettingsScreen(
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    SettingsToggleRow(
+                        title = "Show only when keyboard is open",
+                        subtitle = "Keep the pill hidden until your keyboard appears",
+                        checked = floatingPillOnlyWhenKeyboardOpen,
+                        onCheckedChange = viewModel::setFloatingPillOnlyWhenKeyboardOpen,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Snap pill to screen edges",
+                        subtitle = "Snaps the resting pill to the nearest screen edge so it stays out of your way",
+                        checked = floatingPillEdgeAnchoring,
+                        onCheckedChange = viewModel::setFloatingPillEdgeAnchoring,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
 
                     SettingsToggleRow(
                         title = "Hold the pill to dictate",
@@ -429,67 +448,6 @@ fun SettingsScreen(
                         },
                         minusEnabled = stopSeconds > SettingsControls.STOP_MIN_SECONDS,
                         plusEnabled = stopSeconds < SettingsControls.STOP_MAX_SECONDS,
-                    )
-                }
-            }
-        }
-
-        // --- 2. FLOATING PILL ---
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text(
-                text = "FLOATING PILL",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.Mic,
-                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            contentDescription = null,
-                        )
-                        Column {
-                            Text(
-                                text = "Floating pill",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Overlay visibility and screen edge behavior",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    SettingsToggleRow(
-                        title = "Show only when keyboard is open",
-                        subtitle = "Keep the pill hidden until your keyboard appears",
-                        checked = floatingPillOnlyWhenKeyboardOpen,
-                        onCheckedChange = viewModel::setFloatingPillOnlyWhenKeyboardOpen,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
-                        title = "Snap pill to screen edges",
-                        subtitle = "Snaps the resting pill to the nearest screen edge so it stays out of your way",
-                        checked = floatingPillEdgeAnchoring,
-                        onCheckedChange = viewModel::setFloatingPillEdgeAnchoring,
                     )
                 }
             }
