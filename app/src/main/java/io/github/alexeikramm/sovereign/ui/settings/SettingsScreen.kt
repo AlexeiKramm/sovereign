@@ -305,7 +305,29 @@ fun SettingsScreen(
             )
         }
 
-        // --- 1. DICTATION FEEL (merged into Floating pill) ---
+        // --- 1. APPEARANCE & THEME ---
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Text(
+                text = "APPEARANCE & THEME",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            AppearanceCard(
+                themeMode = themeMode,
+                onThemeModeChange = viewModel::setThemeMode,
+                seedColor = themeSeedColor,
+                onSeedColorChange = viewModel::setThemeSeedColor,
+                paletteStyle = themePaletteStyle,
+                onPaletteStyleChange = viewModel::setThemePaletteStyle,
+                useSystemDynamic = themeUseSystemDynamic,
+                onUseSystemDynamicChange = viewModel::setThemeUseSystemDynamic,
+                depthMode = themeDepthMode,
+                onDepthModeChange = viewModel::setThemeDepthMode,
+            )
+        }
 
         // --- 2. FLOATING PILL ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -453,7 +475,98 @@ fun SettingsScreen(
             }
         }
 
-        // --- 3. LLM CLEANUP ENGINE ---
+        // --- 3. BATTERY & MEMORY ---
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Text(
+                text = "BATTERY & MEMORY",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SettingsIconBadge(
+                            icon = Icons.Default.BatteryChargingFull,
+                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            contentDescription = null,
+                        )
+                        Column {
+                            Text(
+                                text = "Battery & memory",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Unload models to preserve battery and free RAM",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    SettingsToggleRow(
+                        title = "Unload models on keyboard close",
+                        subtitle = "Free RAM when software keyboard is dismissed",
+                        checked = unloadOnKeyboardClose,
+                        onCheckedChange = viewModel::onUnloadOnKeyboardCloseChange,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Unload models on screen off",
+                        subtitle = "Free RAM by unloading models when screen is turned off",
+                        checked = unloadOnScreenOff,
+                        onCheckedChange = viewModel::onUnloadOnScreenOffChange,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Keep screen awake while dictating",
+                        subtitle = "Prevent display from dimming or locking during dictation",
+                        checked = keepScreenOnWhileRecording,
+                        onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Unload idle timeout",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Unload models from RAM after inactivity",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        IdleTimeoutDropdownSelector(
+                            selectedMinutes = idleTimeoutMinutes,
+                            onMinutesSelected = viewModel::onModelIdleTimeoutMinutesChange,
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- 4. LLM CLEANUP ENGINE ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
                 text = "LLM CLEANUP ENGINE",
@@ -589,122 +702,7 @@ fun SettingsScreen(
             }
         }
 
-        // --- 4. APPEARANCE & THEME ---
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text(
-                text = "APPEARANCE & THEME",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            AppearanceCard(
-                themeMode = themeMode,
-                onThemeModeChange = viewModel::setThemeMode,
-                seedColor = themeSeedColor,
-                onSeedColorChange = viewModel::setThemeSeedColor,
-                paletteStyle = themePaletteStyle,
-                onPaletteStyleChange = viewModel::setThemePaletteStyle,
-                useSystemDynamic = themeUseSystemDynamic,
-                onUseSystemDynamicChange = viewModel::setThemeUseSystemDynamic,
-                depthMode = themeDepthMode,
-                onDepthModeChange = viewModel::setThemeDepthMode,
-            )
-        }
-
-        // --- 5. BATTERY & MEMORY ---
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Text(
-                text = "BATTERY & MEMORY",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-            SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        SettingsIconBadge(
-                            icon = Icons.Default.BatteryChargingFull,
-                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
-                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            contentDescription = null,
-                        )
-                        Column {
-                            Text(
-                                text = "Battery & memory",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Unload models to preserve battery and free RAM",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                    SettingsToggleRow(
-                        title = "Unload models on screen off",
-                        subtitle = "Free RAM by unloading models when screen is turned off",
-                        checked = unloadOnScreenOff,
-                        onCheckedChange = viewModel::onUnloadOnScreenOffChange,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = "Unload idle timeout",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = "Unload models from RAM after inactivity",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        IdleTimeoutDropdownSelector(
-                            selectedMinutes = idleTimeoutMinutes,
-                            onMinutesSelected = viewModel::onModelIdleTimeoutMinutesChange,
-                        )
-                    }
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
-                        title = "Keep screen awake while dictating",
-                        subtitle = "Prevent display from dimming or locking during dictation",
-                        checked = keepScreenOnWhileRecording,
-                        onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
-                        title = "Unload models on keyboard close",
-                        subtitle = "Free RAM when software keyboard is dismissed",
-                        checked = unloadOnKeyboardClose,
-                        onCheckedChange = viewModel::onUnloadOnKeyboardCloseChange,
-                    )
-                }
-            }
-        }
-
-        // --- 6. DATA & MAINTENANCE ---
+        // --- 5. DATA & MAINTENANCE ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
                 text = "DATA & MAINTENANCE",
@@ -1018,7 +1016,7 @@ fun SettingsScreen(
             }
         }
 
-        // --- 7. ABOUT SOVEREIGN ---
+        // --- 6. ABOUT SOVEREIGN ---
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Text(
                 text = "ABOUT SOVEREIGN",
@@ -1783,9 +1781,9 @@ private fun IdleTimeoutDropdownSelector(
     val timeoutOptions = listOf(
         0 to ("Never" to "Keep models in memory indefinitely"),
         1 to ("1 minute" to "Aggressive memory saving"),
-        2 to ("2 minutes" to "Fast unload after use"),
+        2 to ("2 minutes (Recommended)" to "Fast unload after use"),
         5 to ("5 minutes" to "Balanced memory & latency"),
-        10 to ("10 minutes (Recommended)" to "Good balance for typical usage"),
+        10 to ("10 minutes" to "Good balance for typical usage"),
         15 to ("15 minutes" to "Maximum responsiveness"),
     )
 
