@@ -1779,12 +1779,12 @@ private fun IdleTimeoutDropdownSelector(
     val density = LocalDensity.current
 
     val timeoutOptions = listOf(
-        0 to ("Never" to "Keep models in memory indefinitely"),
-        1 to ("1 minute" to "Aggressive memory saving"),
-        2 to ("2 minutes (Recommended)" to "Fast unload after use"),
-        5 to ("5 minutes" to "Balanced memory & latency"),
-        10 to ("10 minutes" to "Good balance for typical usage"),
-        15 to ("15 minutes" to "Maximum responsiveness"),
+        0 to "Never",
+        1 to "1 minute",
+        2 to "2 minutes (Recommended)",
+        5 to "5 minutes",
+        10 to "10 minutes",
+        15 to "15 minutes",
     )
 
     Box(modifier = modifier.fillMaxWidth()) {
@@ -1807,19 +1807,13 @@ private fun IdleTimeoutDropdownSelector(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    val currentOption = timeoutOptions.firstOrNull { it.first == selectedMinutes }
-                    val currentTitle = currentOption?.second?.first ?: if (selectedMinutes == 0) "Never" else "$selectedMinutes minutes"
-                    val currentDesc = currentOption?.second?.second ?: "Unload after $selectedMinutes minutes"
+                    val currentTitle = timeoutOptions.firstOrNull { it.first == selectedMinutes }?.second
+                        ?: if (selectedMinutes == 0) "Never" else "$selectedMinutes minutes"
                     Text(
                         currentTitle,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        currentDesc,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Icon(
@@ -1837,24 +1831,16 @@ private fun IdleTimeoutDropdownSelector(
                 .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
-            timeoutOptions.forEach { (minutes, info) ->
-                val (title, desc) = info
+            timeoutOptions.forEach { (minutes, title) ->
                 val isSelected = minutes == selectedMinutes
                 DropdownMenuItem(
                     text = {
-                        Column {
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                desc,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
                     },
                     onClick = {
                         onMinutesSelected(minutes)
