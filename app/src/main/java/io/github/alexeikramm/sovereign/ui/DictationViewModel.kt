@@ -630,7 +630,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun activeProfileVariant(): CleanupPrompt.Variant {
         return when (profileStore.activeProfile().id) {
             "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
-            "aggressive_rewrite" -> CleanupPrompt.Variant.AGGRESSIVE_REWRITE
             else -> CleanupPrompt.Variant.SMART_CLEAN
         }
     }

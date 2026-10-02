@@ -42,13 +42,6 @@ class ProfileStore(private val filesDir: File) {
             rules = CleanupPrompt.Variant.CONSERVATIVE.rules,
             isBuiltin = true,
         ),
-        CleaningProfile(
-            id = "aggressive_rewrite",
-            name = "Aggressive Rewrite",
-            description = "Aggressively tightens and condenses into punchy written prose, cutting conversational padding and redundancy.",
-            rules = CleanupPrompt.Variant.AGGRESSIVE_REWRITE.rules,
-            isBuiltin = true,
-        ),
     )
 
     @Synchronized

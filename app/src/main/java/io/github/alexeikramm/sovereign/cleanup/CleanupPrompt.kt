@@ -78,23 +78,6 @@ object CleanupPrompt {
                 "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
                 "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
                 "- Preserve the speaker's core message, vocabulary, and tone—do not summarize, add outside facts, or rewrite into a completely different voice.",
-        ),
-
-        /**
-         * Aggressive rewrite profile: aggressively tightens and condenses into punchy, direct written
-         * prose. Ruthlessly eliminates conversational padding and rambling while preserving facts and intent.
-         */
-        AGGRESSIVE_REWRITE(
-            label = "aggressive rewrite — concise and direct",
-            rules = "- Aggressively rewrite and tighten the text into punchy, direct, professional written prose.\n" +
-                "- Ruthlessly eliminate conversational padding, rambling repetitions, throat-clearing, and verbose phrasing (e.g., \"what I really wanted to say is that basically\" -> cut straight to the point).\n" +
-                "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
-                "- Merge disjointed thoughts and boldly restructure run-on or circular spoken sentences into crisp, coherent statements.\n" +
-                "- Replace weak, passive spoken constructions with active verbs and clear, direct language.\n" +
-                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
-                "- Format spoken enumerations, sequences, and list items as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
-                "- Preserve all core facts, names, numbers, and the speaker's actual intent—never fabricate or alter substance, but do not hesitate to cut pure conversational fluff.\n" +
-                "- Prioritize brevity, clarity, and impact over keeping the original word count.",
         );
 
         companion object {
@@ -102,7 +85,6 @@ object CleanupPrompt {
             val REWRITE: Variant get() = SMART_CLEAN
 
             fun fromId(id: String?): Variant = when (id) {
-                "aggressive_rewrite" -> AGGRESSIVE_REWRITE
                 "conservative" -> CONSERVATIVE
                 "smart_clean" -> SMART_CLEAN
                 "rewrite" -> SMART_CLEAN

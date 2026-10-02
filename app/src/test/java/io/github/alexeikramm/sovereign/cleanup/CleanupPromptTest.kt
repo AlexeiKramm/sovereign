@@ -48,7 +48,8 @@ class CleanupPromptTest {
         assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.DEFAULT)
         assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("smart_clean"))
         assertEquals(CleanupPrompt.Variant.CONSERVATIVE, CleanupPrompt.Variant.fromId("conservative"))
-        assertEquals(CleanupPrompt.Variant.AGGRESSIVE_REWRITE, CleanupPrompt.Variant.fromId("aggressive_rewrite"))
+        // Retired profile: an unknown id must fall back to the default variant, not crash.
+        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("aggressive_rewrite"))
     }
 
     @Test
@@ -66,15 +67,10 @@ class CleanupPromptTest {
     }
 
     @Test
-    fun `the aggressive rewrite variant tightens text and eliminates padding`() {
-        val rules = CleanupPrompt.Variant.AGGRESSIVE_REWRITE.rules
-        assertTrue(rules.contains("Aggressively rewrite"))
-        assertTrue(rules.contains("Ruthlessly eliminate"))
-        assertTrue(rules.contains("Prioritize brevity"))
-        assertTrue(
-            "aggressive rewrite rules must differ from smart clean",
-            CleanupPrompt.Variant.AGGRESSIVE_REWRITE.rules != CleanupPrompt.Variant.SMART_CLEAN.rules,
-        )
+    fun `a retired or unknown profile id falls back to the default variant`() {
+        assertEquals(CleanupPrompt.Variant.DEFAULT, CleanupPrompt.Variant.fromId("aggressive_rewrite"))
+        assertEquals(CleanupPrompt.Variant.DEFAULT, CleanupPrompt.Variant.fromId("does_not_exist"))
+        assertEquals(CleanupPrompt.Variant.DEFAULT, CleanupPrompt.Variant.fromId(null))
     }
 
     @Test

@@ -430,10 +430,7 @@ fun StatusConfigurationCard(
                         ) {
                             displayProfiles.forEach { profile ->
                                 val isSelected = profile.id == activeProfileId
-                                val segmentLabel = when (profile.id) {
-                                    "aggressive_rewrite" -> "Aggressive"
-                                    else -> profile.name
-                                }
+                                val segmentLabel = profile.name
                                 val bg = if (isSelected && cleanupEnabled) {
                                     MaterialTheme.colorScheme.primaryContainer
                                 } else {
