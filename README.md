@@ -1,6 +1,6 @@
 # Smart Voice
 
-An Android app (`fi.ak.smartvoice`) that turns speech into text in any app. The dictation
+An Android app (`io.github.alexeikramm.sovereign`) that turns speech into text in any app. The dictation
 surface is a **floating pill** — an overlay plus an accessibility service that inserts the text
 at the cursor. The main app is a launcher/configurator/dashboard: **Home · Profiles · Settings**,
 plus a first-run onboarding wizard. No cloud speech service is involved at any point.
@@ -29,7 +29,7 @@ organised, and the rules. Read it before touching anything.
 | `docs/DECISIONS.md` | Append-only decision log, newest at the bottom |
 | `docs/archive/` | History only: the pre-2026-09-16 decision log and the shipped UI plan |
 | `docs/contract.md` | How the app uses the server contract (the contract itself is in the server repo) |
-| `app/src/main/java/fi/ak/smartvoice/` | The code; `AGENTS.md` has the package map |
+| `app/src/main/java/io/github/alexeikramm/sovereign/` | The code; `AGENTS.md` has the package map |
 
 The GenieX/NPU runtime, the old IME keyboard and the Hermes build host were removed. Do not
 resurrect them; treat any mention of them as stale.

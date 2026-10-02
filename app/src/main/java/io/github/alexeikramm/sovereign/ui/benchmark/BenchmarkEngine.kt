@@ -1,0 +1,712 @@
+package io.github.alexeikramm.sovereign.ui.benchmark
+
+import android.content.Context
+import android.os.SystemClock
+import android.util.Log
+import io.github.alexeikramm.sovereign.asr.AsrModelSpec
+import io.github.alexeikramm.sovereign.asr.AsrModelType
+import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
+import io.github.alexeikramm.sovereign.audio.WavReader
+import io.github.alexeikramm.sovereign.cleanup.CleanupPass
+import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
+import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
+import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelSpec
+import io.github.alexeikramm.sovereign.data.DictionaryStore
+import io.github.alexeikramm.sovereign.data.LiteRtProcessor
+import io.github.alexeikramm.sovereign.data.ProfileStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.sqrt
+
+enum class BenchmarkMode(val label: String) {
+    FULL_PIPELINE("Full Pipeline (Speech → Cleanup)"),
+    ASR_ONLY("ASR Only (Speech → Text)"),
+    LLM_ONLY("LLM Only (Text Cleanup Speed)"),
+}
+
+data class BenchmarkAudioSample(
+    val id: String,
+    val name: String,
+    val assetWavPath: String,
+    val assetTxtPath: String,
+    val durationDesc: String,
+    val durationSeconds: Float,
+    val language: String,
+) {
+    companion object {
+        val FIXTURES = listOf(
+            BenchmarkAudioSample(
+                id = "en_short",
+                name = "Short (4.8s • 11 words)",
+                assetWavPath = "en/short.wav",
+                assetTxtPath = "en/short.txt",
+                durationDesc = "4.83s audio • 16kHz mono WAV",
+                durationSeconds = 4.83f,
+                language = "en",
+            ),
+            BenchmarkAudioSample(
+                id = "en_medium",
+                name = "Medium (11.4s • 29 words)",
+                assetWavPath = "en/medium.wav",
+                assetTxtPath = "en/medium.txt",
+                durationDesc = "11.42s audio • 16kHz mono WAV",
+                durationSeconds = 11.42f,
+                language = "en",
+            ),
+            BenchmarkAudioSample(
+                id = "en_long",
+                name = "Long (21.4s • 55 words)",
+                assetWavPath = "en/long.wav",
+                assetTxtPath = "en/long.txt",
+                durationDesc = "21.35s audio • 16kHz mono WAV",
+                durationSeconds = 21.35f,
+                language = "en",
+            ),
+        )
+
+        fun readGroundTruth(context: Context, sample: BenchmarkAudioSample): String {
+            return try {
+                context.assets.open(sample.assetTxtPath).bufferedReader().use { it.readText() }.trim()
+            } catch (e: Exception) {
+                Log.w("BenchmarkEngine", "Failed to read ground truth from ${sample.assetTxtPath}: ${e.message}")
+                ""
+            }
+        }
+    }
+}
+
+data class BenchmarkConfig(
+    val mode: BenchmarkMode,
+    val asrModel: AsrModelSpec? = null,
+    val llmModel: LiteRtLmModelSpec? = null,
+    val audioSample: BenchmarkAudioSample = BenchmarkAudioSample.FIXTURES[0],
+    val textPrompt: String = "",
+    val computeTarget: String = "gpu", // "gpu" or "cpu"
+    val speculativeDecoding: Boolean = true,
+    val repetitions: Int = 3,
+    val coldReloadEachRep: Boolean = false,
+)
+
+data class RepetitionMeasurement(
+    val repIndex: Int,
+    val isCold: Boolean,
+    val asrColdLoadMs: Long = 0L,
+    val llmColdLoadMs: Long = 0L,
+    val asrWallMs: Long = 0L,
+    val asrRtf: Double = 0.0,
+    val rawAsrText: String = "",
+    val rawWer: Double = 0.0,
+    val rawCer: Double = 0.0,
+    val llmTtftMs: Double = 0.0,
+    val llmPrefillTokPerSec: Double = 0.0,
+    val llmDecodeTokPerSec: Double = 0.0,
+    val llmWallMs: Long = 0L,
+    val cleanedText: String = "",
+    val cleanedWer: Double = 0.0,
+    val cleanedCer: Double = 0.0,
+    val e2eWallMs: Long = 0L,
+)
+
+data class MetricStat(val mean: Double, val stdDev: Double)
+
+data class BenchmarkSummary(
+    val mode: BenchmarkMode,
+    val asrModelLabel: String,
+    val llmModelLabel: String,
+    val computeTarget: String,
+    val speculativeUsed: Boolean,
+    val sampleName: String,
+    val audioDurationSec: Float,
+    val repsCount: Int,
+    val coldReloadEachRep: Boolean,
+    val initialAsrColdLoadMs: Long,
+    val initialLlmColdLoadMs: Long,
+    val asrColdLoadStat: MetricStat,
+    val llmColdLoadStat: MetricStat,
+    val asrWallStat: MetricStat,
+    val asrRtfStat: MetricStat,
+    val llmTtftStat: MetricStat,
+    val llmPrefillStat: MetricStat,
+    val llmDecodeStat: MetricStat,
+    val llmWallStat: MetricStat,
+    val e2eWallStat: MetricStat,
+    val groundTruth: String,
+    val rawAsrText: String,
+    val rawWer: Double,
+    val rawCer: Double,
+    val cleanedText: String,
+    val cleanedWer: Double,
+    val cleanedCer: Double,
+    val repetitions: List<RepetitionMeasurement>,
+)
+
+object BenchmarkStatsHelper {
+    fun calculateMeanAndStdDev(values: List<Double>): MetricStat {
+        if (values.isEmpty()) return MetricStat(0.0, 0.0)
+        val mean = values.average()
+        val variance = if (values.size > 1) {
+            values.sumOf { (it - mean) * (it - mean) } / (values.size - 1)
+        } else 0.0
+        return MetricStat(mean, sqrt(variance))
+    }
+
+    fun calculateRtf(wallMs: Long, audioDurationSec: Float): Double {
+        if (audioDurationSec <= 0f) return 0.0
+        val procSec = wallMs / 1000.0
+        return procSec / audioDurationSec.toDouble()
+    }
+}
+
+object BenchmarkCsvLogger {
+    private const val CSV_HEADER =
+        "timestamp,mode,asr_model,llm_model,compute_target,mtp,sample_name,audio_dur_sec,reps,cold_reload," +
+            "cold_asr_load_ms,cold_llm_load_ms,asr_wall_mean_ms,asr_wall_std_ms,asr_rtf_mean,asr_rtf_std," +
+            "llm_ttft_mean_ms,llm_ttft_std_ms,llm_prefill_mean_tps,llm_decode_mean_tps,llm_decode_std_tps," +
+            "llm_wall_mean_ms,llm_wall_std_ms,e2e_wall_mean_ms,e2e_wall_std_ms,raw_wer,raw_cer,cleaned_wer,cleaned_cer," +
+            "ground_truth,raw_asr_text,cleaned_text"
+
+    fun log(context: Context, summary: BenchmarkSummary): String {
+        val isoTimestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
+        val csvLine = listOf(
+            isoTimestamp,
+            summary.mode.name,
+            escapeCsv(summary.asrModelLabel),
+            escapeCsv(summary.llmModelLabel),
+            summary.computeTarget,
+            summary.speculativeUsed.toString(),
+            escapeCsv(summary.sampleName),
+            String.format(Locale.US, "%.2f", summary.audioDurationSec),
+            summary.repsCount.toString(),
+            summary.coldReloadEachRep.toString(),
+            summary.initialAsrColdLoadMs.toString(),
+            summary.initialLlmColdLoadMs.toString(),
+            String.format(Locale.US, "%.1f", summary.asrWallStat.mean),
+            String.format(Locale.US, "%.1f", summary.asrWallStat.stdDev),
+            String.format(Locale.US, "%.4f", summary.asrRtfStat.mean),
+            String.format(Locale.US, "%.4f", summary.asrRtfStat.stdDev),
+            String.format(Locale.US, "%.1f", summary.llmTtftStat.mean),
+            String.format(Locale.US, "%.1f", summary.llmTtftStat.stdDev),
+            String.format(Locale.US, "%.1f", summary.llmPrefillStat.mean),
+            String.format(Locale.US, "%.1f", summary.llmDecodeStat.mean),
+            String.format(Locale.US, "%.1f", summary.llmDecodeStat.stdDev),
+            String.format(Locale.US, "%.1f", summary.llmWallStat.mean),
+            String.format(Locale.US, "%.1f", summary.llmWallStat.stdDev),
+            String.format(Locale.US, "%.1f", summary.e2eWallStat.mean),
+            String.format(Locale.US, "%.1f", summary.e2eWallStat.stdDev),
+            String.format(Locale.US, "%.4f", summary.rawWer),
+            String.format(Locale.US, "%.4f", summary.rawCer),
+            String.format(Locale.US, "%.4f", summary.cleanedWer),
+            String.format(Locale.US, "%.4f", summary.cleanedCer),
+            escapeCsv(summary.groundTruth),
+            escapeCsv(summary.rawAsrText),
+            escapeCsv(summary.cleanedText),
+        ).joinToString(",")
+
+        Log.i("SmartVoiceBenchmark", "CSV: $csvLine")
+        Log.i("SmartVoiceBenchmark", "GroundTruth: ${summary.groundTruth}")
+        Log.i("SmartVoiceBenchmark", "Raw ASR: ${summary.rawAsrText}")
+        Log.i("SmartVoiceBenchmark", "Cleaned: ${summary.cleanedText}")
+
+        try {
+            val file = File(context.filesDir, "benchmarks.csv")
+            val isNew = !file.exists() || file.length() == 0L
+            file.appendText(if (isNew) "$CSV_HEADER\n$csvLine\n" else "$csvLine\n")
+        } catch (e: Exception) {
+            Log.e("SmartVoiceBenchmark", "Failed to write benchmarks.csv: ${e.message}")
+        }
+
+        return csvLine
+    }
+
+    private fun escapeCsv(value: String): String {
+        return if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            "\"${value.replace("\"", "\"\"")}\""
+        } else {
+            value
+        }
+    }
+}
+
+class BenchmarkEngine(private val context: Context) {
+
+    suspend fun run(
+        config: BenchmarkConfig,
+        onProgress: (progress: Float, status: String) -> Unit,
+    ): BenchmarkSummary = withContext(Dispatchers.IO) {
+        when (config.mode) {
+            BenchmarkMode.FULL_PIPELINE -> runFullPipeline(config, onProgress)
+            BenchmarkMode.ASR_ONLY -> runAsrOnly(config, onProgress)
+            BenchmarkMode.LLM_ONLY -> runLlmOnly(config, onProgress)
+        }
+    }
+
+    private suspend fun runFullPipeline(
+        config: BenchmarkConfig,
+        onProgress: (progress: Float, status: String) -> Unit,
+    ): BenchmarkSummary {
+        val asrSpec = checkNotNull(config.asrModel) { "ASR model is required for Full Pipeline" }
+        val llmSpec = checkNotNull(config.llmModel) { "LLM model is required for Full Pipeline" }
+
+        onProgress(0.05f, "Loading audio fixture...")
+        val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
+        val groundTruth = BenchmarkAudioSample.readGroundTruth(context, config.audioSample)
+
+        val profileStore = ProfileStore(context)
+        val dictionaryStore = DictionaryStore(context)
+        val activeProfile = profileStore.activeProfile()
+        val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
+        val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
+        val processor = if (config.computeTarget == "cpu" || !llmSpec.supportsGpu) {
+            LiteRtProcessor.CPU
+        } else {
+            LiteRtProcessor.GPU
+        }
+
+        var persistentAsr: LocalAsrEngine? = null
+        var persistentLlm: LiteRtLmCleanupEngine? = null
+
+        var initialAsrColdLoadMs = 0L
+        var initialLlmColdLoadMs = 0L
+
+        suspend fun loadAsr(): Long {
+            val start = SystemClock.elapsedRealtime()
+            val engine = LocalAsrEngine(
+                modelDirectory = asrSpec.directory(context.filesDir),
+                modelSpec = asrSpec,
+                assetManager = context.assets,
+            )
+            val availability = engine.load()
+            if (availability !is LocalAsrEngine.Availability.Loaded) {
+                val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: availability.toString()
+                error("ASR engine failed to load: $reason for ${asrSpec.label}")
+            }
+            persistentAsr = engine
+            return SystemClock.elapsedRealtime() - start
+        }
+
+        suspend fun unloadAsr() {
+            persistentAsr?.unload()
+            persistentAsr = null
+        }
+
+        suspend fun loadLlm(): Long {
+            val start = SystemClock.elapsedRealtime()
+            val engine = LiteRtLmCleanupEngine(
+                context = context,
+                modelSpec = llmSpec,
+                processor = processor,
+                speculativeDecoding = config.speculativeDecoding && llmSpec.supportsSpeculativeDecoding,
+                vocabulary = dictionaryStore::getEntries,
+            )
+            engine.load().getOrThrow()
+            persistentLlm = engine
+            return SystemClock.elapsedRealtime() - start
+        }
+
+        suspend fun unloadLlm() {
+            persistentLlm?.unload()
+            persistentLlm = null
+            System.gc()
+        }
+
+        try {
+            // Cold Setup
+            onProgress(0.1f, "Cold loading models...")
+            initialAsrColdLoadMs = loadAsr()
+            initialLlmColdLoadMs = loadLlm()
+
+            // Warmup pass if running warm steady-state
+            if (!config.coldReloadEachRep) {
+                onProgress(0.15f, "Warming up pipeline...")
+                persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
+                persistentLlm?.clean(unit = "warmup pass", context = null, variant = variant, customRules = customRules)
+            } else {
+                // If coldReloadEachRep, unload now so rep 1 does a cold reload
+                unloadAsr()
+                unloadLlm()
+            }
+
+            val repetitions = mutableListOf<RepetitionMeasurement>()
+            val totalReps = config.repetitions
+
+            for (rep in 1..totalReps) {
+                val repFraction = (rep.toFloat() / totalReps) * 0.8f + 0.15f
+                var asrLoad = 0L
+                var llmLoad = 0L
+
+                if (config.coldReloadEachRep) {
+                    onProgress(repFraction, "Rep $rep/$totalReps: Cold loading models...")
+                    asrLoad = loadAsr()
+                    llmLoad = loadLlm()
+                }
+
+                onProgress(repFraction, "Rep $rep/$totalReps: Running ASR...")
+                val e2eStart = SystemClock.elapsedRealtime()
+                val asrResult = persistentAsr!!.transcribeBufferTimed(
+                    wavAudio.samples,
+                    config.audioSample.language,
+                )
+                val rawAsr = asrResult.text
+                val asrWallMs = asrResult.activeMs
+                val asrRtf = BenchmarkStatsHelper.calculateRtf(asrWallMs, wavAudio.durationSeconds)
+
+                val rawWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, rawAsr) else 0.0
+                val rawCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, rawAsr) else 0.0
+
+                onProgress(repFraction, "Rep $rep/$totalReps: Running LLM Cleanup...")
+                val pass = persistentLlm!!.clean(
+                    unit = rawAsr,
+                    context = null,
+                    variant = variant,
+                    customRules = customRules,
+                )
+                val llmWallMs = pass.activeMs
+                val e2eWallMs = SystemClock.elapsedRealtime() - e2eStart
+
+                val cleanedText = if (pass.cleaned && pass.text.isNotBlank()) pass.text else rawAsr
+                val cleanedWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, cleanedText) else 0.0
+                val cleanedCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, cleanedText) else 0.0
+
+                val decodeSpeed = if (pass.decodeTimeMs > 0.0) (pass.generatedTokens * 1000.0) / pass.decodeTimeMs else 0.0
+                val prefillSpeed = if (pass.promptTimeMs > 0.0 && pass.promptTokens > 0) (pass.promptTokens * 1000.0) / pass.promptTimeMs else 0.0
+
+                repetitions.add(
+                    RepetitionMeasurement(
+                        repIndex = rep,
+                        isCold = config.coldReloadEachRep,
+                        asrColdLoadMs = if (config.coldReloadEachRep) asrLoad else initialAsrColdLoadMs,
+                        llmColdLoadMs = if (config.coldReloadEachRep) llmLoad else initialLlmColdLoadMs,
+                        asrWallMs = asrWallMs,
+                        asrRtf = asrRtf,
+                        rawAsrText = rawAsr,
+                        rawWer = rawWer,
+                        rawCer = rawCer,
+                        llmTtftMs = pass.ttftMs,
+                        llmPrefillTokPerSec = prefillSpeed,
+                        llmDecodeTokPerSec = decodeSpeed,
+                        llmWallMs = llmWallMs,
+                        cleanedText = cleanedText,
+                        cleanedWer = cleanedWer,
+                        cleanedCer = cleanedCer,
+                        e2eWallMs = e2eWallMs,
+                    )
+                )
+
+                if (config.coldReloadEachRep) {
+                    unloadAsr()
+                    unloadLlm()
+                }
+            }
+
+            val summary = buildSummary(
+                config = config,
+                groundTruth = groundTruth,
+                audioDurationSec = wavAudio.durationSeconds,
+                initialAsrColdLoadMs = initialAsrColdLoadMs,
+                initialLlmColdLoadMs = initialLlmColdLoadMs,
+                repetitions = repetitions,
+            )
+
+            BenchmarkCsvLogger.log(context, summary)
+            onProgress(1f, "Complete")
+            return summary
+        } finally {
+            unloadAsr()
+            unloadLlm()
+        }
+    }
+
+    private suspend fun runAsrOnly(
+        config: BenchmarkConfig,
+        onProgress: (progress: Float, status: String) -> Unit,
+    ): BenchmarkSummary {
+        val asrSpec = checkNotNull(config.asrModel) { "ASR model is required for ASR Only mode" }
+
+        onProgress(0.05f, "Loading audio fixture...")
+        val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
+        val groundTruth = BenchmarkAudioSample.readGroundTruth(context, config.audioSample)
+
+        var persistentAsr: LocalAsrEngine? = null
+        var initialAsrColdLoadMs = 0L
+
+        suspend fun loadAsr(): Long {
+            val start = SystemClock.elapsedRealtime()
+            val engine = LocalAsrEngine(
+                modelDirectory = asrSpec.directory(context.filesDir),
+                modelSpec = asrSpec,
+                assetManager = context.assets,
+            )
+            val availability = engine.load()
+            if (availability !is LocalAsrEngine.Availability.Loaded) {
+                val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: availability.toString()
+                error("ASR engine failed to load: $reason for ${asrSpec.label}")
+            }
+            persistentAsr = engine
+            return SystemClock.elapsedRealtime() - start
+        }
+
+        suspend fun unloadAsr() {
+            persistentAsr?.unload()
+            persistentAsr = null
+            System.gc()
+        }
+
+        try {
+            onProgress(0.1f, "Cold loading ASR model...")
+            initialAsrColdLoadMs = loadAsr()
+
+            if (!config.coldReloadEachRep) {
+                onProgress(0.15f, "Warming up ASR...")
+                persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
+            } else {
+                unloadAsr()
+            }
+
+            val repetitions = mutableListOf<RepetitionMeasurement>()
+            val totalReps = config.repetitions
+
+            for (rep in 1..totalReps) {
+                val repFraction = (rep.toFloat() / totalReps) * 0.8f + 0.15f
+                var asrLoad = 0L
+
+                if (config.coldReloadEachRep) {
+                    onProgress(repFraction, "Rep $rep/$totalReps: Cold loading ASR...")
+                    asrLoad = loadAsr()
+                }
+
+                onProgress(repFraction, "Rep $rep/$totalReps: Running ASR recognition...")
+                val asrResult = persistentAsr!!.transcribeBufferTimed(
+                    wavAudio.samples,
+                    config.audioSample.language,
+                )
+                val rawAsr = asrResult.text
+                val asrWallMs = asrResult.activeMs
+                val asrRtf = BenchmarkStatsHelper.calculateRtf(asrWallMs, wavAudio.durationSeconds)
+
+                val rawWer = if (groundTruth.isNotBlank()) WerCalculator.calculateWer(groundTruth, rawAsr) else 0.0
+                val rawCer = if (groundTruth.isNotBlank()) WerCalculator.calculateCer(groundTruth, rawAsr) else 0.0
+
+                repetitions.add(
+                    RepetitionMeasurement(
+                        repIndex = rep,
+                        isCold = config.coldReloadEachRep,
+                        asrColdLoadMs = if (config.coldReloadEachRep) asrLoad else initialAsrColdLoadMs,
+                        asrWallMs = asrWallMs,
+                        asrRtf = asrRtf,
+                        rawAsrText = rawAsr,
+                        rawWer = rawWer,
+                        rawCer = rawCer,
+                        e2eWallMs = asrWallMs,
+                    )
+                )
+
+                if (config.coldReloadEachRep) {
+                    unloadAsr()
+                }
+            }
+
+            val summary = buildSummary(
+                config = config,
+                groundTruth = groundTruth,
+                audioDurationSec = wavAudio.durationSeconds,
+                initialAsrColdLoadMs = initialAsrColdLoadMs,
+                initialLlmColdLoadMs = 0L,
+                repetitions = repetitions,
+            )
+
+            BenchmarkCsvLogger.log(context, summary)
+            onProgress(1f, "Complete")
+            return summary
+        } finally {
+            unloadAsr()
+        }
+    }
+
+    private suspend fun runLlmOnly(
+        config: BenchmarkConfig,
+        onProgress: (progress: Float, status: String) -> Unit,
+    ): BenchmarkSummary {
+        val llmSpec = checkNotNull(config.llmModel) { "LLM model is required for LLM Only mode" }
+
+        val profileStore = ProfileStore(context)
+        val dictionaryStore = DictionaryStore(context)
+        val activeProfile = profileStore.activeProfile()
+        val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
+        val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
+        val processor = if (config.computeTarget == "cpu" || !llmSpec.supportsGpu) {
+            LiteRtProcessor.CPU
+        } else {
+            LiteRtProcessor.GPU
+        }
+
+        var persistentLlm: LiteRtLmCleanupEngine? = null
+        var initialLlmColdLoadMs = 0L
+
+        suspend fun loadLlm(): Long {
+            val start = SystemClock.elapsedRealtime()
+            val engine = LiteRtLmCleanupEngine(
+                context = context,
+                modelSpec = llmSpec,
+                processor = processor,
+                speculativeDecoding = config.speculativeDecoding && llmSpec.supportsSpeculativeDecoding,
+                vocabulary = dictionaryStore::getEntries,
+            )
+            engine.load().getOrThrow()
+            persistentLlm = engine
+            return SystemClock.elapsedRealtime() - start
+        }
+
+        suspend fun unloadLlm() {
+            persistentLlm?.unload()
+            persistentLlm = null
+            System.gc()
+        }
+
+        try {
+            onProgress(0.1f, "Cold loading LLM model...")
+            initialLlmColdLoadMs = loadLlm()
+
+            val prompt = config.textPrompt.ifBlank {
+                "Today is monday and we need to schedule a meeting with alex and sarah at 3pm to review the quarterly roadmap"
+            }
+
+            if (!config.coldReloadEachRep) {
+                onProgress(0.2f, "Warming up LLM...")
+                val engine = checkNotNull(persistentLlm)
+                engine.clean(
+                    unit = "warmup run",
+                    context = null,
+                    variant = variant,
+                    customRules = customRules,
+                )
+            }
+
+            val repetitions = mutableListOf<RepetitionMeasurement>()
+            val totalReps = config.repetitions
+            for (rep in 1..totalReps) {
+                val repFraction = (rep.toFloat() / totalReps) * 0.75f + 0.2f
+                var repColdLoad = 0L
+                if (config.coldReloadEachRep && rep > 1) {
+                    onProgress(repFraction, "Rep $rep/$totalReps: Cold loading LLM...")
+                    repColdLoad = loadLlm()
+                }
+
+                onProgress(repFraction, "Running LLM repetition $rep/$totalReps...")
+                val engine = checkNotNull(persistentLlm)
+                val pass = engine.clean(
+                    unit = prompt,
+                    context = null,
+                    variant = variant,
+                    customRules = customRules,
+                )
+                val llmWallMs = pass.activeMs
+
+                val decodeSpeed = if (pass.decodeTimeMs > 0.0) (pass.generatedTokens * 1000.0) / pass.decodeTimeMs else 0.0
+                val prefillSpeed = if (pass.promptTimeMs > 0.0 && pass.promptTokens > 0) (pass.promptTokens * 1000.0) / pass.promptTimeMs else 0.0
+
+                repetitions.add(
+                    RepetitionMeasurement(
+                        repIndex = rep,
+                        isCold = config.coldReloadEachRep,
+                        asrColdLoadMs = 0L,
+                        llmColdLoadMs = if (rep == 1) initialLlmColdLoadMs else repColdLoad,
+                        asrWallMs = 0L,
+                        asrRtf = 0.0,
+                        rawAsrText = prompt,
+                        rawWer = 0.0,
+                        rawCer = 0.0,
+                        llmTtftMs = pass.ttftMs,
+                        llmPrefillTokPerSec = prefillSpeed,
+                        llmDecodeTokPerSec = decodeSpeed,
+                        llmWallMs = llmWallMs,
+                        cleanedText = if (pass.cleaned) pass.text else prompt,
+                        cleanedWer = 0.0,
+                        cleanedCer = 0.0,
+                        e2eWallMs = llmWallMs,
+                    )
+                )
+
+                if (config.coldReloadEachRep) {
+                    unloadLlm()
+                }
+            }
+
+            val summary = buildSummary(
+                config = config,
+                groundTruth = "",
+                audioDurationSec = 0f,
+                initialAsrColdLoadMs = 0L,
+                initialLlmColdLoadMs = initialLlmColdLoadMs,
+                repetitions = repetitions,
+            )
+
+            BenchmarkCsvLogger.log(context, summary)
+            onProgress(1f, "Complete")
+            return summary
+        } finally {
+            unloadLlm()
+        }
+    }
+
+    private fun buildSummary(
+        config: BenchmarkConfig,
+        groundTruth: String,
+        audioDurationSec: Float,
+        initialAsrColdLoadMs: Long,
+        initialLlmColdLoadMs: Long,
+        repetitions: List<RepetitionMeasurement>,
+    ): BenchmarkSummary {
+        val asrColdLoads = repetitions.map { it.asrColdLoadMs.toDouble() }
+        val llmColdLoads = repetitions.map { it.llmColdLoadMs.toDouble() }
+        val asrWalls = repetitions.map { it.asrWallMs.toDouble() }
+        val asrRtfs = repetitions.map { it.asrRtf }
+        val llmTtfts = repetitions.map { it.llmTtftMs }
+        val llmPrefills = repetitions.map { it.llmPrefillTokPerSec }
+        val llmDecodes = repetitions.map { it.llmDecodeTokPerSec }
+        val llmWalls = repetitions.map { it.llmWallMs.toDouble() }
+        val e2eWalls = repetitions.map { it.e2eWallMs.toDouble() }
+
+        val lastRep = repetitions.lastOrNull()
+        val rawAsrText = lastRep?.rawAsrText ?: ""
+        val cleanedText = lastRep?.cleanedText ?: ""
+        val rawWer = lastRep?.rawWer ?: 0.0
+        val rawCer = lastRep?.rawCer ?: 0.0
+        val cleanedWer = lastRep?.cleanedWer ?: 0.0
+        val cleanedCer = lastRep?.cleanedCer ?: 0.0
+
+        return BenchmarkSummary(
+            mode = config.mode,
+            asrModelLabel = config.asrModel?.label ?: "N/A",
+            llmModelLabel = config.llmModel?.label ?: "N/A",
+            computeTarget = if (config.llmModel != null) config.computeTarget else "N/A",
+            speculativeUsed = config.speculativeDecoding && (config.llmModel?.supportsSpeculativeDecoding == true),
+            sampleName = if (config.mode != BenchmarkMode.LLM_ONLY) config.audioSample.name else "Custom Text",
+            audioDurationSec = audioDurationSec,
+            repsCount = repetitions.size,
+            coldReloadEachRep = config.coldReloadEachRep,
+            initialAsrColdLoadMs = initialAsrColdLoadMs,
+            initialLlmColdLoadMs = initialLlmColdLoadMs,
+            asrColdLoadStat = BenchmarkStatsHelper.calculateMeanAndStdDev(asrColdLoads),
+            llmColdLoadStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmColdLoads),
+            asrWallStat = BenchmarkStatsHelper.calculateMeanAndStdDev(asrWalls),
+            asrRtfStat = BenchmarkStatsHelper.calculateMeanAndStdDev(asrRtfs),
+            llmTtftStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmTtfts),
+            llmPrefillStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmPrefills),
+            llmDecodeStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmDecodes),
+            llmWallStat = BenchmarkStatsHelper.calculateMeanAndStdDev(llmWalls),
+            e2eWallStat = BenchmarkStatsHelper.calculateMeanAndStdDev(e2eWalls),
+            groundTruth = groundTruth,
+            rawAsrText = rawAsrText,
+            rawWer = rawWer,
+            rawCer = rawCer,
+            cleanedText = cleanedText,
+            cleanedWer = cleanedWer,
+            cleanedCer = cleanedCer,
+            repetitions = repetitions,
+        )
+    }
+}
