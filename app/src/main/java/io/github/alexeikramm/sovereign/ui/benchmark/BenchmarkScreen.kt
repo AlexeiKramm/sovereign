@@ -4,7 +4,6 @@ import android.media.MediaPlayer
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,10 +17,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
@@ -45,7 +46,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -63,10 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -83,41 +80,19 @@ import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelSpec
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModels
 import io.github.alexeikramm.sovereign.data.AppSettings
-import io.github.alexeikramm.sovereign.theme.BadgeCyan
-import io.github.alexeikramm.sovereign.theme.BadgeGreen
-import io.github.alexeikramm.sovereign.theme.BadgeOrange
 import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
 import io.github.alexeikramm.sovereign.ui.components.SettingsIconBadge
 import io.github.alexeikramm.sovereign.ui.components.TopAppBarWithScrollShadow
+import io.github.alexeikramm.sovereign.ui.components.asrModelTierTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-private val PauseIcon: ImageVector
-    get() = ImageVector.Builder(
-        name = "Pause",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f,
-    ).apply {
-        path(fill = SolidColor(Color.White)) {
-            moveTo(6f, 19f)
-            horizontalLineToRelative(4f)
-            verticalLineTo(5f)
-            horizontalLineTo(6f)
-            verticalLineToRelative(14f)
-            close()
-            moveTo(14f, 5f)
-            verticalLineToRelative(14f)
-            horizontalLineToRelative(4f)
-            verticalLineTo(5f)
-            horizontalLineToRelative(-4f)
-            close()
-        }
-    }.build()
+/** The user-facing cleanup tier name, matching the Models screen. */
+private val LiteRtLmModelSpec.tierTitle: String
+    get() = if (id == LiteRtLmModels.GEMMA_4_E2B.id) "Good Polish" else label
 
 private class SampleAudioPlayer(private val context: android.content.Context) {
     private var mediaPlayer: MediaPlayer? = null
@@ -394,8 +369,8 @@ fun BenchmarkScreen(
                                     onClick = { selectedMode = mode },
                                     label = { Text(shortLabel) },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = BadgeCyan.copy(alpha = 0.2f),
-                                        selectedLabelColor = BadgeCyan,
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                     ),
                                 )
                             }
@@ -452,8 +427,8 @@ fun BenchmarkScreen(
                                             onClick = { selectedComputeUnit = "gpu" },
                                             label = { Text("GPU") },
                                             colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = BadgeOrange.copy(alpha = 0.2f),
-                                                selectedLabelColor = BadgeOrange,
+                                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                             ),
                                         )
                                     }
@@ -462,8 +437,8 @@ fun BenchmarkScreen(
                                         onClick = { selectedComputeUnit = "cpu" },
                                         label = { Text("CPU") },
                                         colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = BadgeOrange.copy(alpha = 0.2f),
-                                            selectedLabelColor = BadgeOrange,
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                         ),
                                     )
                                 }
@@ -485,17 +460,13 @@ fun BenchmarkScreen(
                                     Text(
                                         if (modelSupportsMtp) "Drafting heads for parallel candidate tokens" else "Unsupported by this model",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (modelSupportsMtp) BadgeGreen else MaterialTheme.colorScheme.outline,
+                                        color = if (modelSupportsMtp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                                     )
                                 }
                                 Switch(
                                     checked = speculativeDecoding && modelSupportsMtp,
                                     enabled = modelSupportsMtp,
                                     onCheckedChange = { speculativeDecoding = it },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Color.White,
-                                        checkedTrackColor = BadgeCyan,
-                                    ),
                                 )
                             }
                         }
@@ -528,10 +499,10 @@ fun BenchmarkScreen(
                                 label = { Text("Input Text for LLM Cleanup") },
                                 modifier = Modifier.fillMaxWidth(),
                                 maxLines = 4,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(16.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                                 ),
@@ -569,10 +540,6 @@ fun BenchmarkScreen(
                             Switch(
                                 checked = coldReloadEachRep,
                                 onCheckedChange = { coldReloadEachRep = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = BadgeCyan,
-                                ),
                             )
                         }
 
@@ -581,28 +548,28 @@ fun BenchmarkScreen(
                             onClick = { startBenchmark() },
                             enabled = !isRunning,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = BadgeCyan),
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         ) {
                             if (isRunning) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.height(18.dp).width(18.dp),
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onPrimary,
                                     strokeWidth = 2.dp,
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(statusText.ifEmpty { "Benchmarking..." }, color = Color.White)
+                                Text(statusText.ifEmpty { "Benchmarking..." })
                             } else {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Run Benchmark", fontWeight = FontWeight.SemiBold, color = Color.White)
+                                Text("Run Benchmark", fontWeight = FontWeight.SemiBold)
                             }
                         }
 
                         if (isRunning && progressFraction > 0f) {
                             LinearProgressIndicator(
                                 progress = { progressFraction },
-                                color = BadgeCyan,
+                                color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -621,9 +588,7 @@ fun BenchmarkScreen(
             // ================= SUMMARY RESULTS CARD =================
             summaryResult?.let { summary ->
                 item {
-                    SettingsGroupCard(
-                        modifier = Modifier.border(1.dp, BadgeCyan, RoundedCornerShape(20.dp)),
-                    ) {
+                    SettingsGroupCard {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -638,11 +603,10 @@ fun BenchmarkScreen(
                             // TOP-LEVEL PIPELINE OVERVIEW (When running Full Pipeline)
                             if (summary.mode == BenchmarkMode.FULL_PIPELINE) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
-                                SectionHeader("Pipeline Overview", color = BadgeGreen)
+                                SectionHeader("Pipeline Overview")
                                 ResultRow(
                                     "End-to-End Latency:",
                                     "%.1f ± %.1f ms".format(Locale.US, summary.e2eWallStat.mean, summary.e2eWallStat.stdDev),
-                                    valueColor = BadgeGreen,
                                 )
                             }
 
@@ -676,7 +640,7 @@ fun BenchmarkScreen(
                             // 2) ASR SECTION (Speed, RTF, Raw Accuracy)
                             if (summary.mode != BenchmarkMode.LLM_ONLY) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
-                                SectionHeader("2. ASR Performance (Speech → Text)", color = BadgeCyan)
+                                SectionHeader("2. ASR Performance (Speech → Text)")
 
                                 ResultRow(
                                     "ASR Wall Time:",
@@ -686,7 +650,6 @@ fun BenchmarkScreen(
                                 ResultRow(
                                     "Real-Time Factor (RTF):",
                                     "%.3f (%.1fx realtime)".format(Locale.US, summary.asrRtfStat.mean, speedup),
-                                    valueColor = BadgeCyan,
                                 )
                                 if (summary.groundTruth.isNotBlank()) {
                                     ResultRow(
@@ -701,7 +664,6 @@ fun BenchmarkScreen(
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
                                 SectionHeader(
                                     if (summary.mode == BenchmarkMode.FULL_PIPELINE) "3. LLM Cleanup Performance" else "2. LLM Cleanup Performance",
-                                    color = BadgeOrange,
                                 )
 
                                 ResultRow(
@@ -717,7 +679,6 @@ fun BenchmarkScreen(
                                 ResultRow(
                                     "Decode Speed:",
                                     "%.1f ± %.1f tok/s".format(Locale.US, summary.llmDecodeStat.mean, summary.llmDecodeStat.stdDev),
-                                    valueColor = BadgeOrange,
                                 )
                                 ResultRow(
                                     "LLM Wall Time:",
@@ -727,13 +688,13 @@ fun BenchmarkScreen(
                                     ResultRow(
                                         "Cleaned Accuracy:",
                                         "WER %.1f%% | CER %.1f%%".format(Locale.US, summary.cleanedWer * 100, summary.cleanedCer * 100),
-                                        valueColor = if (summary.cleanedWer <= summary.rawWer) BadgeGreen else MaterialTheme.colorScheme.error,
+                                        valueColor = if (summary.cleanedWer <= summary.rawWer) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                     )
                                     val werDelta = (summary.rawWer - summary.cleanedWer) * 100
                                     ResultRow(
                                         "Accuracy Delta vs Raw:",
                                         if (werDelta >= 0) "+%.1f%% gain".format(Locale.US, werDelta) else "%.1f%%".format(Locale.US, werDelta),
-                                        valueColor = if (werDelta >= 0) BadgeGreen else MaterialTheme.colorScheme.error,
+                                        valueColor = if (werDelta >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                     )
                                 }
                             }
@@ -828,15 +789,12 @@ private fun ResultRow(
 }
 
 @Composable
-private fun SectionHeader(
-    title: String,
-    color: Color = MaterialTheme.colorScheme.primary,
-) {
+private fun SectionHeader(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
-        color = color,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
     )
 }
@@ -862,9 +820,9 @@ private fun AudioFixtureDropdownSelector(
                     .onGloballyPositioned { coordinates ->
                         cardWidthDp = with(density) { coordinates.size.width.toDp() }
                     },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 Row(
                     modifier = Modifier
@@ -880,7 +838,7 @@ private fun AudioFixtureDropdownSelector(
                             .width(36.dp),
                     ) {
                         Icon(
-                            imageVector = if (audioPlayer.isPlaying) PauseIcon else Icons.Default.PlayArrow,
+                            imageVector = if (audioPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (audioPlayer.isPlaying) "Pause" else "Play",
                             tint = MaterialTheme.colorScheme.onSurface,
                         )
@@ -971,9 +929,9 @@ private fun RepetitionsDropdownSelector(
                     .onGloballyPositioned { coordinates ->
                         cardWidthDp = with(density) { coordinates.size.width.toDp() }
                     },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 Row(
                     modifier = Modifier
@@ -1045,7 +1003,7 @@ private fun AsrModelDropdownSelector(
         if (installedModels.isEmpty()) {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
             ) {
                 Text(
@@ -1064,9 +1022,9 @@ private fun AsrModelDropdownSelector(
                         .onGloballyPositioned { coordinates ->
                             cardWidthDp = with(density) { coordinates.size.width.toDp() }
                         },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                 ) {
                     Row(
                         modifier = Modifier
@@ -1077,7 +1035,7 @@ private fun AsrModelDropdownSelector(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                selectedModel?.label ?: "Select an ASR model",
+                                selectedModel?.let { asrModelTierTitle(it.id, it.label) } ?: "Select an ASR model",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -1114,7 +1072,7 @@ private fun AsrModelDropdownSelector(
                             text = {
                                 Column {
                                     Text(
-                                        model.label,
+                                        asrModelTierTitle(model.id, model.label),
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -1151,7 +1109,7 @@ private fun LlmModelDropdownSelector(
         if (installedModels.isEmpty()) {
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
             ) {
                 Text(
@@ -1170,9 +1128,9 @@ private fun LlmModelDropdownSelector(
                         .onGloballyPositioned { coordinates ->
                             cardWidthDp = with(density) { coordinates.size.width.toDp() }
                         },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                 ) {
                     Row(
                         modifier = Modifier
@@ -1183,13 +1141,13 @@ private fun LlmModelDropdownSelector(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                selectedModel?.label ?: "Select an LLM model",
+                                selectedModel?.tierTitle ?: "Select an LLM model",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             val badge = if (selectedModel?.supportsGpu == true) "LiteRT • GPU/CPU" else "LiteRT • CPU Only"
-                            Text(badge, style = MaterialTheme.typography.bodySmall, color = BadgeOrange)
+                            Text(badge, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Icon(Icons.Default.ArrowDropDown, contentDescription = "Select LLM model", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -1210,7 +1168,7 @@ private fun LlmModelDropdownSelector(
                                 Column {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            item.label,
+                                            item.tierTitle,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -1224,7 +1182,7 @@ private fun LlmModelDropdownSelector(
                                             Text(
                                                 badge,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = BadgeOrange,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             )
                                         }
@@ -1254,9 +1212,7 @@ private fun TranscriptionDiffCard(
     hypothesisText: String,
     mode: BenchmarkMode,
 ) {
-    SettingsGroupCard(
-        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
-    ) {
+    SettingsGroupCard {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1279,7 +1235,7 @@ private fun TranscriptionDiffCard(
                         text = "✓ Perfect Match (100% accurate)",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = BadgeGreen,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 } else {
                     val substitutions = diff.count { it.op == DiffOp.SUBSTITUTION }
@@ -1296,7 +1252,7 @@ private fun TranscriptionDiffCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
                         .padding(10.dp),
                 ) {
                     Text(
@@ -1317,7 +1273,7 @@ private fun TranscriptionDiffCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
                         .padding(10.dp),
                 ) {
                     Text(
@@ -1329,7 +1285,8 @@ private fun TranscriptionDiffCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     val errorColor = MaterialTheme.colorScheme.error
-                    val annotatedText = remember(diff, errorColor) {
+                    val successColor = MaterialTheme.colorScheme.primary
+                    val annotatedText = remember(diff, errorColor, successColor) {
                         buildAnnotatedString {
                             diff.forEach { item ->
                                 when (item.op) {
@@ -1350,7 +1307,7 @@ private fun TranscriptionDiffCard(
                                         append(" → ")
                                         withStyle(
                                             SpanStyle(
-                                                color = BadgeGreen,
+                                                color = successColor,
                                                 fontWeight = FontWeight.Bold,
                                             )
                                         ) {
@@ -1362,7 +1319,7 @@ private fun TranscriptionDiffCard(
                                         append("[+ ")
                                         withStyle(
                                             SpanStyle(
-                                                color = BadgeGreen,
+                                                color = successColor,
                                                 fontWeight = FontWeight.Bold,
                                             )
                                         ) {
@@ -1398,7 +1355,7 @@ private fun TranscriptionDiffCard(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
                             .padding(10.dp),
                     ) {
                         Text(
