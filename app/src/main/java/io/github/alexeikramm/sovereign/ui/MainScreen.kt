@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.alexeikramm.sovereign.ui.benchmark.BenchmarkScreen
 import io.github.alexeikramm.sovereign.ui.history.HistoryScreen
@@ -91,6 +92,14 @@ fun MainScreen(
     val focusManager = LocalFocusManager.current
     val tabs = NavTab.entries
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Permissions are granted on Android's own screens, so the app can only notice when it comes
+    // back to the foreground. Keeping that refresh here gives Home and Settings one owner instead
+    // of each tab re-reading its own permission checks.
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshDashboard()
+        onPauseOrDispose { }
+    }
 
     // The wizard can be re-opened from Home ("set up models") or Settings ("run setup again").
     // It covers the whole screen, and finishing simply uncovers the tab that launched it.

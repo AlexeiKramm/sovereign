@@ -1,11 +1,8 @@
 package io.github.alexeikramm.sovereign.ui.settings
 
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -112,6 +109,7 @@ import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.ServerStatus
 import io.github.alexeikramm.sovereign.ui.backup.BackupScreen
 import io.github.alexeikramm.sovereign.ui.benchmark.BenchmarkScreen
+import io.github.alexeikramm.sovereign.ui.components.PermissionItem
 import io.github.alexeikramm.sovereign.ui.components.SettingsDivider
 import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
 import io.github.alexeikramm.sovereign.ui.components.SettingsIconBadge
@@ -120,6 +118,7 @@ import io.github.alexeikramm.sovereign.ui.components.SettingsSliderRow
 import io.github.alexeikramm.sovereign.ui.components.SettingsStepperRow
 import io.github.alexeikramm.sovereign.ui.components.SettingsToggleRow
 import io.github.alexeikramm.sovereign.ui.components.SubScreenHost
+import io.github.alexeikramm.sovereign.ui.components.openSettings
 import io.github.alexeikramm.sovereign.ui.history.HistoryScreen
 import io.github.alexeikramm.sovereign.ui.models.ModelsScreen
 import io.github.alexeikramm.sovereign.ui.stats.StatsScreen
@@ -261,14 +260,13 @@ fun SettingsScreen(
         SettingsControls.STOP_MAX_SECONDS,
     )
 
-    val overlayGranted = remember(context) { Settings.canDrawOverlays(context) }
-    val accessibilityGranted = remember(context) {
-        val enabledServices = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ).orEmpty()
-        enabledServices.contains(context.packageName)
-    }
+    val overlayGranted by viewModel.isOverlayPermissionGranted.collectAsStateWithLifecycle()
+    val accessibilityGranted by viewModel.isAccessibilityPermissionGranted.collectAsStateWithLifecycle()
+
+    val missingPillPermissions = listOfNotNull(
+        if (!overlayGranted) PermissionItem.Overlay else null,
+        if (!accessibilityGranted) PermissionItem.Accessibility else null,
+    )
 
     var devLegacyExpanded by remember { mutableStateOf(false) }
 
@@ -297,11 +295,10 @@ fun SettingsScreen(
         }
 
         // --- PERMISSION WARNING ---
-        if (!overlayGranted || !accessibilityGranted) {
+        if (missingPillPermissions.isNotEmpty()) {
             PermissionWarningCard(
-                context = context,
-                overlayGranted = overlayGranted,
-                accessibilityGranted = accessibilityGranted,
+                missingPermissions = missingPillPermissions,
+                onGrant = { item -> item.openSettings(context) },
             )
         }
 
@@ -1685,9 +1682,8 @@ private fun LegacySettingsScreen(
 
 @Composable
 private fun PermissionWarningCard(
-    context: Context,
-    overlayGranted: Boolean,
-    accessibilityGranted: Boolean,
+    missingPermissions: List<PermissionItem>,
+    onGrant: (PermissionItem) -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
@@ -1715,15 +1711,9 @@ private fun PermissionWarningCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (!overlayGranted) {
+                missingPermissions.forEach { item ->
                     Button(
-                        onClick = {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}"),
-                            )
-                            context.startActivity(intent)
-                        },
+                        onClick = { onGrant(item) },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error,
                             contentColor = MaterialTheme.colorScheme.onError,
@@ -1732,26 +1722,7 @@ private fun PermissionWarningCard(
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(
-                            text = "Grant overlay",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-                if (!accessibilityGranted) {
-                    Button(
-                        onClick = {
-                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError,
-                        ),
-                        shape = CircleShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            text = "Enable accessibility",
+                            text = item.actionLabel,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                         )

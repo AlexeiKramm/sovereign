@@ -16,12 +16,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Tune
@@ -43,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,24 +48,6 @@ import androidx.compose.ui.unit.sp
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.data.CleaningProfile
-
-enum class PermissionItem(val title: String, val why: String, val icon: ImageVector) {
-    Microphone(
-        title = "Microphone permission required",
-        why = "Required for speech recognition to hear your voice.",
-        icon = Icons.Default.Mic,
-    ),
-    Overlay(
-        title = "Display over other apps",
-        why = "Required for the floating pill to appear over your keyboard.",
-        icon = Icons.Default.Layers,
-    ),
-    Accessibility(
-        title = "Accessibility service disabled",
-        why = "Required to insert dictated text directly at your cursor.",
-        icon = Icons.Default.Accessibility,
-    ),
-}
 
 fun asrModelTierTitle(modelId: String, fallbackLabel: String = ""): String {
     val tier = AsrModels.getTierTitle(modelId)

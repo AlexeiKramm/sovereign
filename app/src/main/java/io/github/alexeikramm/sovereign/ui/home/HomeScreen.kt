@@ -5,10 +5,6 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -67,6 +63,7 @@ import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModelType
 import io.github.alexeikramm.sovereign.ui.components.PermissionItem
 import io.github.alexeikramm.sovereign.ui.components.StatusConfigurationCard
+import io.github.alexeikramm.sovereign.ui.components.openSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,7 +90,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.data.DictationRecord
@@ -148,11 +144,6 @@ fun HomeScreen(
         ActivityResultContracts.RequestPermission(),
     ) { viewModel.refreshDashboard() }
 
-    LifecycleResumeEffect(Unit) {
-        viewModel.refreshDashboard()
-        onPauseOrDispose { }
-    }
-
     val missingPermissions = listOfNotNull(
         if (!micGranted) PermissionItem.Microphone else null,
         if (!overlayGranted) PermissionItem.Overlay else null,
@@ -185,26 +176,10 @@ fun HomeScreen(
             allGreen = missingPermissions.isEmpty(),
             missingPermissions = missingPermissions,
             onGrantPermission = { item ->
-                when (item) {
-                    PermissionItem.Microphone ->
-                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-
-                    PermissionItem.Overlay -> runCatching {
-                        context.startActivity(
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}"),
-                            ),
-                        )
-                    }.onFailure {
-                        Toast.makeText(context, "Could not open display settings", Toast.LENGTH_SHORT).show()
-                    }
-
-                    PermissionItem.Accessibility -> runCatching {
-                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }.onFailure {
-                        Toast.makeText(context, "Could not open accessibility settings", Toast.LENGTH_SHORT).show()
-                    }
+                if (item == PermissionItem.Microphone) {
+                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                } else {
+                    item.openSettings(context)
                 }
             },
             selectedAsrModel = selectedAsrModel,
