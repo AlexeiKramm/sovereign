@@ -206,17 +206,17 @@ object BenchmarkCsvLogger {
             escapeCsv(summary.cleanedText),
         ).joinToString(",")
 
-        Log.i("SmartVoiceBenchmark", "CSV: $csvLine")
-        Log.i("SmartVoiceBenchmark", "GroundTruth: ${summary.groundTruth}")
-        Log.i("SmartVoiceBenchmark", "Raw ASR: ${summary.rawAsrText}")
-        Log.i("SmartVoiceBenchmark", "Cleaned: ${summary.cleanedText}")
+        Log.i("SovereignBenchmark", "CSV: $csvLine")
+        Log.i("SovereignBenchmark", "GroundTruth: ${summary.groundTruth}")
+        Log.i("SovereignBenchmark", "Raw ASR: ${summary.rawAsrText}")
+        Log.i("SovereignBenchmark", "Cleaned: ${summary.cleanedText}")
 
         try {
             val file = File(context.filesDir, "benchmarks.csv")
             val isNew = !file.exists() || file.length() == 0L
             file.appendText(if (isNew) "$CSV_HEADER\n$csvLine\n" else "$csvLine\n")
         } catch (e: Exception) {
-            Log.e("SmartVoiceBenchmark", "Failed to write benchmarks.csv: ${e.message}")
+            Log.e("SovereignBenchmark", "Failed to write benchmarks.csv: ${e.message}")
         }
 
         return csvLine

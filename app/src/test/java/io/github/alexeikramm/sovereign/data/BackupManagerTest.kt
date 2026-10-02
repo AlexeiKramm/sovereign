@@ -121,7 +121,7 @@ class BackupManagerTest {
             schemaVersion = 1,
             exportedAtMs = 5000L,
             appVersion = "1.23",
-            dictionary = listOf(DictionaryEntry("SmartVoice", listOf("smart voice"))),
+            dictionary = listOf(DictionaryEntry("sovereign", listOf("sovereign"))),
             customProfiles = emptyList(),
             activeProfileId = "smart_clean",
             settings = SettingsBackup(),

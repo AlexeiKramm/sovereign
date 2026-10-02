@@ -162,7 +162,7 @@ fun SovereignTheme(
 
 @Deprecated("Use SovereignTheme instead", ReplaceWith("SovereignTheme(themeMode, dynamicColor, colorScheme, seedColor, paletteStyle, useSystemDynamic, content)"))
 @Composable
-fun SmartVoiceTheme(
+fun LegacySmartVoiceTheme(
     themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     dynamicColor: Boolean = false,
     colorScheme: ColorScheme? = null,

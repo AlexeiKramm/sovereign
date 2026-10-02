@@ -740,7 +740,7 @@ fun BenchmarkScreen(
 
                             // CSV NOTE
                             Text(
-                                "Saved to filesDir/benchmarks.csv and logged to Logcat (tag: SmartVoiceBenchmark).",
+                                "Saved to filesDir/benchmarks.csv and logged to Logcat (tag: SovereignBenchmark).",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                             )

@@ -154,10 +154,10 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Same rule as the IME: one worker, because a streaming session is serial. */
     private val asrDispatcher = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "smartvoice-asr")
+        Thread(runnable, "sovereign-asr")
     }.asCoroutineDispatcher()
     private val cleanupDispatcher = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "smartvoice-cleanup")
+        Thread(runnable, "sovereign-cleanup")
     }.asCoroutineDispatcher()
 
     val asrCatalog: List<AsrModelSpec> = AsrModels.CATALOG

@@ -87,11 +87,11 @@ class FloatingOverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val asrDispatcher = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "smartvoice-floating-asr")
+        Thread(runnable, "sovereign-floating-asr")
     }.asCoroutineDispatcher()
 
     private val cleanupDispatcher = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "smartvoice-floating-cleanup")
+        Thread(runnable, "sovereign-floating-cleanup")
     }.asCoroutineDispatcher()
 
     private lateinit var windowManager: WindowManager

@@ -80,7 +80,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
                     break
                 }
             }
-        }, "smartvoice-capture").apply { start() }
+        }, "sovereign-capture").apply { start() }
     }
 
     /**
