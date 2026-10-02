@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -61,12 +62,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.theme.Radius
 import io.github.alexeikramm.sovereign.theme.Spacing
 import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.ModelStatus
+import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
+import io.github.alexeikramm.sovereign.ui.components.SovereignWordmark
 import kotlinx.coroutines.delay
 
 /** The wizard's screens, in order. [DONE] is the closing screen, not a `Step N of 4`. */
@@ -167,24 +171,29 @@ fun OnboardingScreen(
             .safeDrawingPadding()
             .padding(Spacing.screen),
     ) {
-        if (step != OnboardingStep.DONE) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Step ${WIZARD_STEPS.indexOf(step) + 1} of ${WIZARD_STEPS.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SovereignWordmark(markSize = 22.dp, fontSize = 20.sp)
+            if (step != OnboardingStep.DONE) {
                 TextButton(onClick = { finish() }) {
                     Text("Not now")
                 }
             }
-            StepProgress(current = WIZARD_STEPS.indexOf(step) + 1, total = WIZARD_STEPS.size)
-            Spacer(modifier = Modifier.height(Spacing.xl))
         }
+        if (step != OnboardingStep.DONE) {
+            Spacer(modifier = Modifier.height(Spacing.md))
+            Text(
+                text = "Step ${WIZARD_STEPS.indexOf(step) + 1} of ${WIZARD_STEPS.size}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            StepProgress(current = WIZARD_STEPS.indexOf(step) + 1, total = WIZARD_STEPS.size)
+        }
+        Spacer(modifier = Modifier.height(Spacing.xl))
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             // `key(step)` gives each screen its own node identity. Without it the steps share a
@@ -304,37 +313,39 @@ private fun PermissionStep(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        StepIcon(icon)
-        Spacer(modifier = Modifier.height(Spacing.xl))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        Text(
-            text = why,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        if (granted) {
-            Spacer(modifier = Modifier.height(Spacing.lg))
-            GrantedBadge()
-        }
-
-        Spacer(modifier = Modifier.height(Spacing.xxl))
-        Button(
-            onClick = if (granted) onContinue else onAction,
-            shape = RoundedCornerShape(Radius.pill),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                text = if (granted) "Continue" else actionLabel,
-                fontWeight = FontWeight.SemiBold,
-            )
+        SettingsGroupCard {
+            Column(
+                modifier = Modifier.padding(Spacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                StepIcon(icon)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = why,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                if (granted) GrantedBadge()
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Button(
+                    onClick = if (granted) onContinue else onAction,
+                    shape = RoundedCornerShape(Radius.pill),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = if (granted) "Continue" else actionLabel,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
         }
     }
 }
@@ -402,89 +413,93 @@ private fun ModelsStep(
             selectedInstalled -> "installed"
             else -> "ready"
         }
-        key(controlState) {
-            when {
-                running != null -> {
-                    Text(
-                        text = if (running.waitingForWifi) {
-                            "Waiting for Wi-Fi"
-                        } else {
-                            "Downloading ${running.stage.label}… ${(running.overall * 100).toInt()}%"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    LinearProgressIndicator(
-                        progress = { running.overall },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    if (running.waitingForWifi) {
-                        // The preset defaults to Wi-Fi-only like every other download; without this
-                        // a cellular-only first run could never get a model.
-                        Button(
-                            onClick = onAllowMobileData,
+        SettingsGroupCard {
+            Column(modifier = Modifier.padding(Spacing.lg)) {
+                key(controlState) {
+                    when {
+                        running != null -> {
+                            Text(
+                                text = if (running.waitingForWifi) {
+                                    "Waiting for Wi-Fi"
+                                } else {
+                                    "Downloading ${running.stage.label}… ${(running.overall * 100).toInt()}%"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.sm))
+                            LinearProgressIndicator(
+                                progress = { running.overall },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.md))
+                            if (running.waitingForWifi) {
+                                // The preset defaults to Wi-Fi-only like every other download; without this
+                                // a cellular-only first run could never get a model.
+                                Button(
+                                    onClick = onAllowMobileData,
+                                    shape = RoundedCornerShape(Radius.pill),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Download over mobile data", fontWeight = FontWeight.SemiBold)
+                                }
+                                TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Cancel")
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = onCancel,
+                                    shape = RoundedCornerShape(Radius.pill),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Cancel")
+                                }
+                            }
+                        }
+
+                        download is DictationViewModel.OnboardingDownload.Failed &&
+                            download.presetId == selectedPreset.id -> {
+                            Text(
+                                text = "Download failed: ${download.message}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.sm))
+                            Button(
+                                onClick = onDownload,
+                                shape = RoundedCornerShape(Radius.pill),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Try again", fontWeight = FontWeight.SemiBold)
+                            }
+                            TextButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
+                                Text("I'll do this later")
+                            }
+                        }
+
+                        selectedInstalled -> Button(
+                            onClick = onContinue,
                             shape = RoundedCornerShape(Radius.pill),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Download over mobile data", fontWeight = FontWeight.SemiBold)
+                            Text("Continue", fontWeight = FontWeight.SemiBold)
                         }
-                        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-                            Text("Cancel")
+
+                        else -> {
+                            Button(
+                                onClick = onDownload,
+                                shape = RoundedCornerShape(Radius.pill),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = "Download (${formatModelSize(selectedPreset.totalBytes)})",
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            TextButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
+                                Text("I'll do this later")
+                            }
                         }
-                    } else {
-                        OutlinedButton(
-                            onClick = onCancel,
-                            shape = RoundedCornerShape(Radius.pill),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Cancel")
-                        }
-                    }
-                }
-
-                download is DictationViewModel.OnboardingDownload.Failed &&
-                    download.presetId == selectedPreset.id -> {
-                    Text(
-                        text = "Download failed: ${download.message}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    Button(
-                        onClick = onDownload,
-                        shape = RoundedCornerShape(Radius.pill),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Try again", fontWeight = FontWeight.SemiBold)
-                    }
-                    TextButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
-                        Text("I'll do this later")
-                    }
-                }
-
-                selectedInstalled -> Button(
-                    onClick = onContinue,
-                    shape = RoundedCornerShape(Radius.pill),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Continue", fontWeight = FontWeight.SemiBold)
-                }
-
-                else -> {
-                    Button(
-                        onClick = onDownload,
-                        shape = RoundedCornerShape(Radius.pill),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = "Download (${formatModelSize(selectedPreset.totalBytes)})",
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    TextButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
-                        Text("I'll do this later")
                     }
                 }
             }
@@ -499,33 +514,39 @@ private fun DoneStep(hasSpeechModel: Boolean, onStart: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        StepIcon(Icons.Default.CheckCircle)
-        Spacer(modifier = Modifier.height(Spacing.xl))
-        Text(
-            text = "You're all set",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        Text(
-            text = if (hasSpeechModel) {
-                "Open any text field and tap the pill to start dictating."
-            } else {
-                "You can download a voice model anytime from Home."
-            },
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(Spacing.xxl))
-        Button(
-            onClick = onStart,
-            shape = RoundedCornerShape(Radius.pill),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Start using Sovereign", fontWeight = FontWeight.SemiBold)
+        SettingsGroupCard {
+            Column(
+                modifier = Modifier.padding(Spacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                StepIcon(Icons.Default.CheckCircle)
+                Text(
+                    text = "You're all set",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = if (hasSpeechModel) {
+                        "Open any text field and tap the pill to start dictating."
+                    } else {
+                        "You can download a voice model anytime from Home."
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Button(
+                    onClick = onStart,
+                    shape = RoundedCornerShape(Radius.pill),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Start using Sovereign", fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }
@@ -560,19 +581,19 @@ private fun StepProgress(current: Int, total: Int) {
 
 @Composable
 private fun StepIcon(icon: ImageVector) {
-    Surface(
-        shape = RoundedCornerShape(Radius.lg),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.size(72.dp),
+    Box(
+        modifier = Modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(36.dp),
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(32.dp),
+        )
     }
 }
 
@@ -580,7 +601,7 @@ private fun StepIcon(icon: ImageVector) {
 private fun GrantedBadge() {
     Surface(
         shape = RoundedCornerShape(Radius.pill),
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = MaterialTheme.colorScheme.primaryContainer,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = Spacing.md, vertical = 6.dp),
@@ -589,7 +610,7 @@ private fun GrantedBadge() {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(Spacing.sm))
@@ -597,7 +618,7 @@ private fun GrantedBadge() {
                 text = "Granted",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
     }
@@ -614,10 +635,11 @@ private fun PresetCard(
     val borderColor = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     }
+    val borderWidth = if (selected) 2.dp else 1.dp
     val container = if (selected) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        MaterialTheme.colorScheme.surfaceContainerHigh
     } else {
         MaterialTheme.colorScheme.surfaceContainer
     }
@@ -626,9 +648,9 @@ private fun PresetCard(
         modifier = Modifier
             .fillMaxWidth()
             .selectable(selected = selected, enabled = enabled, onClick = onSelect),
-        shape = RoundedCornerShape(Radius.md),
+        shape = RoundedCornerShape(Radius.lg),
         color = container,
-        border = BorderStroke(1.dp, borderColor),
+        border = BorderStroke(borderWidth, borderColor),
     ) {
         Row(
             modifier = Modifier.padding(Spacing.lg),
@@ -640,7 +662,7 @@ private fun PresetCard(
                 onClick = onSelect,
                 colors = RadioButtonDefaults.colors(
                     selectedColor = MaterialTheme.colorScheme.primary,
-                    unselectedColor = MaterialTheme.colorScheme.outline,
+                    unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
             )
             Spacer(modifier = Modifier.width(Spacing.md))
@@ -651,7 +673,7 @@ private fun PresetCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = preset.title,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),

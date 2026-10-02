@@ -1,6 +1,5 @@
 package io.github.alexeikramm.sovereign.ui.home
 
-import io.github.alexeikramm.sovereign.R
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -62,6 +61,7 @@ import androidx.compose.material3.TextButton
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModelType
 import io.github.alexeikramm.sovereign.ui.components.PermissionItem
+import io.github.alexeikramm.sovereign.ui.components.SovereignWordmark
 import io.github.alexeikramm.sovereign.ui.components.StatusConfigurationCard
 import io.github.alexeikramm.sovereign.ui.components.openSettings
 import androidx.compose.runtime.Composable
@@ -233,26 +233,7 @@ private fun BrandHero(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            // Official Sovereign Brand Stencil
-            Icon(
-                painter = androidx.compose.ui.res.painterResource(R.drawable.ic_notification),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-
-            Text(
-                text = "Sovereign",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.5).sp,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+        SovereignWordmark()
 
         Text(
             text = "On-device speech-to-text with LLM cleanup",
