@@ -153,9 +153,6 @@ class LiteRtLmCleanupEngine(
                 customRules = customRules,
             )
             sessionConversation = eng.createConversation(conversationConfig(promptData.system))
-            // Post-open probe: after `prefillPrefaceOnInit` this should be just the preface. A high
-            // number here means the KV reset failed (the old conversation leaked into the new one).
-            Log.i(TAG, "Session opened: cache=${tokenCount}/$CONTEXT_TOKENS tokens")
         } catch (_: Throwable) {
             sessionConversation = null
         }
@@ -231,8 +228,6 @@ class LiteRtLmCleanupEngine(
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null
-            // Pre-pass probe: the cache size as the rebuild trigger will see it after this pass.
-            Log.i(TAG, "Cleanup pass start: cache=${tokenCount}/$CONTEXT_TOKENS tokens")
             // One prompt builder for every path. Only `includeContext` differs: a standalone pass and
             // the first turn of a session must state the carried context (it is not in the KV cache
             // yet); later turns must not, because the cache already holds it and re-stating it only
@@ -323,19 +318,6 @@ class LiteRtLmCleanupEngine(
                 val backendLabel = processor.label
                 val specTag = if (speculativeDecoding && modelSpec.supportsSpeculativeDecoding) ", spec: on" else ""
                 val cacheTag = if (isSession) " [cached]" else ""
-                // Per-pass latency probe. `promptTokens` is the prefill the runtime actually did for
-                // this segment: on a reused session it is just the segment; on the first turn of a
-                // fresh conversation it also carries the re-sent context; a standalone conversation
-                // would carry the system preface too. Comparing a first turn against later turns is
-                // how we measure what session reuse saves.
-                Log.i(
-                    TAG,
-                    "Cleanup pass done: turn=$sessionTurns cached=$isSession " +
-                        "prefill=${promptTokens}t/${promptDurationMs.toInt()}ms " +
-                        "ttft=${actualTtftMs.toInt()}ms " +
-                        "decode=${actualTokens}t/${totalDecodeTimeMs.toInt()}ms " +
-                        "active=${totalActiveMs}ms",
-                )
                 CleanupPass(
                     unit = unit,
                     text = cleaned,
