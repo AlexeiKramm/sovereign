@@ -262,6 +262,28 @@ class AppSettings(context: Context) {
 
     private var edgeAnchoringObserver: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
+    /**
+     * Calls [onChange] whenever the cleanup preference changes — from the pill's own menu, the Home
+     * status card, Settings, or a backup restore. The pill is a separate window, so it does not see
+     * those writes by itself; without this it would draw the wrong cleanup state (and the wrong
+     * raw-text colour) until it was restarted.
+     */
+    fun observeCleanupEnabled(onChange: () -> Unit) {
+        removeCleanupEnabledObserver()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_CLEANUP) onChange()
+        }
+        cleanupEnabledObserver = listener
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun removeCleanupEnabledObserver() {
+        cleanupEnabledObserver?.let { prefs.unregisterOnSharedPreferenceChangeListener(it) }
+        cleanupEnabledObserver = null
+    }
+
+    private var cleanupEnabledObserver: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
     val cleanupRequestValue: String
         get() = if (cleanupEnabled) "full" else "off"
 

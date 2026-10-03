@@ -551,6 +551,15 @@ class FloatingOverlayService : Service() {
                 dynamicColorScheme = resolveColorScheme()
             }
         }
+        // Cleanup can be toggled from the pill's menu, the Home status card, or Settings. The pill is
+        // its own window, so it reads the single source of truth through this observer rather than
+        // keeping a separately-written copy that could drift.
+        settings.observeCleanupEnabled {
+            Handler(Looper.getMainLooper()).post {
+                cleanupEnabled = settings.cleanupEnabled
+                Log.i(TAG, "Cleanup preference changed; pill now shows ${if (cleanupEnabled) "on" else "off"}")
+            }
+        }
         cleanupEnabled = settings.cleanupEnabled
         refreshProfiles()
         setupEngines()
@@ -618,6 +627,7 @@ class FloatingOverlayService : Service() {
         }
         settings.removeThemeModeObserver()
         settings.removeEdgeAnchoringObserver()
+        settings.removeCleanupEnabledObserver()
         stopSnap()
         if (screenOffReceiverRegistered) {
             runCatching { unregisterReceiver(screenOffReceiver) }
@@ -1401,11 +1411,10 @@ class FloatingOverlayService : Service() {
         Log.i(TAG, "Active profile switched to $id")
     }
 
-    /** Toggles AI cleanup from the pill's settings view; it reads the setting at use time. */
+    /** Toggles AI cleanup from the pill's settings view; the observer refreshes the pill's state. */
     private fun toggleCleanup() {
         settings.cleanupEnabled = !settings.cleanupEnabled
-        cleanupEnabled = settings.cleanupEnabled
-        Log.i(TAG, "Cleanup ${if (cleanupEnabled) "enabled" else "disabled"} from the pill")
+        Log.i(TAG, "Cleanup toggled from the pill to ${settings.cleanupEnabled}")
     }
 
     fun onKeyboardOrFocusChanged(keyboardOpen: Boolean, editableFocus: Boolean) {
