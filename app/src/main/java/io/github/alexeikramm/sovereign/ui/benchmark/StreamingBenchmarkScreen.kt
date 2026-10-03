@@ -1,16 +1,17 @@
 package io.github.alexeikramm.sovereign.ui.benchmark
 
+import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -26,7 +27,6 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -41,9 +42,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,19 +56,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModels
-import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
 import io.github.alexeikramm.sovereign.ui.components.SettingsIconBadge
 import io.github.alexeikramm.sovereign.ui.components.TopAppBarWithScrollShadow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 /**
@@ -86,17 +91,20 @@ fun StreamingBenchmarkScreen(
     }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val appSettings = remember { AppSettings(context) }
 
     var installedModels by remember { mutableStateOf<List<AsrModelSpec>>(emptyList()) }
     var selectedModelIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedFixture by remember { mutableStateOf(DictationFixtures.FIXTURES.first()) }
-    var pauseSeconds by remember { mutableFloatStateOf(0.75f) }
-    var healing by remember { mutableIntStateOf(3) }
+    // Every matrix axis is a multi-select set, so "the whole matrix" and "one cell at a time" are the
+    // same code path: a run is the cross-product of whatever is selected.
+    var selectedPauses by remember { mutableStateOf(StreamingMatrix.PAUSES.toSet()) }
+    var selectedHealings by remember { mutableStateOf(StreamingMatrix.HEALINGS.toSet()) }
+    var selectedTemps by remember { mutableStateOf(setOf(false, true)) }
     var cleanupOn by remember { mutableStateOf(true) }
-    var cleanupOff by remember { mutableStateOf(false) }
+    var cleanupOff by remember { mutableStateOf(true) }
 
     var isRunning by remember { mutableStateOf(false) }
+    var runJob by remember { mutableStateOf<Job?>(null) }
     var currentCell by remember { mutableStateOf<StreamingCell?>(null) }
     var currentProgress by remember { mutableStateOf<StreamingProgress?>(null) }
     var completedCells by remember { mutableIntStateOf(0) }
@@ -106,22 +114,36 @@ fun StreamingBenchmarkScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showInfo by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        val models = withContext(Dispatchers.IO) {
-            AsrModels.CATALOG.filter { it.isInstalled(it.directory(context.filesDir)) }
-        }
-        installedModels = models
-        val preferred = models.firstOrNull { it.id == appSettings.asrModelId } ?: models.firstOrNull()
-        selectedModelIds = setOfNotNull(preferred?.id)
+    /** Restore the whole matrix: every installed model, all pauses and healing windows, cold+warm. */
+    fun selectFullMatrix() {
+        selectedModelIds = installedModels.map { it.id }.toSet()
+        selectedPauses = StreamingMatrix.PAUSES.toSet()
+        selectedHealings = StreamingMatrix.HEALINGS.toSet()
+        selectedTemps = setOf(false, true)
+        cleanupOn = true
+        cleanupOff = true
     }
 
-    val cells = remember(installedModels, selectedModelIds, pauseSeconds, healing, cleanupOn, cleanupOff) {
+    LaunchedEffect(Unit) {
+        installedModels = withContext(Dispatchers.IO) {
+            AsrModels.CATALOG.filter { it.isInstalled(it.directory(context.filesDir)) }
+        }
+        selectFullMatrix()
+    }
+
+    val cells = remember(installedModels, selectedModelIds, selectedPauses, selectedHealings, selectedTemps, cleanupOn, cleanupOff) {
         val models = installedModels.filter { it.id in selectedModelIds }
         val cleanupOptions = buildList {
             if (cleanupOn) add(true)
             if (cleanupOff) add(false)
         }
-        StreamingMatrix.cells(models, cleanupOptions, listOf(pauseSeconds), listOf(healing))
+        StreamingMatrix.cells(
+            models = models,
+            cleanupOptions = cleanupOptions,
+            pauses = selectedPauses.sorted(),
+            healings = selectedHealings.sorted(),
+            temps = selectedTemps.sorted(),
+        )
     }
 
     fun startRun() {
@@ -134,7 +156,7 @@ fun StreamingBenchmarkScreen(
         currentProgress = null
         runStartedAtMs = SystemClock.elapsedRealtime()
         elapsedMs = 0L
-        scope.launch {
+        runJob = scope.launch {
             val engine = StreamingBenchmarkEngine(context)
             val collected = mutableListOf<StreamingCellResult>()
             try {
@@ -149,13 +171,33 @@ fun StreamingBenchmarkScreen(
                 }
                 currentCell = null
                 currentProgress = null
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("StreamingBenchmark", "Streaming run failed", e)
                 errorMessage = e.message ?: "Run failed"
             } finally {
                 isRunning = false
+                runJob = null
             }
         }
+    }
+
+    /** Hand the accumulated CSV to any app via the system share sheet (no adb needed). */
+    fun shareCsv() {
+        val file = StreamingCsvLogger.file(context)
+        if (file == null) {
+            errorMessage = "No CSV yet — run at least one cell first."
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "Streaming benchmark CSV")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(send, "Share benchmark CSV"))
     }
 
     // A half-second tick so the elapsed time and ETA move while a cell runs.
@@ -165,6 +207,13 @@ fun StreamingBenchmarkScreen(
             elapsedMs = SystemClock.elapsedRealtime() - runStartedAtMs
             delay(500L)
         }
+    }
+
+    // Keep the display awake for an unattended run, so a long matrix is not throttled by screen sleep.
+    val view = LocalView.current
+    DisposableEffect(isRunning) {
+        view.keepScreenOn = isRunning
+        onDispose { view.keepScreenOn = false }
     }
 
     val withinCell = currentProgress?.let { StreamingMetrics.cellFraction(it) } ?: 0f
@@ -259,15 +308,15 @@ fun StreamingBenchmarkScreen(
                         }
 
                         Label("Transcription model")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
                             installedModels.forEach { model ->
-                                val selected = model.id in selectedModelIds
                                 FilterChip(
-                                    selected = selected,
-                                    onClick = {
-                                        selectedModelIds = if (selected) selectedModelIds - model.id else selectedModelIds + model.id
-                                    },
-                                    label = { Text(model.label.substringBefore(' ')) },
+                                    selected = model.id in selectedModelIds,
+                                    onClick = { selectedModelIds = selectedModelIds.toggled(model.id) },
+                                    label = { Text(model.shortLabel) },
                                 )
                             }
                         }
@@ -280,25 +329,48 @@ fun StreamingBenchmarkScreen(
                         }
 
                         Label("Pause sensitivity")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
                             StreamingMatrix.PAUSES.forEach { pause ->
                                 FilterChip(
-                                    selected = pause == pauseSeconds,
-                                    onClick = { pauseSeconds = pause },
+                                    selected = pause in selectedPauses,
+                                    onClick = { selectedPauses = selectedPauses.toggled(pause) },
                                     label = { Text("${pause}s") },
                                 )
                             }
                         }
 
                         Label("Seam healing (cleanup on only)")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
                             StreamingMatrix.HEALINGS.forEach { count ->
                                 FilterChip(
-                                    selected = count == healing,
-                                    onClick = { healing = count },
+                                    selected = count in selectedHealings,
+                                    onClick = { selectedHealings = selectedHealings.toggled(count) },
                                     label = { Text("$count") },
                                 )
                             }
+                        }
+
+                        Label("Engine state")
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            FilterChip(
+                                selected = false in selectedTemps,
+                                onClick = { selectedTemps = selectedTemps.toggled(false) },
+                                label = { Text("Warm") },
+                            )
+                            FilterChip(
+                                selected = true in selectedTemps,
+                                onClick = { selectedTemps = selectedTemps.toggled(true) },
+                                label = { Text("Cold") },
+                            )
                         }
 
                         Row(
@@ -318,28 +390,49 @@ fun StreamingBenchmarkScreen(
                             Switch(checked = cleanupOff, onCheckedChange = { cleanupOff = it })
                         }
 
-                        Button(
-                            onClick = { startRun() },
-                            enabled = !isRunning && cells.isNotEmpty(),
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                disabledContainerColor = MaterialTheme.colorScheme.primary,
-                                disabledContentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (isRunning) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.height(18.dp).width(18.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp,
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Running…")
-                            } else {
+                            Text(
+                                text = "${cells.size} cells selected",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { selectFullMatrix() }) { Text("Full matrix") }
+                        }
+
+                        if (isRunning) {
+                            OutlinedButton(
+                                onClick = { runJob?.cancel() },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = CircleShape,
+                            ) {
+                                Text("Stop run", fontWeight = FontWeight.SemiBold)
+                            }
+                        } else {
+                            Button(
+                                onClick = { startRun() },
+                                enabled = cells.isNotEmpty(),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    disabledContainerColor = MaterialTheme.colorScheme.primary,
+                                    disabledContentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
+                            ) {
                                 Text("Run ${cells.size} cells", fontWeight = FontWeight.SemiBold)
                             }
+                        }
+
+                        OutlinedButton(
+                            onClick = { shareCsv() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = CircleShape,
+                        ) {
+                            Text("Share CSV", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -454,6 +547,8 @@ fun StreamingBenchmarkScreen(
                     InfoLine("Cleanup time", "Active LLM cleanup compute for the run.")
                     InfoLine("Wall time", "Total run duration, including model loads.")
                     InfoLine("Cold / warm", "Cold loads the transcription model during the run, so a short utterance feels it. Warm loads it beforehand.")
+                    InfoLine("Full matrix", "Selects every axis (all models, pauses, healing windows, cold and warm) in one tap. Deselect chips to run a single cell.")
+                    InfoLine("Share CSV", "Exports every row from every run so far, so the results can be read without a cable.")
                 }
             },
         )
@@ -550,3 +645,6 @@ private fun formatDuration(valueMs: Long): String {
     val totalSeconds = (valueMs / 1000L).coerceAtLeast(0L)
     return "${totalSeconds / 60}:${(totalSeconds % 60).toString().padStart(2, '0')}"
 }
+
+/** Adds or removes one value, so a multi-select chip is a pure set operation. */
+private fun <T> Set<T>.toggled(value: T): Set<T> = if (value in this) this - value else this + value

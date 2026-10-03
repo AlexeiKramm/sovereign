@@ -233,10 +233,16 @@ class StreamingBenchmarkEngine(private val context: Context) {
 
 /** Appends one row per cell to `filesDir/streaming_benchmark.csv`; the run's durable record. */
 object StreamingCsvLogger {
+    const val FILE_NAME = "streaming_benchmark.csv"
+
     private const val HEADER =
         "timestamp,asr_model,cleanup,pause_s,healing,cold,fixture,audio_dur_s,units,first_text_ms," +
             "dead_air_ms,endpoint_gating_ms,cleanup_lag_ms,tail_ms,asr_active_ms,llm_active_ms,wall_ms," +
             "visible_cadence_ms,committed_text,raw_text"
+
+    /** The accumulated CSV (all sessions), or null until a row has been written. */
+    fun file(context: Context): File? =
+        File(context.filesDir, FILE_NAME).takeIf { it.isFile && it.length() > 0L }
 
     fun log(context: Context, result: StreamingCellResult): String {
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())

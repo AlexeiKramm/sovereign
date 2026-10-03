@@ -38,6 +38,25 @@ class StreamingBenchmarkTest {
     }
 
     @Test
+    fun `one model's full matrix is pauses x healings x temperatures plus cleanup-off cells`() {
+        val cells = StreamingMatrix.cells(listOf(AsrModels.NEMOTRON))
+        val cleanupOn = StreamingMatrix.PAUSES.size * StreamingMatrix.HEALINGS.size * 2
+        val cleanupOff = StreamingMatrix.PAUSES.size * 2
+        assertEquals(cleanupOn + cleanupOff, cells.size)
+    }
+
+    @Test
+    fun `matrix can be narrowed to a single temperature`() {
+        val warmOnly = StreamingMatrix.cells(listOf(AsrModels.NEMOTRON), temps = listOf(false))
+        val coldOnly = StreamingMatrix.cells(listOf(AsrModels.NEMOTRON), temps = listOf(true))
+
+        assertTrue(warmOnly.isNotEmpty())
+        assertTrue(warmOnly.all { !it.cold })
+        assertTrue(coldOnly.all { it.cold })
+        assertEquals(warmOnly.size, coldOnly.size)
+    }
+
+    @Test
     fun `gaps returns consecutive differences in time order`() {
         assertEquals(listOf(100L, 250L, 50L), StreamingMetrics.gaps(listOf(0L, 100L, 350L, 400L)))
         // Out-of-order input is sorted first, so no negative gap can slip through.

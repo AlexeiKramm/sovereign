@@ -103,10 +103,12 @@ class AsrModelsTest {
         catalog.forEach { model ->
             assertTrue("${model.id} has files", model.files.isNotEmpty())
             assertTrue("${model.id} totalBytes > 0", model.totalBytes > 0)
+            assertTrue("${model.id} has a short label", model.shortLabel.isNotBlank())
             model.files.forEach { file ->
                 assertEquals("${model.id} file ${file.name} sha256 length", 64, file.sha256.length)
             }
         }
+        assertEquals("short labels are distinct for the chips", catalog.size, catalog.map { it.shortLabel }.toSet().size)
     }
 
     @Test

@@ -80,12 +80,13 @@ object StreamingMatrix {
         cleanupOptions: List<Boolean> = listOf(true, false),
         pauses: List<Float> = PAUSES,
         healings: List<Int> = HEALINGS,
+        temps: List<Boolean> = listOf(false, true),
     ): List<StreamingCell> {
         val out = mutableListOf<StreamingCell>()
         for (model in models) {
             for (cleanup in cleanupOptions) {
                 for (pause in pauses) {
-                    for (cold in listOf(false, true)) {
+                    for (cold in temps) {
                         if (cleanup) {
                             for (healing in healings) {
                                 out.add(StreamingCell(model, true, pause, healing, cold))

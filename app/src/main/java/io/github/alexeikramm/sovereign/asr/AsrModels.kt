@@ -32,6 +32,8 @@ data class AsrModelSpec(
     val modelFileName: String = "",
     val tokensFileName: String = "tokens.txt",
     val tierTitle: String = "Lowest Latency",
+    /** Compact name for tight UI such as filter chips; the full [label] is the default. */
+    val shortLabel: String = label,
 ) {
     val totalBytes: Long = files.sumOf { it.bytes }
 
@@ -58,6 +60,7 @@ object AsrModels {
     val NEMOTRON = AsrModelSpec(
         id = DEFAULT_MODEL_ID,
         label = "Nemotron 3.5",
+        shortLabel = "Nemotron",
         description = "Recommended streaming • Transcribes while speaking with lowest latency (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11",
@@ -94,6 +97,7 @@ object AsrModels {
     val NEMOTRON_320MS = AsrModelSpec(
         id = "nemotron-3.5-streaming-320ms",
         label = "Nemotron 3.5 (320ms)",
+        shortLabel = "Nemotron 320",
         tierTitle = "Ultra-Low Latency",
         description = "Ultra-fast streaming • Lowest dictation latency (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
@@ -132,6 +136,7 @@ object AsrModels {
         id = "whisper-base",
         label = "Whisper Base",
         tierTitle = "Lightweight",
+        shortLabel = "Whisper",
         description = "Compact offline • Lightweight multilingual recognizer with sub-second load (~160 MB)",
         type = AsrModelType.OFFLINE_WHISPER,
         repo = "csukuangfj/sherpa-onnx-whisper-base",
@@ -225,6 +230,7 @@ object AsrModels {
         id = "parakeet-tdt-v3",
         label = "Parakeet v3",
         tierTitle = "Highest Accuracy",
+        shortLabel = "Parakeet",
         description = "High-throughput offline • Ultra-fast English recognition at 16x–20x realtime (~670 MB)",
         type = AsrModelType.OFFLINE_TRANSDUCER,
         repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",

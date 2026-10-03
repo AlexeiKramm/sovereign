@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exposes this app's private files dir to its own FileProvider only. Shares are per-URI, so the
+     benchmark CSV can be sent via the share sheet without exporting the whole directory. -->
+<paths>
+    <files-path name="files" path="." />
+</paths>

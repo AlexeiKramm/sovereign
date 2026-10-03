@@ -33,6 +33,17 @@
             android:name="libGLES_mali.so"
             android:required="false" />
 
+        <!-- Shares the benchmark CSV via the system share sheet; scoped to this app's files dir. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- usesCleartextTraffic is deliberate: the stack is plain HTTP on the LAN/Tailscale and
              carries no auth in v1 (server CONTRACT.md §6). It is a documented deployment
              assumption, not a security feature. -->
