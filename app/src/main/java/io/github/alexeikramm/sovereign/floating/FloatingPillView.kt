@@ -966,7 +966,7 @@ private fun DictationCard(
                 Spacer(modifier = Modifier.width(CardLayout.STATUS_GAP_DP.dp))
                 val statusTitle = when {
                     failed -> "Error"
-                    isProcessing -> "Polishing…"
+                    isProcessing -> if (cleanupEnabled) "Polishing…" else "Finishing…"
                     uiState == FloatingUiState.RECORDING -> "Listening…"
                     displayText.isNotBlank() -> "Review"
                     else -> "Tap to speak"
@@ -1167,7 +1167,7 @@ private fun DictationCard(
                                     )
                                     Spacer(modifier = Modifier.width(Spacing.sm))
                                     Text(
-                                        text = "Polishing…",
+                                        text = if (cleanupEnabled) "Polishing…" else "Finishing…",
                                         color = cs.onSurface,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,

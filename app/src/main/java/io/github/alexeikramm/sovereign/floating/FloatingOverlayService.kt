@@ -2069,6 +2069,14 @@ class FloatingOverlayService : Service() {
         return PillRect(left = right - width, top = bottom - height, right = right, bottom = bottom)
     }
 
+    /**
+     * The status shown while a capture is finalised (recorder stop + ASR tail flush + cleanup drain).
+     * "Polishing" only when an LLM pass will actually run; with cleanup off the same work happens but
+     * there is no AI in it, and claiming otherwise makes an ordinary stop look like a stray step.
+     */
+    private fun finishingStatus(): String =
+        if (settings.cleanupEnabled) "Polishing with AI..." else "Finishing..."
+
     private fun stopRecording() {
         if (!recorder.isRecording) return
         captureStoppedAtMs = SystemClock.elapsedRealtime()
@@ -2078,7 +2086,7 @@ class FloatingOverlayService : Service() {
 
         uiState = FloatingUiState.REVIEW
         isProcessing = true
-        statusNote = "Polishing with AI..."
+        statusNote = finishingStatus()
 
         inFlightJob = scope.launch {
             finalizeUtterance()
@@ -2237,7 +2245,7 @@ class FloatingOverlayService : Service() {
                 stopAudioMetering()
                 stopSilenceMonitoring()
                 isProcessing = true
-                statusNote = "Polishing with AI..."
+                statusNote = finishingStatus()
                 finalizeUtterance()
                 turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
                 isProcessing = false
