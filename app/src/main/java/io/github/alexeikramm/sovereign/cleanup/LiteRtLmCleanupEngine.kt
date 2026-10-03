@@ -215,30 +215,25 @@ class LiteRtLmCleanupEngine(
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null
-            val conversation: Conversation
-            val messageToSend: String
-            if (activeConv != null) {
-                // In an active session the system instruction — safety core, vocabulary and rules —
-                // is already in the KV cache; only the new segment is sent.
-                conversation = activeConv
-                messageToSend = if (sessionTurns == 0 && !context.isNullOrBlank()) {
-                    "Already cleaned (context — do not repeat it or clean it again):\n$context\n\nClean this segment:\n$unit"
-                } else {
-                    "Clean this segment:\n$unit"
-                }
-            } else {
-                // No session: build a fresh conversation, reading the vocabulary now so the pass
-                // sees the dictionary as it is at this moment.
-                val promptData = CleanupPrompt.build(
-                    unit = unit,
-                    context = context,
-                    dictionaryEntries = vocabulary(),
-                    variant = variant,
-                    customRules = customRules,
-                )
-                conversation = eng.createConversation(conversationConfig(promptData.system))
-                messageToSend = promptData.user
-            }
+            // One prompt builder for every path. Only `includeContext` differs: a standalone pass and
+            // the first turn of a session must state the carried context (it is not in the KV cache
+            // yet); later turns must not, because the cache already holds it and re-stating it only
+            // adds tokens. LiteRT-LM has no prefix matching, so this split has to stay explicit.
+            val promptData = CleanupPrompt.build(
+                unit = unit,
+                context = context,
+                dictionaryEntries = vocabulary(),
+                variant = variant,
+                customRules = customRules,
+                includeContext = !isSession || sessionTurns == 0,
+            )
+            // An active session already holds the system instruction — safety core, vocabulary and
+            // rules — in its KV cache, so only the new segment's user message is sent. Without one,
+            // build a fresh conversation (reading the dictionary as it is at this moment).
+            val conversation: Conversation =
+                if (activeConv != null) activeConv
+                else eng.createConversation(conversationConfig(promptData.system))
+            val messageToSend = promptData.user
 
             val started = SystemClock.elapsedRealtime()
             try {

@@ -97,6 +97,15 @@ object CleanupPrompt {
     /** The two messages handed to the runtime's chat template. */
     data class Messages(val system: String, val user: String, val context: String?)
 
+    /**
+     * Builds the one prompt this app uses. The **same** [Messages.system] is prefilled into a
+     * conversation once; the **same** [Messages.user] wording is sent for every segment.
+     *
+     * [includeContext] controls whether the carried context is re-stated in the user message. It is
+     * `true` for a standalone pass and for the first turn of a session (the context is not in the KV
+     * cache yet) and `false` for later turns of the same session, where the cache already holds it and
+     * re-stating it would only add tokens. The wording itself does not change.
+     */
     fun build(
         unit: String,
         context: String? = null,
@@ -104,6 +113,7 @@ object CleanupPrompt {
         dictionaryEntries: List<DictionaryEntry> = emptyList(),
         variant: Variant = Variant.DEFAULT,
         customRules: String? = null,
+        includeContext: Boolean = false,
     ): Messages {
         val system = buildString {
             append(SAFETY_CORE)
@@ -126,9 +136,17 @@ object CleanupPrompt {
             append(customRules ?: variant.rules)
         }
 
-        val user = "Rewrite this text using the formatting rules:\n\n$unit"
+        val user = buildString {
+            if (includeContext && !context.isNullOrBlank()) {
+                append("Already cleaned (context — do not repeat it or clean it again):\n")
+                append(context)
+                append("\n\n")
+            }
+            append("Clean this segment:\n")
+            append(unit)
+        }
 
-        return Messages(system = system, user = user, context = null)
+        return Messages(system = system, user = user, context = context)
     }
 
 

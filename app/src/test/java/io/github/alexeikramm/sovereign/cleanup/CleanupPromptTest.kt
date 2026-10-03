@@ -3,6 +3,7 @@ package io.github.alexeikramm.sovereign.cleanup
 import io.github.alexeikramm.sovereign.data.DictionaryEntry
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,10 +24,33 @@ class CleanupPromptTest {
     }
 
     @Test
-    fun `user message instructs rewriting using formatting rules`() {
+    fun `the user message carries the one wording, with the segment`() {
         val built = CleanupPrompt.build("next words")
-        assertTrue(built.user.contains("Rewrite this text using the formatting rules:"))
+        assertTrue(built.user.contains("Clean this segment:"))
         assertTrue(built.user.contains("next words"))
+    }
+
+    @Test
+    fun `the context block appears only when asked for, and is never duplicated in the system`() {
+        val carried = "the previously cleaned sentence"
+
+        // Cold / first turn: the context is stated in the user message.
+        val withContext = CleanupPrompt.build("next words", context = carried, includeContext = true)
+        assertTrue(withContext.user.contains("do not repeat it or clean it again"))
+        assertTrue(withContext.user.contains(carried))
+
+        // Later turns of the same session: the context is already in the KV cache, so it is omitted.
+        val without = CleanupPrompt.build("next words", context = carried, includeContext = false)
+        assertFalse("later turns must not re-state the cached context", without.user.contains(carried))
+        assertEquals("Clean this segment:\nnext words", without.user)
+
+        // No context at all: the block never appears, ask or not.
+        val none = CleanupPrompt.build("next words", context = null, includeContext = true)
+        assertFalse(none.user.contains("do not repeat it"))
+
+        // A blank context is treated as absent.
+        val blank = CleanupPrompt.build("next words", context = "   ", includeContext = true)
+        assertFalse(blank.user.contains("do not repeat it"))
     }
 
     @Test
