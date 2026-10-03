@@ -62,6 +62,45 @@ class DictationPipelineTest {
         }
     }
 
+    /**
+     * Mimics the real recogniser's post-cut behaviour: after a segment ends the last text stays
+     * available, and `resetSegment` does **not** clear it, so the next `accept` re-emits the
+     * just-cut words as a partial. `isEndpoint` fires only once per unit, then stays quiet, so the
+     * test can feed the leftover re-emission frames after the single cut.
+     */
+    private class StickyTextAsrEngine(
+        private val units: List<String>,
+    ) : AsrEngine {
+        private var index = 0
+        private var last: String = ""
+        private var cutPending = false
+
+        override fun load(): LocalAsrEngine.Availability = LocalAsrEngine.Availability.Loaded
+        override fun startSession(language: String, hotwords: String) {
+            index = 0
+            last = ""
+            cutPending = false
+        }
+
+        override fun accept(samples: FloatArray, count: Int): String? {
+            if (index < units.size) {
+                last = units[index]
+                index++
+                cutPending = true
+            }
+            return last
+        }
+
+        override fun isSpeechDetected(): Boolean = true
+        override fun isEndpoint(): Boolean = cutPending
+        override fun result(): String = last
+        override fun resetSegment() {
+            cutPending = false
+        }
+        override fun finish(): String = ""
+        override fun abort() {}
+    }
+
     private class FakeCleanupEngine(
         private val transform: (String) -> String = { it.trim() },
     ) : CleanupEngine {
@@ -237,6 +276,22 @@ class DictationPipelineTest {
         feed(pipeline, 1)
 
         pipeline.reset()
+        assertEquals("", pipeline.provisionalText)
+    }
+
+    @Test
+    fun `a re-emitted partial from the just-cut segment does not resurrect the committed text`() = runBlocking {
+        // The real recogniser keeps returning the cut segment's text until the next segment's words
+        // arrive; the session reports it as a partial. That must not re-show it as a grey tail.
+        val engine = StickyTextAsrEngine(listOf("Hello."))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 3) // one cut, then two frames of the leftover re-emission
+
+        assertEquals("Hello.", pipeline.committedText)
         assertEquals("", pipeline.provisionalText)
     }
 }
