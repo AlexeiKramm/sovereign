@@ -2586,6 +2586,16 @@ class FloatingOverlayService : Service() {
         override fun closeSession() {
             cleanupEngine?.closeSession()
         }
+
+        // Read straight from the real engine, never via `engineForUtterance()`: a getter must not
+        // construct an engine as a side effect. These three were missing, so the pipeline read 0/0
+        // and the rebuild trigger was unreachable (the KV-overflow bug). CleanupEngine now declares
+        // tokenCount/contextTokens abstract so this cannot compile without the overrides below.
+        override val tokenCount: Int get() = cleanupEngine?.tokenCount ?: 0
+        override val contextTokens: Int get() = cleanupEngine?.contextTokens ?: 0
+        override fun onConversationRebuilt(usedTokens: Int, capTokens: Int) {
+            cleanupEngine?.onConversationRebuilt(usedTokens, capTokens)
+        }
     }
 
     companion object {

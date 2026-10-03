@@ -229,7 +229,10 @@ class CleanupPipelineTest {
             ): CleanupPass = CleanupPass.failed(unit, "unused")
 
             override fun unload() {}
-            // tokenCount and contextTokens default to 0: the policy must never fire.
+            // Explicit zeros: this engine has no cache model, so the policy must never fire. (The
+            // members are abstract now — a wrapper can no longer inherit a silent 0.)
+            override val tokenCount: Int get() = 0
+            override val contextTokens: Int get() = 0
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
 

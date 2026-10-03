@@ -15,7 +15,8 @@ object ConversationRebuildPolicy {
     /**
      * The fraction of the cache at which the conversation is rebuilt. Rebuilding at 80% keeps enough
      * headroom for one more segment plus its reply to land before the cache would actually overflow.
-     * On the shipped Gemma 4 E2B bundle (a hard 2048-token ceiling, D-086) that is ~1638 tokens.
+     * The token figure depends on the engine's `contextTokens`; it is only a safe ceiling while that
+     * figure matches what the bundle physically serves (see `LiteRtLmCleanupEngine.CONTEXT_TOKENS`).
      */
     const val REBUILD_AT = 0.80f
 

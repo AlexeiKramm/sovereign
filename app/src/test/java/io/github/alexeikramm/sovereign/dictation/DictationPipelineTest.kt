@@ -109,6 +109,10 @@ class DictationPipelineTest {
         override val lastLoadMs: Long = 0L
         var cleanCalls = 0
 
+        /** This fake has no cache model; explicit 0s satisfy the abstract interface members. */
+        override val tokenCount: Int get() = 0
+        override val contextTokens: Int get() = 0
+
         override suspend fun load(): Result<Unit> = Result.success(Unit)
 
         override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {}
@@ -147,6 +151,10 @@ class DictationPipelineTest {
         private val gate = CompletableDeferred<Unit>()
         override val isLoaded: Boolean = true
         override val lastLoadMs: Long = 0L
+
+        /** This fake has no cache model; explicit 0s satisfy the abstract interface members. */
+        override val tokenCount: Int get() = 0
+        override val contextTokens: Int get() = 0
 
         fun release() = gate.complete(Unit)
 

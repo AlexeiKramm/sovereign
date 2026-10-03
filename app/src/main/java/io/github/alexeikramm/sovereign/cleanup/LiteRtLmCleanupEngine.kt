@@ -43,14 +43,17 @@ class LiteRtLmCleanupEngine(
     private val lock = Mutex()
 
     /**
-     * KV-cache size requested from the runtime. The shipped Gemma 4 E2B bundle is compiled with a
-     * fixed **2048-token** sequence dimension and ignores a larger request: device testing showed a
-     * native `FAILED_PRECONDITION` (work group exceeds available state entries) at ~2014 tokens when
-     * 4096 was requested (LiteRT-LM issue #3444; D-086). So this is pinned to the physical ceiling,
-     * and the rebuild fires below it.
+     * KV-cache size requested from the runtime. The rebuild trigger uses this as its denominator.
+     *
+     * The shipped Gemma 4 E2B bundle is compiled with a *fixed* sequence dimension and has been
+     * observed to enforce ~2048 on device despite a larger request (LiteRT-LM issue #3444; D-086).
+     * Pinned back to **4096** at the user's request for the next device run: the rebuild wrapper bug
+     * meant the trigger had never actually fired in the 4096 experiment, so this re-tests whether 4096
+     * is servable now that rebuilds are wired. If the native wall still lands at ~2014 tokens before
+     * the 80% trigger (3276), D-086 stands and this must return to 2048.
      */
     companion object {
-        const val CONTEXT_TOKENS = 2048
+        const val CONTEXT_TOKENS = 4096
         private const val TAG = "LiteRtLmCleanup"
     }
 
@@ -119,9 +122,9 @@ class LiteRtLmCleanupEngine(
                 modelPath = modelFile.absolutePath,
                 backend = backend,
                 // Pin the KV-cache size rather than accepting the runtime's prompt-derived default,
-                // so the 85%-full rebuild trigger has a known denominator. Logged below once the
+                // so the rebuild trigger has a known denominator. Logged below once the
                 // engine is up, because the *effective* ceiling is not queryable and the shipped
-                // Gemma 4 E2B bundle has been reported to hold only ~2048 despite accepting 4096
+                // Gemma 4 E2B bundle has been reported to ignore this and hold only ~2048
                 // (LiteRT-LM issue #3444). The log tells us what this device/bundle really serves.
                 maxNumTokens = CONTEXT_TOKENS,
             )
@@ -151,6 +154,9 @@ class LiteRtLmCleanupEngine(
                 customRules = customRules,
             )
             sessionConversation = eng.createConversation(conversationConfig(promptData.system))
+            // Post-open probe: after `prefillPrefaceOnInit` this should be just the preface. A high
+            // number here means the KV reset failed (the old conversation leaked into the new one).
+            Log.i(TAG, "Session opened: cache=${tokenCount}/$CONTEXT_TOKENS tokens")
         } catch (_: Throwable) {
             sessionConversation = null
         }
@@ -226,6 +232,8 @@ class LiteRtLmCleanupEngine(
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null
+            // Pre-pass probe: the cache size as the rebuild trigger will see it after this pass.
+            Log.i(TAG, "Cleanup pass start: cache=${tokenCount}/$CONTEXT_TOKENS tokens")
             // One prompt builder for every path. Only `includeContext` differs: a standalone pass and
             // the first turn of a session must state the carried context (it is not in the KV cache
             // yet); later turns must not, because the cache already holds it and re-stating it only

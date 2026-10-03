@@ -71,13 +71,22 @@ interface CleanupEngine {
     fun closeSession() {}
 
     /**
-     * Optional: tokens currently held in the session's KV cache. The pipeline uses it to rebuild the
+     * Tokens currently held in the session's KV cache. The pipeline uses it to rebuild the
      * conversation before it overflows. Engines with no cache model report 0 and are never rebuilt.
+     *
+     * **Abstract, deliberately: no interface default.** A default here is inherited by any wrapper
+     * that forgets to forward it, and a production wrapper that silently returned 0 made the rebuild
+     * trigger unreachable for months (the KV-overflow bug, `docs/work/raw-preview/DEBUG-kv-overflow.md`).
+     * A compiler error beats a silent zero, so every implementation — including delegating ones — must
+     * supply this explicitly.
      */
-    val tokenCount: Int get() = 0
+    val tokenCount: Int
 
-    /** Optional: the KV-cache size this engine loaded with, the denominator for the rebuild trigger. */
-    val contextTokens: Int get() = 0
+    /**
+     * The KV-cache size this engine loaded with, the denominator for the rebuild trigger. Abstract for
+     * the same reason as [tokenCount]: a wrapper must not be able to inherit a silent 0.
+     */
+    val contextTokens: Int
 
     /**
      * Optional: the pipeline rebuilt the session because the cache neared full. The engine logs it
