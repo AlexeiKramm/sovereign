@@ -323,6 +323,19 @@ class LiteRtLmCleanupEngine(
                 val backendLabel = processor.label
                 val specTag = if (speculativeDecoding && modelSpec.supportsSpeculativeDecoding) ", spec: on" else ""
                 val cacheTag = if (isSession) " [cached]" else ""
+                // Per-pass latency probe. `promptTokens` is the prefill the runtime actually did for
+                // this segment: on a reused session it is just the segment; on the first turn of a
+                // fresh conversation it also carries the re-sent context; a standalone conversation
+                // would carry the system preface too. Comparing a first turn against later turns is
+                // how we measure what session reuse saves.
+                Log.i(
+                    TAG,
+                    "Cleanup pass done: turn=$sessionTurns cached=$isSession " +
+                        "prefill=${promptTokens}t/${promptDurationMs.toInt()}ms " +
+                        "ttft=${actualTtftMs.toInt()}ms " +
+                        "decode=${actualTokens}t/${totalDecodeTimeMs.toInt()}ms " +
+                        "active=${totalActiveMs}ms",
+                )
                 CleanupPass(
                     unit = unit,
                     text = cleaned,
