@@ -5,14 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pins the fresh-install defaults chosen in S17 round 1. These are `const` values, so this is a
- * plain JVM test with no Android context.
+ * Pins the fresh-install defaults. These are `const` values, so this is a plain JVM test with no
+ * Android context. Boundary timings were tuned in S17 round 1; the pause default was then lowered to
+ * 0.5 s by the streaming matrix (D-090).
  */
 class AppSettingsDefaultsTest {
 
     @Test
-    fun `S17 round 1 boundary timing defaults`() {
-        assertEquals(1.0f, AppSettings.DEFAULT_PAUSE_SILENCE_S, 0.001f)
+    fun `boundary timing defaults (pause lowered by D-090)`() {
+        assertEquals(0.5f, AppSettings.DEFAULT_PAUSE_SILENCE_S, 0.001f)
         assertEquals(3.0f, AppSettings.DEFAULT_STABLE_SILENCE_S, 0.001f)
         assertEquals(8.0f, AppSettings.DEFAULT_STOP_AFTER_SILENCE_S, 0.001f)
     }

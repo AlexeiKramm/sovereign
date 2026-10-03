@@ -577,11 +577,12 @@ class AppSettings(context: Context) {
          * Boundary timings. D-037 raised the first tuned values (1.2 s / 1.8 s / 3.0 s) because a
          * breath ended a unit — a real constraint while cleanup seams were still visible. Seam
          * healing (D-065) and per-unit pipelining have since removed that need, so S17 round 1 set
-         * the user-facing values afresh: "Pause sensitivity" 1.0 s and auto-stop 8.0 s.
-         * [DEFAULT_STABLE_SILENCE_S] is unchanged — it is the endpointing fallback, not a
-         * user-facing control.
+         * the user-facing values afresh: "Pause sensitivity" 1.0 s and auto-stop 8.0 s. The streaming
+         * matrix (D-090) then showed 1.0 s buys no cleanup quality over 0.5 s and is ~0.5 s slower to
+         * first visible text, so "Pause sensitivity" is lowered to 0.5 s. [DEFAULT_STABLE_SILENCE_S]
+         * is unchanged — it is the endpointing fallback, not a user-facing control.
          */
-        const val DEFAULT_PAUSE_SILENCE_S = 1.0f
+        const val DEFAULT_PAUSE_SILENCE_S = 0.5f
         const val DEFAULT_STABLE_SILENCE_S = 3.0f
         const val DEFAULT_STOP_AFTER_SILENCE_S = 8.0f
 

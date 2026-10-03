@@ -266,21 +266,23 @@ object AsrModels {
     )
 
     /**
-     * The active ASR catalog offered to users (D-083): the default 560 ms streaming model, the
-     * 320 ms streaming variant (offered for latency/quality benchmarking), and two offline models.
+     * The active ASR catalog offered to users (D-090): the default 560 ms streaming model and the
+     * two offline models. The 320 ms variant is **unlisted, not deleted** — it lives in [LEGACY] so
+     * a one-line move re-offers it; the streaming matrix found no cleanup-quality gain to justify its
+     * extra ASR cost.
      */
     val CATALOG: List<AsrModelSpec> = listOf(
         NEMOTRON,
-        NEMOTRON_320MS,
         PARAKEET_TDT_V3,
         WHISPER_BASE,
     )
 
     /**
-     * Models pruned from the catalog (D-055) that must still resolve: a saved selection or a stored
-     * transcript can name one. Offering a model is a separate decision from recognising its id.
+     * Models removed from the catalog (D-055, D-090) that must still resolve: a saved selection, a
+     * stored transcript or an old benchmark CSV can name one. Offering a model is a separate
+     * decision from recognising its id. Re-offering is a one-line move back into [CATALOG].
      */
-    private val LEGACY: List<AsrModelSpec> = listOf(WHISPER_SMALL, WHISPER_TURBO)
+    private val LEGACY: List<AsrModelSpec> = listOf(NEMOTRON_320MS, WHISPER_SMALL, WHISPER_TURBO)
 
     /** Every known spec — the offered [CATALOG] plus [LEGACY] — so lookups need no per-model cases. */
     private val ALL: List<AsrModelSpec> = CATALOG + LEGACY
