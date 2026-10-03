@@ -189,6 +189,15 @@ class LiteRtLmCleanupEngine(
     /** The KV-cache size this engine loaded with — the rebuild trigger's denominator. */
     override val contextTokens: Int get() = CONTEXT_TOKENS
 
+    /** Reports and logs a rebuild: the figures are the only ground truth for the effective ceiling. */
+    override fun onConversationRebuilt(usedTokens: Int, capTokens: Int) {
+        Log.i(
+            TAG,
+            "Rebuilding cleanup conversation: $usedTokens/$capTokens tokens " +
+                "(${ConversationRebuildPolicy.REBUILD_AT * 100}% threshold)",
+        )
+    }
+
     override suspend fun clean(
         unit: String,
         context: String?,

@@ -114,7 +114,13 @@ class CleanupPipeline(
                 // closes the old conversation first (never two caches at once) and prefills the new
                 // system preface, so the next pass finds a warm, empty conversation — the rebuild
                 // cost is paid off the critical path, not when a segment is waiting.
-                if (ConversationRebuildPolicy.shouldRebuild(engine.tokenCount, engine.contextTokens)) {
+                val used = engine.tokenCount
+                val cap = engine.contextTokens
+                if (ConversationRebuildPolicy.shouldRebuild(used, cap)) {
+                    // The engine reports it — this class stays free of Android APIs so it is
+                    // host-testable. The figures are the only ground truth for the effective KV
+                    // ceiling, which the SDK does not expose.
+                    engine.onConversationRebuilt(used, cap)
                     engine.startSession(rules())
                 }
             }

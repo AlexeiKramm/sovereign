@@ -78,4 +78,11 @@ interface CleanupEngine {
 
     /** Optional: the KV-cache size this engine loaded with, the denominator for the rebuild trigger. */
     val contextTokens: Int get() = 0
+
+    /**
+     * Optional: the pipeline rebuilt the session because the cache neared full. The engine logs it
+     * (it is the Android-aware layer); the token figures are the only ground truth for the effective
+     * KV ceiling, which the SDK does not expose.
+     */
+    fun onConversationRebuilt(usedTokens: Int, capTokens: Int) {}
 }

@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CleanupPipelineTest {
@@ -19,8 +20,14 @@ class CleanupPipelineTest {
         var reportedTokens: Int = 0
         /** How much each pass grows the cache, modelling a segment + its reply. */
         var tokensPerPass: Int = 0
+        /** Records every `onConversationRebuilt` call, for asserting the reported figures. */
+        val rebuildReports = mutableListOf<Pair<Int, Int>>()
         override val contextTokens: Int = 4096
         override val tokenCount: Int get() = reportedTokens
+
+        override fun onConversationRebuilt(usedTokens: Int, capTokens: Int) {
+            rebuildReports.add(usedTokens to capTokens)
+        }
 
         override suspend fun load(): Result<Unit> = Result.success(Unit)
 
@@ -191,10 +198,16 @@ class CleanupPipelineTest {
         pipeline.submit("two")
         pipeline.submit("three")
         assertEquals(1, engine.sessionStarts)
+        assertTrue("no rebuild reported below the threshold", engine.rebuildReports.isEmpty())
 
         // A fourth pass -> 4000 tokens, past the threshold: the conversation is rebuilt.
         pipeline.submit("four")
         assertEquals("rebuild should re-open the session", 2, engine.sessionStarts)
+        assertEquals(
+            "the engine is told (and logs) the exact figures that triggered the rebuild",
+            listOf(4000 to 4096),
+            engine.rebuildReports,
+        )
 
         pipeline.drain()
     }
