@@ -749,6 +749,17 @@ private fun AsrTierCard(
             ram = "High (${model.totalBytes / 1_000_000} MB)",
             infoKey = "nemotron",
         )
+        AsrModels.NEMOTRON_320MS.id -> ModelMetadata(
+            title = "Ultra-Low Latency",
+            badge = "Experimental",
+            badgeBg = MaterialTheme.colorScheme.tertiaryContainer,
+            badgeColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            description = "Transcribes speech in real time using 320 ms audio frames. Starts showing text sooner, but can be less accurate than the default streaming model. High RAM requirement.",
+            latency = "Real-time",
+            quality = "Good",
+            ram = "High (${model.totalBytes / 1_000_000} MB)",
+            infoKey = "nemotron-320",
+        )
         AsrModels.WHISPER_BASE.id -> ModelMetadata(
             title = "Lightweight",
             badge = null,
@@ -1322,6 +1333,20 @@ private fun getModelTechnicalSpec(key: String): ModelTechnicalSpec? = when (key)
             "Relatively large model footprint requiring high RAM.",
             "Slower initial load time: larger model weights take slightly longer to initialize into memory.",
             "Lower precision on noisy audio or dense domain jargon compared to the Highest Accuracy model.",
+        ),
+    )
+    "nemotron-320" -> ModelTechnicalSpec(
+        title = "Ultra-Low Latency",
+        subtitle = "Nvidia Nemotron-3.5-ASR-Streaming-0.6B 320 ms (CPU)",
+        overview = "The same Nvidia Nemotron-3.5 streaming model as the default, using shorter 320 ms audio frames so partial transcription can update more frequently. The default 560 ms frames are processed in larger batches and often finish long dictations sooner.",
+        benefits = listOf(
+            "Finer-grained streaming: text can update more often while you speak.",
+            "Same architecture, engine and 40-language coverage as the default streaming model.",
+        ),
+        tradeoffs = listOf(
+            "Slightly lower recognition accuracy per frame than the default streaming model.",
+            "More frequent decode steps; on longer audio the default 560 ms model can still finish sooner.",
+            "High RAM requirement comparable to the default streaming model.",
         ),
     )
     "whisper" -> ModelTechnicalSpec(

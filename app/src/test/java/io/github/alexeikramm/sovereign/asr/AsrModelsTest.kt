@@ -93,9 +93,10 @@ class AsrModelsTest {
     @Test
     fun `catalog contains all supported streaming and offline models`() {
         val catalog = AsrModels.CATALOG
-        assertEquals(3, catalog.size)
+        assertEquals(4, catalog.size)
         val ids = catalog.map { it.id }
         assertTrue("contains nemotron 560ms", ids.contains("nemotron-3.5-streaming"))
+        assertTrue("contains nemotron 320ms", ids.contains("nemotron-3.5-streaming-320ms"))
         assertTrue("contains parakeet-tdt-v3", ids.contains("parakeet-tdt-v3"))
         assertTrue("contains whisper-base", ids.contains("whisper-base"))
 
@@ -109,10 +110,24 @@ class AsrModelsTest {
     }
 
     @Test
-    fun `byId finds each model and falls back to default`() {
-        assertEquals("nemotron-3.5-streaming-320ms", AsrModels.byId("nemotron-3.5-streaming-320ms").id)
+    fun `byId finds catalog and legacy models and falls back to default`() {
+        assertTrue(AsrModels.byId("nemotron-3.5-streaming-320ms").id in AsrModels.CATALOG.map { it.id })
         assertEquals("whisper-turbo", AsrModels.byId("whisper-turbo").id)
+        assertEquals("whisper-small", AsrModels.byId("whisper-small").id)
         assertEquals("parakeet-tdt-v3", AsrModels.byId("parakeet-tdt-v3").id)
         assertEquals(AsrModels.DEFAULT_MODEL_ID, AsrModels.byId("non-existent-id").id)
+    }
+
+    @Test
+    fun `getTierTitle resolves ids, labels and partial names`() {
+        assertEquals("Lowest Latency", AsrModels.getTierTitle("nemotron-3.5-streaming"))
+        assertEquals("Ultra-Low Latency", AsrModels.getTierTitle("nemotron-3.5-streaming-320ms"))
+        assertEquals("Ultra-Low Latency", AsrModels.getTierTitle("Nemotron 3.5 (320ms)"))
+        assertEquals("Highest Accuracy", AsrModels.getTierTitle("parakeet-tdt-v3"))
+        assertEquals("Lightweight", AsrModels.getTierTitle("whisper-base"))
+        assertEquals("High Performance", AsrModels.getTierTitle("whisper-turbo"))
+        assertEquals("Lowest Latency", AsrModels.getTierTitle("Nemotron"))
+        assertEquals("Lowest Latency", AsrModels.getTierTitle(null))
+        assertEquals("something-else", AsrModels.getTierTitle("something-else"))
     }
 }

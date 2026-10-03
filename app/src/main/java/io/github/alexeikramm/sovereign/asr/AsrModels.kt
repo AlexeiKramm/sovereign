@@ -94,6 +94,7 @@ object AsrModels {
     val NEMOTRON_320MS = AsrModelSpec(
         id = "nemotron-3.5-streaming-320ms",
         label = "Nemotron 3.5 (320ms)",
+        tierTitle = "Ultra-Low Latency",
         description = "Ultra-fast streaming • Lowest dictation latency (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-320ms-int8-2026-06-11",
@@ -259,42 +260,37 @@ object AsrModels {
     )
 
     /**
-     * The active ASR catalog offered to users. Pruned per D-055 to exactly 3 models:
-     * 1) Streaming default (Nemotron 560ms)
-     * 2) High-throughput offline (Parakeet TDT v3)
-     * 3) Compact offline (Whisper Base)
+     * The active ASR catalog offered to users (D-083): the default 560 ms streaming model, the
+     * 320 ms streaming variant (offered for latency/quality benchmarking), and two offline models.
      */
     val CATALOG: List<AsrModelSpec> = listOf(
         NEMOTRON,
+        NEMOTRON_320MS,
         PARAKEET_TDT_V3,
         WHISPER_BASE,
     )
 
-    fun byId(id: String): AsrModelSpec =
-        CATALOG.firstOrNull { it.id == id }
-            ?: when (id) {
-                NEMOTRON_320MS.id -> NEMOTRON_320MS
-                WHISPER_SMALL.id -> WHISPER_SMALL
-                WHISPER_TURBO.id -> WHISPER_TURBO
-                else -> NEMOTRON
-            }
+    /**
+     * Models pruned from the catalog (D-055) that must still resolve: a saved selection or a stored
+     * transcript can name one. Offering a model is a separate decision from recognising its id.
+     */
+    private val LEGACY: List<AsrModelSpec> = listOf(WHISPER_SMALL, WHISPER_TURBO)
+
+    /** Every known spec — the offered [CATALOG] plus [LEGACY] — so lookups need no per-model cases. */
+    private val ALL: List<AsrModelSpec> = CATALOG + LEGACY
+
+    fun byId(id: String): AsrModelSpec = ALL.firstOrNull { it.id == id } ?: NEMOTRON
 
     fun getTierTitle(modelIdOrName: String?): String {
-        if (modelIdOrName.isNullOrBlank()) return "Lowest Latency"
-        val matched = CATALOG.firstOrNull { it.id == modelIdOrName }
-            ?: when (modelIdOrName) {
-                NEMOTRON_320MS.id -> NEMOTRON_320MS
-                WHISPER_SMALL.id -> WHISPER_SMALL
-                WHISPER_TURBO.id -> WHISPER_TURBO
-                else -> null
-            }
-        if (matched != null) return matched.tierTitle
+        val name = modelIdOrName?.takeIf { it.isNotBlank() } ?: return NEMOTRON.tierTitle
+        ALL.firstOrNull { it.id.equals(name, ignoreCase = true) || it.label.equals(name, ignoreCase = true) }
+            ?.let { return it.tierTitle }
         return when {
-            modelIdOrName.contains("Nemotron", ignoreCase = true) || modelIdOrName == DEFAULT_MODEL_ID -> "Lowest Latency"
-            modelIdOrName.contains("Parakeet", ignoreCase = true) -> "Highest Accuracy"
-            modelIdOrName.contains("Turbo", ignoreCase = true) -> "High Performance"
-            modelIdOrName.contains("Whisper", ignoreCase = true) -> "Lightweight"
-            else -> modelIdOrName
+            name.contains("Nemotron", ignoreCase = true) -> NEMOTRON.tierTitle
+            name.contains("Parakeet", ignoreCase = true) -> PARAKEET_TDT_V3.tierTitle
+            name.contains("Turbo", ignoreCase = true) -> WHISPER_TURBO.tierTitle
+            name.contains("Whisper", ignoreCase = true) -> WHISPER_BASE.tierTitle
+            else -> name
         }
     }
 
