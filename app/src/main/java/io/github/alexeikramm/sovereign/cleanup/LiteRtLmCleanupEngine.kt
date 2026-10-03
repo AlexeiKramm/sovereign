@@ -45,14 +45,14 @@ class LiteRtLmCleanupEngine(
     /**
      * KV-cache size requested from the runtime. The rebuild trigger uses this as its denominator.
      *
-     * The shipped Gemma 4 E2B bundle is compiled with a *fixed* sequence dimension and has been
-     * observed to enforce ~2048 on device despite a larger request (LiteRT-LM issue #3444; D-086).
-     * Pinned to **2048**, the physical ceiling, so the 80% trigger (~1638 tokens) fires with headroom
-     * before the native wall. The 4096 re-test (D-087) is being settled on a device; this is the safe
-     * configuration to test against it.
+     * **4096 is device-verified** (OnePlus Android, 2026-10-03): the cache held up to 3380 tokens with
+     * no `FAILED_PRECONDITION`, and the 80% rebuild fired three times at ~3276 with a ~270 ms preface
+     * re-prefill each time. This overturns D-086's "hard 2048 ceiling" reading — that crash happened
+     * while the rebuild was silently disabled (the `CurrentCleanupEngine` wrapper bug), so 4096 was
+     * never actually exercised. Kept at the bundle's nominal 4096 with the 80% trigger.
      */
     companion object {
-        const val CONTEXT_TOKENS = 2048
+        const val CONTEXT_TOKENS = 4096
         private const val TAG = "LiteRtLmCleanup"
     }
 
