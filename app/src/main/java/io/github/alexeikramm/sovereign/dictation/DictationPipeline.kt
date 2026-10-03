@@ -62,13 +62,17 @@ class DictationPipeline(
     private val committed = StringBuilder()
     private var cleanupEngaged = false
 
+    /** The recogniser's provisional text for the unit in flight; cleared when the unit cuts. */
+    @Volatile
+    private var provisional: String = ""
+
     private val session = LocalAsrSession(
         engine = asrEngine,
         dispatcher = asrDispatcher,
         scope = scope,
         onUnit = ::onUnit,
         timings = timings,
-        onPartialText = { onPartialText(it) },
+        onPartialText = ::onPartial,
     )
 
     private val cleanup = CleanupPipeline(
@@ -85,6 +89,13 @@ class DictationPipeline(
 
     /** The ASR words for the whole utterance, before cleanup. */
     val rawText: String get() = raw.toString()
+
+    /**
+     * The provisional text of the unit currently being spoken — recognised but not yet cut/committed.
+     * Empty between units. This is what the expanded card shows live; [committedText] replaces it as
+     * each unit settles. **Blank for offline models**, which emit nothing until a segment ends.
+     */
+    val provisionalText: String get() = provisional
 
     /** True when this utterance is routing through cleanup. */
     val isCleanupEngaged: Boolean get() = cleanupEngaged
@@ -105,6 +116,7 @@ class DictationPipeline(
         if (fresh) {
             raw.clear()
             committed.clear()
+            clearProvisional()
         }
         cleanupEngaged = cleanupEnabled
         if (cleanupEnabled) cleanup.begin(committed.toString())
@@ -143,6 +155,7 @@ class DictationPipeline(
     /** Drops the utterance without committing it. */
     fun abort() {
         session.abort()
+        clearProvisional()
         if (cleanupEngaged) {
             cleanup.abort()
             cleanupEngaged = false
@@ -161,10 +174,12 @@ class DictationPipeline(
         raw.clear()
         committed.clear()
         cleanupEngaged = false
+        clearProvisional()
     }
 
     /** Runs on the ASR worker: accumulate raw, then route the unit to cleanup or straight to text. */
     private fun onUnit(unit: String) {
+        clearProvisional()
         if (unit.isBlank()) return
         onUnitCut(unit)
         synchronized(raw) {
@@ -187,6 +202,13 @@ class DictationPipeline(
         }
     }
 
+    /** Runs on the ASR worker: stash the provisional text, refresh the display, report the partial. */
+    private fun onPartial(text: String) {
+        provisional = text
+        scope.launch(mainDispatcher) { emit() }
+        onPartialText(text)
+    }
+
     /** Runs on the cleanup worker: replace the seam overlap and append the cleaned unit. */
     private suspend fun onCleanupCommit(commit: CleanupCommit) {
         withContext(mainDispatcher) {
@@ -199,6 +221,11 @@ class DictationPipeline(
             onUnitCommitted(committed.toString())
             if (cleanup.lastPass?.cleaned == false) onCleanupUnavailable()
         }
+    }
+
+    /** Drops the provisional text carried between the last partial and the unit's cut. */
+    private fun clearProvisional() {
+        provisional = ""
     }
 
     private fun finalizePunctuation() {

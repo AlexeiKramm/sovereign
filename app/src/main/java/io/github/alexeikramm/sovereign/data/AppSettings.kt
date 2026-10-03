@@ -22,6 +22,29 @@ enum class AppThemeMode(val id: String, val label: String) {
 }
 
 /**
+ * The Material 3 colour roles offered for the provisional raw text. A curated set (not all 30+
+ * roles) because the point is only "which token blends the raw text into the background", and a
+ * short list is what makes that one glance. Resolved against the live scheme, so each role carries
+ * its own dark and light value.
+ */
+enum class RawTextColorRole(val id: String, val label: String, val description: String) {
+    ON_SURFACE("onSurface", "Text", "The primary text colour"),
+    ON_SURFACE_VARIANT("onSurfaceVariant", "Muted text", "The secondary text colour"),
+    OUTLINE("outline", "Outline", "Mid-strength grey"),
+    OUTLINE_VARIANT("outlineVariant", "Faint outline", "Lowest-contrast grey"),
+    PRIMARY("primary", "Accent", "The theme's primary accent"),
+    SECONDARY("secondary", "Accent 2", "The theme's secondary accent"),
+    TERTIARY("tertiary", "Accent 3", "The theme's tertiary accent");
+
+    companion object {
+        val DEFAULT = ON_SURFACE_VARIANT
+
+        fun fromId(id: String?): RawTextColorRole =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+/**
  * The one place the app's settings are read and written.
  *
  * Exists because both entry points need them: `MainActivity` (where the server URL is edited) and
@@ -312,6 +335,30 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_HAPTIC_FEEDBACK_ON_HOLD, value) }
 
     /**
+     * Whether the live raw ASR text is shown in the expanded card while the user speaks, replaced
+     * per unit by the cleaned text. **Streaming models only** — the offline recognisers emit nothing
+     * until a segment ends, so the toggle is a no-op for them. Default on: the feature exists to
+     * fill the ~20 s dead air a user sees on continuous speech (raw-preview work order, D-083).
+     */
+    var streamingPreviewEnabled: Boolean
+        get() = prefs.getBoolean(KEY_STREAMING_PREVIEW_ENABLED, DEFAULT_STREAMING_PREVIEW_ENABLED)
+        set(value) = prefs.edit { putBoolean(KEY_STREAMING_PREVIEW_ENABLED, value) }
+
+    /**
+     * Which Material 3 colour role the provisional raw text uses. Stored by name ([RawTextColorRole])
+     * so a palette change cannot silently invalidate the choice. The role is read against the live
+     * scheme, so dark and light themes each get that role's own value.
+     */
+    var streamingPreviewColorRole: RawTextColorRole
+        get() = RawTextColorRole.fromId(prefs.getString(KEY_STREAMING_PREVIEW_COLOR_ROLE, null))
+        set(value) = prefs.edit { putString(KEY_STREAMING_PREVIEW_COLOR_ROLE, value.id) }
+
+    /** Opacity applied to [streamingPreviewColorRole]; lower makes the raw text recede further. */
+    var streamingPreviewOpacity: Float
+        get() = prefs.getFloat(KEY_STREAMING_PREVIEW_OPACITY, DEFAULT_STREAMING_PREVIEW_OPACITY)
+        set(value) = prefs.edit { putFloat(KEY_STREAMING_PREVIEW_OPACITY, value) }
+
+    /**
      * How quickly the pill's post-flick glide bleeds off, per second. Higher friction = the pill
      * stops sooner. Exposed as a setting because "how slippery the pill feels" is a taste question
      * best settled by flicking it; the pill's travel distance is `releaseSpeed / this`.
@@ -450,6 +497,9 @@ class AppSettings(context: Context) {
         private const val KEY_FLOATING_PILL_X = "floating_pill_x"
         private const val KEY_FLOATING_PILL_Y = "floating_pill_y"
         private const val KEY_FLOATING_PILL_EDGE_ANCHORING = "floating_pill_edge_anchoring"
+        private const val KEY_STREAMING_PREVIEW_ENABLED = "streaming_preview_enabled"
+        private const val KEY_STREAMING_PREVIEW_COLOR_ROLE = "streaming_preview_color_role"
+        private const val KEY_STREAMING_PREVIEW_OPACITY = "streaming_preview_opacity"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_HISTORY_ENABLED = "history_enabled"
         private const val KEY_HISTORY_CAPACITY = "history_capacity"
@@ -462,6 +512,11 @@ class AppSettings(context: Context) {
         const val DEFAULT_FLOATING_PILL_EDGE_ANCHORING = true
         const val DEFAULT_QUICK_DICTATE_ON_HOLD = true
         const val DEFAULT_HAPTIC_FEEDBACK_ON_HOLD = true
+
+        const val DEFAULT_STREAMING_PREVIEW_ENABLED = true
+        const val DEFAULT_STREAMING_PREVIEW_OPACITY = 0.55f
+        const val MIN_STREAMING_PREVIEW_OPACITY = 0.1f
+        const val MAX_STREAMING_PREVIEW_OPACITY = 1.0f
 
         /** Stored pill position meaning "never dragged — use the default corner dock". */
         const val PILL_POSITION_UNSET = -1

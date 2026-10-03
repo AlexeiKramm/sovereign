@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -57,6 +58,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,6 +102,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.LiteRtProcessor
+import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.engine.EnginePreference
 import io.github.alexeikramm.sovereign.theme.ColorHsvUtils
 import io.github.alexeikramm.sovereign.theme.Spacing
@@ -232,6 +235,7 @@ fun SettingsScreen(
     val quickDictateOnHold by viewModel.quickDictateOnHold.collectAsStateWithLifecycle()
     val hapticFeedbackOnHold by viewModel.hapticFeedbackOnHold.collectAsStateWithLifecycle()
     val keepScreenOnWhileRecording by viewModel.keepScreenOnWhileRecording.collectAsStateWithLifecycle()
+    val streamingPreviewEnabled by viewModel.streamingPreviewEnabled.collectAsStateWithLifecycle()
 
     val cleanupEnabled by viewModel.cleanupEnabled.collectAsStateWithLifecycle()
     val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
@@ -528,6 +532,15 @@ fun SettingsScreen(
                         subtitle = "Prevent display from dimming or locking during dictation",
                         checked = keepScreenOnWhileRecording,
                         onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Show streaming text while speaking",
+                        subtitle = "Displays live text as you speak (streaming models only; ignored by offline models)",
+                        checked = streamingPreviewEnabled,
+                        onCheckedChange = viewModel::setStreamingPreviewEnabled,
                     )
 
                     SettingsDivider(startIndent = 0.dp)
@@ -1592,6 +1605,8 @@ private fun LegacySettingsScreen(
     val pillSnapAttenuation by viewModel.pillSnapAttenuation.collectAsStateWithLifecycle()
     val pillSnapStiffness by viewModel.pillSnapStiffness.collectAsStateWithLifecycle()
     val pillSnapDamping by viewModel.pillSnapDamping.collectAsStateWithLifecycle()
+    val rawTextColorRole by viewModel.streamingPreviewColorRole.collectAsStateWithLifecycle()
+    val rawTextOpacity by viewModel.streamingPreviewOpacity.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -1673,7 +1688,102 @@ private fun LegacySettingsScreen(
                 )
             }
         }
+
+        // Streaming raw-text appearance. Lives here because it is a "make the provisional text
+        // recede" tuning knob rather than a headline setting (raw-preview). Read live by the pill.
+        SettingsGroupCard(shape = RoundedCornerShape(26.dp)) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = "Streaming text colour",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "The live text shown while you speak, before it is cleaned. Lower opacity and a " +
+                        "fainter role make it recede behind the settled text.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                RawTextColorRoleSelector(
+                    selected = rawTextColorRole,
+                    onSelect = viewModel::setStreamingPreviewColorRole,
+                )
+
+                SettingsDivider(startIndent = 0.dp)
+
+                SettingsSliderRow(
+                    title = "Opacity",
+                    subtitle = "How strongly the streaming text shows",
+                    value = rawTextOpacity,
+                    valueLabel = "${(rawTextOpacity * 100).roundToInt()}%",
+                    valueRange = AppSettings.MIN_STREAMING_PREVIEW_OPACITY..AppSettings.MAX_STREAMING_PREVIEW_OPACITY,
+                    steps = 8,
+                    onValueChange = viewModel::setStreamingPreviewOpacity,
+                )
+            }
+        }
     }
+}
+
+/**
+ * The raw text colour role picker: a chip per [RawTextColorRole], each drawn in the colour it will
+ * actually produce (the live scheme value at the chosen opacity), so the choice is what-you-see.
+ */
+@Composable
+private fun RawTextColorRoleSelector(
+    selected: RawTextColorRole,
+    onSelect: (RawTextColorRole) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "Colour role",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            RawTextColorRole.entries.forEach { role ->
+                val roleColor = role.color(MaterialTheme.colorScheme)
+                FilterChip(
+                    selected = role == selected,
+                    onClick = { onSelect(role) },
+                    label = { Text(role.label) },
+                    leadingIcon = {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(roleColor),
+                        )
+                    },
+                )
+            }
+        }
+        Text(
+            text = selected.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The live colour for a role under [scheme]; the one place the role→token mapping is defined. */
+private fun RawTextColorRole.color(scheme: androidx.compose.material3.ColorScheme) = when (this) {
+    RawTextColorRole.ON_SURFACE -> scheme.onSurface
+    RawTextColorRole.ON_SURFACE_VARIANT -> scheme.onSurfaceVariant
+    RawTextColorRole.OUTLINE -> scheme.outline
+    RawTextColorRole.OUTLINE_VARIANT -> scheme.outlineVariant
+    RawTextColorRole.PRIMARY -> scheme.primary
+    RawTextColorRole.SECONDARY -> scheme.secondary
+    RawTextColorRole.TERTIARY -> scheme.tertiary
 }
 
 // ----------------------------------------------------------------------------

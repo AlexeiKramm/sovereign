@@ -30,6 +30,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.material3.ColorScheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +57,7 @@ import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.DictationRecord
 import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.ProfileStore
+import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
 import io.github.alexeikramm.sovereign.dictation.DictationPipeline
@@ -112,6 +114,8 @@ class FloatingOverlayService : Service() {
     private var uiState by mutableStateOf(FloatingUiState.RESTING_PILL)
     private var previewText by mutableStateOf("")
     private var rawText by mutableStateOf("")
+    /** The recogniser's live provisional text (raw-preview); mirrored from the pipeline each partial. */
+    private var provisionalText by mutableStateOf("")
     private var audioLevel by mutableFloatStateOf(0f)
     private var isProcessing by mutableStateOf(false)
     private var statusNote by mutableStateOf<String?>(null)
@@ -699,8 +703,29 @@ class FloatingOverlayService : Service() {
                 previewText = committed
                 rawText = raw
             },
+            onPartialText = { if (settings.streamingPreviewEnabled) provisionalText = it },
             onCleanupUnavailable = { errorMessage = CLEANUP_UNAVAILABLE },
         )
+    }
+
+    /**
+     * Resolves the provisional raw text's colour from the user's chosen M3 role + opacity, against
+     * the overlay's live scheme. Resolved at call time rather than stored, so a theme change or a
+     * settings edit takes effect without restarting the pill.
+     */
+    private fun rawTextColor(): Color {
+        val scheme = dynamicColorScheme ?: return Color.Unspecified
+        val role = settings.streamingPreviewColorRole
+        val base = when (role) {
+            RawTextColorRole.ON_SURFACE -> scheme.onSurface
+            RawTextColorRole.ON_SURFACE_VARIANT -> scheme.onSurfaceVariant
+            RawTextColorRole.OUTLINE -> scheme.outline
+            RawTextColorRole.OUTLINE_VARIANT -> scheme.outlineVariant
+            RawTextColorRole.PRIMARY -> scheme.primary
+            RawTextColorRole.SECONDARY -> scheme.secondary
+            RawTextColorRole.TERTIARY -> scheme.tertiary
+        }
+        return base.copy(alpha = settings.streamingPreviewOpacity.coerceIn(0.05f, 1f))
     }
 
     /**
@@ -718,6 +743,8 @@ class FloatingOverlayService : Service() {
                     uiState = uiState,
                     previewText = previewText,
                     rawText = rawText,
+                    provisionalText = provisionalText,
+                    provisionalColor = rawTextColor(),
                     audioLevel = { audioLevel },
                     cardGrowth = cardGrowth,
                     cardExpandProgress = { expandProgress },
@@ -1859,6 +1886,7 @@ class FloatingOverlayService : Service() {
         if (fresh) {
             previewText = ""
             rawText = ""
+            provisionalText = ""
         }
         if (quick) {
             quickStatus = null
@@ -2396,6 +2424,7 @@ class FloatingOverlayService : Service() {
         quickStatusIsError = false
         previewText = ""
         rawText = ""
+        provisionalText = ""
         audioLevel = 0f
         statusNote = null
         errorMessage = null

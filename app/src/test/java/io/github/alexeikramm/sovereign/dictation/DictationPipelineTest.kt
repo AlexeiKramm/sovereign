@@ -207,4 +207,36 @@ class DictationPipelineTest {
 
         assertEquals(listOf("Hello.", "World."), partials)
     }
+
+    @Test
+    fun `provisional text is exposed live and cleared once the unit settles`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello."))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        // Before any frame the recogniser has produced nothing provisional.
+        assertEquals("", pipeline.provisionalText)
+
+        feed(pipeline, 1)
+        // Once the unit cuts, the provisional text is promoted and the live field is cleared, so a
+        // later read never re-shows text that is now part of the committed output.
+        assertEquals("", pipeline.provisionalText)
+        assertEquals("Hello.", pipeline.committedText)
+    }
+
+    @Test
+    fun `reset clears any provisional text`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello."))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 1)
+
+        pipeline.reset()
+        assertEquals("", pipeline.provisionalText)
+    }
 }

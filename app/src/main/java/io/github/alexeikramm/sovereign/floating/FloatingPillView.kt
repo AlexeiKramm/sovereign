@@ -98,6 +98,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -198,6 +199,13 @@ fun FloatingDictationOverlay(
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
+    /**
+     * The recogniser's live provisional text for the unit in flight, shown appended to [previewText]
+     * in a muted colour (raw-preview). Blank between units and for offline models.
+     */
+    provisionalText: String,
+    /** Colour of [provisionalText]; already resolved from the theme role and opacity. */
+    provisionalColor: Color = Color.Unspecified,
     /**
      * A **provider**, not a value: the level changes on every audio frame, and reading it inside
      * the waveform's draw pass means a new frame invalidates drawing only — never a recomposition
@@ -310,6 +318,8 @@ fun FloatingDictationOverlay(
                         uiState = uiState,
                         previewText = previewText,
                         rawText = rawText,
+                        provisionalText = provisionalText,
+                        provisionalColor = provisionalColor,
                         audioLevel = audioLevel,
                         cardGrowth = cardGrowth,
                         cardExpandProgress = cardExpandProgress,
@@ -775,6 +785,8 @@ fun ExpandedCardView(
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
+    provisionalText: String = "",
+    provisionalColor: Color = Color.Unspecified,
     audioLevel: () -> Float,
     cardGrowth: PillGrowth,
     cardExpandProgress: () -> Float,
@@ -857,6 +869,8 @@ fun ExpandedCardView(
                     uiState = uiState,
                     previewText = previewText,
                     rawText = rawText,
+                    provisionalText = provisionalText,
+                    provisionalColor = provisionalColor,
                     audioLevel = audioLevel,
                     isProcessing = isProcessing,
                     statusNote = statusNote,
@@ -885,6 +899,8 @@ private fun DictationCard(
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
+    provisionalText: String,
+    provisionalColor: Color,
     audioLevel: () -> Float,
     isProcessing: Boolean,
     statusNote: String?,
@@ -905,8 +921,13 @@ private fun DictationCard(
     val failed = errorMessage != null
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
-    // Dictation only appends, so keep the newest line visible unless the user has scrolled up.
-    rememberPinnedToBottom(scrollState, displayText)
+    // The live raw tail (raw-preview): the recognised-but-not-yet-committed text for the unit in
+    // flight, appended after the settled text in its own colour. Only while listening — once the
+    // unit settles it is promoted into `previewText`; on failure the raw fallback already shows it.
+    val provisional = provisionalText.trim()
+    val showLiveTail = uiState == FloatingUiState.RECORDING && !failed && !isProcessing &&
+        provisional.isNotBlank()
+    rememberPinnedToBottom(scrollState, displayText + provisional)
     // Long-press-to-fix is offered only on the settled cleaned text: while recording the preview
     // streams and rewrites, so the word under the finger can move, and the raw fallback is not the
     // text this feature trains the dictionary against.
@@ -1000,10 +1021,34 @@ private fun DictationCard(
                         .fillMaxSize()
                         .verticalScroll(scrollState),
                 ) {
-                    if (displayText.isNotBlank()) {
+                    if (displayText.isNotBlank() || showLiveTail) {
+                        val settledColor = if (darkTheme) {
+                            Color(CardLayout.COLOR_TEXT_PRIMARY_DARK)
+                        } else {
+                            Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT)
+                        }
+                        val transcriptText = if (showLiveTail) {
+                            // Settled text solid, the live raw tail in its own colour so the two are
+                            // told apart even in the moment before the unit settles.
+                            buildAnnotatedString {
+                                append(transcript)
+                                val separator = if (displayText.isBlank() || displayText.endsWith(" ")) "" else " "
+                                withStyle(
+                                    SpanStyle(
+                                        color = provisionalColor.takeIf { it != Color.Unspecified }
+                                            ?: settledColor.copy(alpha = 0.55f),
+                                    ),
+                                ) {
+                                    append(separator)
+                                    append(provisional)
+                                }
+                            }
+                        } else {
+                            transcript
+                        }
                         Text(
-                            text = transcript,
-                            color = if (darkTheme) Color(CardLayout.COLOR_TEXT_PRIMARY_DARK) else Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT),
+                            text = transcriptText,
+                            color = settledColor,
                             fontSize = CardLayout.TRANSCRIPT_FONT_SP.sp,
                             fontWeight = FontWeight.Medium,
                             lineHeight = CardLayout.TRANSCRIPT_LINE_HEIGHT_SP.sp,

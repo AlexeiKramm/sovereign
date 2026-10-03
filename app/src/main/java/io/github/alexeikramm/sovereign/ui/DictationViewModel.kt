@@ -31,6 +31,7 @@ import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.AppBackup
 import io.github.alexeikramm.sovereign.data.BackupManager
 import io.github.alexeikramm.sovereign.data.ProfileStore
+import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.data.UsageStatsData
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
@@ -579,6 +580,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _pillSnapDamping = MutableStateFlow(settings.pillSnapDamping)
     val pillSnapDamping: StateFlow<Float> = _pillSnapDamping.asStateFlow()
 
+    private val _streamingPreviewEnabled = MutableStateFlow(settings.streamingPreviewEnabled)
+    val streamingPreviewEnabled: StateFlow<Boolean> = _streamingPreviewEnabled.asStateFlow()
+
+    private val _streamingPreviewColorRole = MutableStateFlow(settings.streamingPreviewColorRole)
+    val streamingPreviewColorRole: StateFlow<RawTextColorRole> = _streamingPreviewColorRole.asStateFlow()
+
+    private val _streamingPreviewOpacity = MutableStateFlow(settings.streamingPreviewOpacity)
+    val streamingPreviewOpacity: StateFlow<Float> = _streamingPreviewOpacity.asStateFlow()
+
     private val _isOverlayPermissionGranted = MutableStateFlow(Settings.canDrawOverlays(app))
     val isOverlayPermissionGranted: StateFlow<Boolean> = _isOverlayPermissionGranted.asStateFlow()
 
@@ -790,6 +800,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _pillSnapAttenuation.value = settings.pillSnapAttenuation
         _pillSnapStiffness.value = settings.pillSnapStiffness
         _pillSnapDamping.value = settings.pillSnapDamping
+        _streamingPreviewEnabled.value = settings.streamingPreviewEnabled
+        _streamingPreviewColorRole.value = settings.streamingPreviewColorRole
+        _streamingPreviewOpacity.value = settings.streamingPreviewOpacity
         _enginePreference.value = settings.enginePreference
         _serverUrl.value = settings.serverUrl
         _litertProcessor.value = settings.litertProcessor
@@ -975,6 +988,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         )
         settings.pillSnapAttenuation = clamped
         _pillSnapAttenuation.value = clamped
+    }
+
+    fun setStreamingPreviewEnabled(enabled: Boolean) {
+        settings.streamingPreviewEnabled = enabled
+        _streamingPreviewEnabled.value = enabled
+    }
+
+    fun setStreamingPreviewColorRole(role: RawTextColorRole) {
+        settings.streamingPreviewColorRole = role
+        _streamingPreviewColorRole.value = role
+    }
+
+    fun setStreamingPreviewOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(
+            AppSettings.MIN_STREAMING_PREVIEW_OPACITY,
+            AppSettings.MAX_STREAMING_PREVIEW_OPACITY,
+        )
+        settings.streamingPreviewOpacity = clamped
+        _streamingPreviewOpacity.value = clamped
     }
 
     fun setPillSnapStiffness(stiffness: Float) {
