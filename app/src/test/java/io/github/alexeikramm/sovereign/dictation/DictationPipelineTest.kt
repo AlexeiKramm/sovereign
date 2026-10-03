@@ -140,7 +140,7 @@ class DictationPipelineTest {
     private fun pipeline(
         engine: AsrEngine,
         cleaner: FakeCleanupEngine,
-        onText: (String, String) -> Unit = { _, _ -> },
+        onText: (String, String, String) -> Unit = { _, _, _ -> },
         onPartialText: (String) -> Unit = {},
     ): DictationPipeline = DictationPipeline(
         asrEngine = engine,
@@ -279,12 +279,38 @@ class DictationPipelineTest {
         assertEquals("", pipeline.provisionalText)
     }
 
+    /**
+     * The bug that reached the device: provisional text must be delivered to the *display contract*
+     * (`onText`'s third argument), not just held on the pipeline field, or the card's copy never
+     * clears. This asserts the last `onText` emission carries an empty provisional once the unit
+     * commits — the exact observable the UI reads.
+     */
+    @Test
+    fun `a committed unit is delivered with an empty provisional in the same update`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello."))
+        val emissions = mutableListOf<Triple<String, String, String>>()
+        val pipeline = pipeline(engine, FakeCleanupEngine(), onText = { c, r, p -> emissions.add(Triple(c, r, p)) })
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 1)
+
+        assertEquals("Hello.", pipeline.committedText)
+        assertEquals(
+            "the last delivered update shows the committed text and no provisional tail",
+            Triple("Hello.", "Hello.", ""),
+            emissions.last(),
+        )
+    }
+
     @Test
     fun `a re-emitted partial from the just-cut segment does not resurrect the committed text`() = runBlocking {
         // The real recogniser keeps returning the cut segment's text until the next segment's words
         // arrive; the session reports it as a partial. That must not re-show it as a grey tail.
         val engine = StickyTextAsrEngine(listOf("Hello."))
-        val pipeline = pipeline(engine, FakeCleanupEngine())
+        val emissions = mutableListOf<Triple<String, String, String>>()
+        val pipeline = pipeline(engine, FakeCleanupEngine(), onText = { c, r, p -> emissions.add(Triple(c, r, p)) })
 
         pipeline.begin(fresh = true, cleanupEnabled = false)
         pipeline.beginSession()
@@ -293,5 +319,14 @@ class DictationPipelineTest {
 
         assertEquals("Hello.", pipeline.committedText)
         assertEquals("", pipeline.provisionalText)
+        assertEquals(
+            "the grey tail is never re-delivered after the unit commits",
+            Triple("Hello.", "Hello.", ""),
+            emissions.last(),
+        )
+        assertTrue(
+            "no delivered update resurrects a non-empty provisional after the commit",
+            emissions.dropWhile { it.first != "Hello." }.all { it.third.isEmpty() },
+        )
     }
 }

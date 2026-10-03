@@ -90,7 +90,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
             timings = { settings.listenerTimings() },
             cleanupVariant = { variant },
             healingSentencesCount = { cell.healingSentences },
-            onText = { _, _ -> },
+            onText = { _, _, _ -> },
             onPartialText = { partialTimes.add(rel()) },
             onUnitCut = { cutTimes.add(rel()) },
             onUnitCommitted = { commitTimes.add(rel()) },

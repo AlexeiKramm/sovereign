@@ -699,11 +699,13 @@ class FloatingOverlayService : Service() {
                 CleanupPrompt.Variant.fromId(active.id)
             },
             healingSentencesCount = { settings.healingSentencesCount },
-            onText = { committed, raw ->
+            // All three strings arrive together, so a commit clears the provisional tail in the same
+            // update that shows the committed text — no separate partial channel to fall out of sync.
+            onText = { committed, raw, provisional ->
                 previewText = committed
                 rawText = raw
+                provisionalText = if (settings.streamingPreviewEnabled) provisional else ""
             },
-            onPartialText = { if (settings.streamingPreviewEnabled) provisionalText = it },
             onCleanupUnavailable = { errorMessage = CLEANUP_UNAVAILABLE },
         )
     }

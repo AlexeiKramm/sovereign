@@ -46,8 +46,13 @@ class DictationPipeline(
     timings: () -> ListenerTimings,
     cleanupVariant: () -> CleanupPrompt.Variant,
     healingSentencesCount: () -> Int,
-    /** Called on [mainDispatcher] whenever the committed or raw text changes. */
-    private val onText: (committed: String, raw: String) -> Unit,
+    /**
+     * Called on [mainDispatcher] whenever the utterance's text changes — committed, raw, **or
+     * provisional**. Provisional is part of the same contract on purpose: the service mirrors these
+     * three strings into its Compose state, so a unit committing has to clear the provisional tail
+     * in the same update, or the just-committed words linger as a grey tail until the next partial.
+     */
+    private val onText: (committed: String, raw: String, provisional: String) -> Unit,
     /** A cleanup pass failed; the service surfaces its advisory message. */
     private val onCleanupUnavailable: () -> Unit = {},
     /** ASR partial text, as it is recognised — not committed. Measurement hook for the harness. */
@@ -189,15 +194,27 @@ class DictationPipeline(
 
     /** Runs on the ASR worker: accumulate raw, then route the unit to cleanup or straight to text. */
     private fun onUnit(unit: String) {
-        clearProvisional()
-        if (unit.isBlank()) return
+        if (unit.isBlank()) {
+            scope.launch(mainDispatcher) {
+                clearProvisional()
+                emit()
+            }
+            return
+        }
         lastCommittedUnit = unit.trim()
         onUnitCut(unit)
         synchronized(raw) {
             if (raw.isNotEmpty() && !raw.endsWith(" ")) raw.append(" ")
             raw.append(unit)
         }
-        scope.launch(mainDispatcher) { emit() }
+        // Clearing the provisional tail in the same main-thread update that surfaces the unit is what
+        // makes the grey text disappear the moment it commits. All writes to `provisional` happen on
+        // `mainDispatcher`; the read (`provisionalText`) is @Volatile and races only against a fresh
+        // partial, never a half-written string (a Kotlin String assignment is atomic).
+        scope.launch(mainDispatcher) {
+            clearProvisional()
+            emit()
+        }
 
         if (cleanupEngaged) {
             cleanup.submit(unit)
@@ -207,20 +224,23 @@ class DictationPipeline(
                     committed.append(" ")
                 }
                 committed.append(unit)
+                clearProvisional()
                 emit()
                 onUnitCommitted(committed.toString())
             }
         }
     }
 
-    /** Runs on the ASR worker: stash the provisional text, refresh the display, report the partial. */
+    /** Runs on the ASR worker: hand the provisional text to the main thread and surface it. */
     private fun onPartial(text: String) {
         // Ignore the just-cut unit's text: the recogniser still returns it until the next segment's
-        // words arrive, and showing it would resurrect the words already promoted to committedText.
+        // words arrive, and showing it would resurrect words already promoted to committedText.
         if (text == lastCommittedUnit) return
-        provisional = text
-        scope.launch(mainDispatcher) { emit() }
         onPartialText(text)
+        scope.launch(mainDispatcher) {
+            provisional = text
+            emit()
+        }
     }
 
     /** Runs on the cleanup worker: replace the seam overlap and append the cleaned unit. */
@@ -257,5 +277,5 @@ class DictationPipeline(
         }
     }
 
-    private fun emit() = onText(committed.toString(), raw.toString())
+    private fun emit() = onText(committed.toString(), raw.toString(), provisional)
 }
