@@ -2,6 +2,7 @@ package io.github.alexeikramm.sovereign.cleanup
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -40,6 +41,16 @@ class LiteRtLmCleanupEngine(
 ) : CleanupEngine {
 
     private val lock = Mutex()
+
+    /**
+     * KV-cache size requested from the runtime. 4096 is the value the app wants; the effective
+     * ceiling is decided by the runtime and is not queryable, so the rebuild policy is driven by
+     * [tokenCount] against this figure and the real usage is logged. See the engine's load path.
+     */
+    companion object {
+        const val CONTEXT_TOKENS = 4096
+        private const val TAG = "LiteRtLmCleanup"
+    }
 
     @Volatile
     private var engine: Engine? = null
@@ -105,11 +116,18 @@ class LiteRtLmCleanupEngine(
             val config = EngineConfig(
                 modelPath = modelFile.absolutePath,
                 backend = backend,
+                // Pin the KV-cache size rather than accepting the runtime's prompt-derived default,
+                // so the 85%-full rebuild trigger has a known denominator. Logged below once the
+                // engine is up, because the *effective* ceiling is not queryable and the shipped
+                // Gemma 4 E2B bundle has been reported to hold only ~2048 despite accepting 4096
+                // (LiteRT-LM issue #3444). The log tells us what this device/bundle really serves.
+                maxNumTokens = CONTEXT_TOKENS,
             )
             val created = Engine(config)
             created.initialize()
             engine = created
             lastLoadMs = SystemClock.elapsedRealtime() - started
+            Log.i(TAG, "Cleanup engine ready: ${modelSpec.label} · maxNumTokens=$CONTEXT_TOKENS · load=${lastLoadMs}ms")
             created
         }
     }
@@ -147,6 +165,10 @@ class LiteRtLmCleanupEngine(
      * One definition of the conversation's sampler and token budget, so an in-session conversation
      * and a standalone one cannot drift apart. The sampler numbers come from the model spec — the
      * engine holds none of its own, so each model is tuned in exactly one place.
+     *
+     * `prefillPrefaceOnInit` computes the system preface into the KV cache at creation instead of on
+     * the first message, so a segment arriving later pays only for its own tokens — and a rebuild
+     * issued while the ASR is still talking warms the new conversation off the critical path.
      */
     private fun conversationConfig(system: String) = ConversationConfig(
         systemInstruction = Contents.Companion.of(system),
@@ -157,7 +179,15 @@ class LiteRtLmCleanupEngine(
             seed = modelSpec.sampling.seed,
         ),
         maxOutputToken = CleanupPrompt.MAX_TOKENS,
+        prefillPrefaceOnInit = true,
     )
+
+    /** Tokens currently held in the conversation's KV cache (prefill + decode); 0 when none. */
+    override val tokenCount: Int
+        get() = sessionConversation?.getTokenCount() ?: 0
+
+    /** The KV-cache size this engine loaded with — the rebuild trigger's denominator. */
+    override val contextTokens: Int get() = CONTEXT_TOKENS
 
     override suspend fun clean(
         unit: String,

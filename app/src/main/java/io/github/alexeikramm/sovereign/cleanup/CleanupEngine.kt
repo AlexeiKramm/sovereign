@@ -69,4 +69,13 @@ interface CleanupEngine {
 
     /** Optional: closes the session and releases conversation KV cache. */
     fun closeSession() {}
+
+    /**
+     * Optional: tokens currently held in the session's KV cache. The pipeline uses it to rebuild the
+     * conversation before it overflows. Engines with no cache model report 0 and are never rebuilt.
+     */
+    val tokenCount: Int get() = 0
+
+    /** Optional: the KV-cache size this engine loaded with, the denominator for the rebuild trigger. */
+    val contextTokens: Int get() = 0
 }

@@ -108,6 +108,15 @@ class CleanupPipeline(
                 lastPass = finalPass
                 val effectiveSeam = if (finalPass.cleaned) seam else null
                 onCommitted(state.onPass(finalPass, effectiveSeam))
+
+                // Proactive: rebuild the conversation once the cache is nearly full, here on the
+                // cleanup worker while the ASR keeps producing the next segment. `startSession`
+                // closes the old conversation first (never two caches at once) and prefills the new
+                // system preface, so the next pass finds a warm, empty conversation — the rebuild
+                // cost is paid off the critical path, not when a segment is waiting.
+                if (ConversationRebuildPolicy.shouldRebuild(engine.tokenCount, engine.contextTokens)) {
+                    engine.startSession(rules())
+                }
             }
         }
     }

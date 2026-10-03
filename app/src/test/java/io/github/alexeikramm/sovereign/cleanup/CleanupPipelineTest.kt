@@ -15,6 +15,13 @@ class CleanupPipelineTest {
         var sessionStarts = 0
         var sessionCloses = 0
 
+        /** Fire the rebuild trigger once this reaches [contextTokens]' policy threshold. */
+        var reportedTokens: Int = 0
+        /** How much each pass grows the cache, modelling a segment + its reply. */
+        var tokensPerPass: Int = 0
+        override val contextTokens: Int = 4096
+        override val tokenCount: Int get() = reportedTokens
+
         override suspend fun load(): Result<Unit> = Result.success(Unit)
 
         override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
@@ -30,17 +37,20 @@ class CleanupPipelineTest {
             context: String?,
             variant: CleanupPrompt.Variant,
             customRules: String?,
-        ): CleanupPass = CleanupPass(
-            unit = unit,
-            text = unit.trim(),
-            cleaned = true,
-            note = "fake",
-            loadMs = 0L,
-            ttftMs = 0.0,
-            decodeTimeMs = 0.0,
-            generatedTokens = 1L,
-            promptSent = unit,
-        )
+        ): CleanupPass {
+            reportedTokens += tokensPerPass
+            return CleanupPass(
+                unit = unit,
+                text = unit.trim(),
+                cleaned = true,
+                note = "fake",
+                loadMs = 0L,
+                ttftMs = 0.0,
+                decodeTimeMs = 0.0,
+                generatedTokens = 1L,
+                promptSent = unit,
+            )
+        }
 
         override fun unload() {}
     }
@@ -158,6 +168,73 @@ class CleanupPipelineTest {
         val fullText = committedText.toString()
         val occurrences = Regex("Well, just sit with it").findAll(fullText).count()
         assertEquals("Sentence should appear exactly once in final text, but appeared $occurrences times: $fullText", 1, occurrences)
+    }
+
+    @Test
+    fun `conversation is rebuilt once the cache crosses the threshold, and not before`() = runBlocking {
+        val engine = FakeEngine().apply { tokensPerPass = 1000 }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            onCommitted = {},
+        )
+
+        pipeline.begin()
+        assertEquals(1, engine.sessionStarts) // begin opens the first session
+
+        // Three passes -> 3000 tokens, still below 85% of 4096 (3481): no rebuild.
+        pipeline.submit("one")
+        pipeline.submit("two")
+        pipeline.submit("three")
+        assertEquals(1, engine.sessionStarts)
+
+        // A fourth pass -> 4000 tokens, past the threshold: the conversation is rebuilt.
+        pipeline.submit("four")
+        assertEquals("rebuild should re-open the session", 2, engine.sessionStarts)
+
+        pipeline.drain()
+    }
+
+    @Test
+    fun `an engine that cannot report its cache is never rebuilt`() = runBlocking {
+        val engine = object : CleanupEngine {
+            override val isLoaded: Boolean = true
+            override val lastLoadMs: Long = 0L
+            var sessionStarts = 0
+            override suspend fun load(): Result<Unit> = Result.success(Unit)
+            override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
+                sessionStarts++
+            }
+
+            override suspend fun clean(
+                unit: String,
+                context: String?,
+                variant: CleanupPrompt.Variant,
+                customRules: String?,
+            ): CleanupPass = CleanupPass.failed(unit, "unused")
+
+            override fun unload() {}
+            // tokenCount and contextTokens default to 0: the policy must never fire.
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            onCommitted = {},
+        )
+
+        pipeline.begin()
+        repeat(5) { pipeline.submit("unit $it") }
+
+        assertEquals("only begin() opens a session; no rebuilds without token reporting", 1, engine.sessionStarts)
+        pipeline.drain()
     }
 }
 
