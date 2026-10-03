@@ -13,10 +13,11 @@ package io.github.alexeikramm.sovereign.cleanup
 object ConversationRebuildPolicy {
 
     /**
-     * The fraction of the cache at which the conversation is rebuilt. Rebuilding at ~85% keeps enough
+     * The fraction of the cache at which the conversation is rebuilt. Rebuilding at 80% keeps enough
      * headroom for one more segment plus its reply to land before the cache would actually overflow.
+     * On the shipped Gemma 4 E2B bundle (a hard 2048-token ceiling, D-086) that is ~1638 tokens.
      */
-    const val REBUILD_AT = 0.85f
+    const val REBUILD_AT = 0.80f
 
     /**
      * True when [tokenCount] has reached [REBUILD_AT] of [contextTokens]. Returns false when either

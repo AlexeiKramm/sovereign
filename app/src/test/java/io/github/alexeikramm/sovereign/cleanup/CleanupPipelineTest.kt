@@ -22,7 +22,7 @@ class CleanupPipelineTest {
         var tokensPerPass: Int = 0
         /** Records every `onConversationRebuilt` call, for asserting the reported figures. */
         val rebuildReports = mutableListOf<Pair<Int, Int>>()
-        override val contextTokens: Int = 4096
+        override val contextTokens: Int = 2048
         override val tokenCount: Int get() = reportedTokens
 
         override fun onConversationRebuilt(usedTokens: Int, capTokens: Int) {
@@ -193,19 +193,17 @@ class CleanupPipelineTest {
         pipeline.begin()
         assertEquals(1, engine.sessionStarts) // begin opens the first session
 
-        // Three passes -> 3000 tokens, still below 85% of 4096 (3481): no rebuild.
+        // First pass -> 1000 tokens, below 80% of 2048 (1638): no rebuild.
         pipeline.submit("one")
-        pipeline.submit("two")
-        pipeline.submit("three")
         assertEquals(1, engine.sessionStarts)
         assertTrue("no rebuild reported below the threshold", engine.rebuildReports.isEmpty())
 
-        // A fourth pass -> 4000 tokens, past the threshold: the conversation is rebuilt.
-        pipeline.submit("four")
+        // Second pass -> 2000 tokens, past the threshold: the conversation is rebuilt.
+        pipeline.submit("two")
         assertEquals("rebuild should re-open the session", 2, engine.sessionStarts)
         assertEquals(
             "the engine is told (and logs) the exact figures that triggered the rebuild",
-            listOf(4000 to 4096),
+            listOf(2000 to 2048),
             engine.rebuildReports,
         )
 

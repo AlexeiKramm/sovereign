@@ -43,12 +43,14 @@ class LiteRtLmCleanupEngine(
     private val lock = Mutex()
 
     /**
-     * KV-cache size requested from the runtime. 4096 is the value the app wants; the effective
-     * ceiling is decided by the runtime and is not queryable, so the rebuild policy is driven by
-     * [tokenCount] against this figure and the real usage is logged. See the engine's load path.
+     * KV-cache size requested from the runtime. The shipped Gemma 4 E2B bundle is compiled with a
+     * fixed **2048-token** sequence dimension and ignores a larger request: device testing showed a
+     * native `FAILED_PRECONDITION` (work group exceeds available state entries) at ~2014 tokens when
+     * 4096 was requested (LiteRT-LM issue #3444; D-086). So this is pinned to the physical ceiling,
+     * and the rebuild fires below it.
      */
     companion object {
-        const val CONTEXT_TOKENS = 4096
+        const val CONTEXT_TOKENS = 2048
         private const val TAG = "LiteRtLmCleanup"
     }
 
