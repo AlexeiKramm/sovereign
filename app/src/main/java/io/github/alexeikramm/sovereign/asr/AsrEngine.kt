@@ -13,6 +13,14 @@ interface AsrEngine {
 
     fun startSession(language: String, hotwords: String)
 
+    /**
+     * Feeds a frame and returns the **provisional** text so far, or null if there is none.
+     *
+     * Only streaming recognisers produce provisional text; the offline engines decode a whole VAD
+     * segment at once, so they return null here and deliver the finished unit through [result] when
+     * [isEndpoint] fires. Returning a segment's text from `accept` would surface it as a partial —
+     * offline models have none.
+     */
     fun accept(samples: FloatArray, count: Int): String?
 
     fun isSpeechDetected(): Boolean

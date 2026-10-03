@@ -195,8 +195,10 @@ class OfflineVadAsrEngine(
                 speechSamplesSinceCut = 0L
                 val text = decodeSegment(segment.samples)
                 if (text.isNotBlank()) {
+                    // The decoded segment is a *finished unit*, not a partial: it is delivered to the
+                    // session via `result()` when the endpoint fires. Offline models have no partials,
+                    // so `accept` must not announce one — doing so flashed the raw-preview tail grey.
                     pendingUnit = text
-                    return text
                 }
             }
             speechSamplesSinceCut = 0L
@@ -210,7 +212,6 @@ class OfflineVadAsrEngine(
             val text = decodeSegment(segment.samples)
             if (text.isNotBlank()) {
                 pendingUnit = text
-                return text
             }
         }
         return null

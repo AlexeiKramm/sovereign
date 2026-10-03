@@ -176,6 +176,49 @@ class DictationPipelineTest {
         }
     }
 
+    /**
+     * A fake that behaves like the **offline** engines: it decodes a whole segment, sets the pending
+     * unit, and — crucially — returns **null** from `accept`, because offline models have no partials.
+     * The unit is delivered through `result()` when `isEndpoint` fires. This pins the contract that
+     * `accept`'s return value is a *partial*, so an offline engine returning its decoded text there
+     * (the "grey flash" bug) is caught.
+     */
+    private class OfflineStyleAsrEngine(
+        private val units: List<String>,
+    ) : AsrEngine {
+        private var index = 0
+        private var pending: String? = null
+
+        override fun load(): LocalAsrEngine.Availability = LocalAsrEngine.Availability.Loaded
+        override fun startSession(language: String, hotwords: String) {
+            index = 0
+            pending = null
+        }
+
+        override fun accept(samples: FloatArray, count: Int): String? {
+            when {
+                index >= units.size -> return null
+                pending != null -> return null // endpoint already queued; wait for the session to cut
+                else -> {
+                    pending = units[index]
+                    index++
+                    return null // never a partial: the decoded unit is final
+                }
+            }
+        }
+
+        override fun isSpeechDetected(): Boolean = true
+        override fun isEndpoint(): Boolean = pending != null
+        override fun result(): String = pending.orEmpty()
+        override fun resetSegment() {
+            pending = null
+        }
+        override fun finish(): String = ""
+        override fun abort() {
+            pending = null
+        }
+    }
+
     private fun pipeline(
         engine: AsrEngine,
         cleaner: CleanupEngine,
@@ -393,5 +436,34 @@ class DictationPipelineTest {
             "no delivered update resurrects a non-empty provisional after the commit",
             emissions.dropWhile { it.first != "Hello." }.all { it.third.isEmpty() },
         )
+    }
+
+    @Test
+    fun `an offline-style engine never surfaces a partial and commits white`() = runBlocking {
+        // Offline models (Whisper, Parakeet) have no partials: their decoded segment is final. The
+        // engine returns null from accept, so the pipeline must show no provisional tail at any point
+        // — otherwise the committed text flashes grey for a moment before turning white.
+        val engine = OfflineStyleAsrEngine(listOf("Paris is the capital."))
+        val partials = mutableListOf<String>()
+        val emissions = mutableListOf<Triple<String, String, String>>()
+        val pipeline = pipeline(
+            engine,
+            FakeCleanupEngine(),
+            onText = { c, r, p -> emissions.add(Triple(c, r, p)) },
+            onPartialText = { partials.add(it) },
+        )
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 2)
+
+        assertEquals("Paris is the capital.", pipeline.committedText)
+        assertEquals(emptyList<String>(), partials)
+        assertTrue(
+            "no delivered update ever carried a provisional tail",
+            emissions.all { it.third.isEmpty() },
+        )
+        assertEquals("", pipeline.provisionalText)
     }
 }
