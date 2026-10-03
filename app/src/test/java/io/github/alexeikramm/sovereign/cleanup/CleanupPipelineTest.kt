@@ -22,6 +22,8 @@ class CleanupPipelineTest {
         var tokensPerPass: Int = 0
         /** Records every `onConversationRebuilt` call, for asserting the reported figures. */
         val rebuildReports = mutableListOf<Pair<Int, Int>>()
+        /** Records the `context` argument of every `clean`, in order. */
+        val contexts = mutableListOf<String?>()
         override val contextTokens: Int = 2048
         override val tokenCount: Int get() = reportedTokens
 
@@ -46,6 +48,7 @@ class CleanupPipelineTest {
             customRules: String?,
         ): CleanupPass {
             reportedTokens += tokensPerPass
+            contexts.add(context)
             return CleanupPass(
                 unit = unit,
                 text = unit.trim(),
@@ -125,7 +128,6 @@ class CleanupPipelineTest {
 
         pipeline.begin()
         val seam = SeamSplit(
-            anchorContext = "Today when I was",
             overlapText = "driving to the supermarket.",
             strippedOverlap = "driving to the supermarket",
         )
@@ -137,6 +139,51 @@ class CleanupPipelineTest {
         assertEquals("driving to the supermarket I realized something", commit.text)
         assertEquals("driving to the supermarket.", commit.overlapToDelete)
         org.junit.Assert.assertTrue(commit.cleaned)
+    }
+
+    @Test
+    fun `a healed overlap sends no carried context, so a rebuild cannot re-send the tail`() = runBlocking {
+        val engine = FakeEngine()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            onCommitted = {},
+        )
+
+        pipeline.begin(initialTail = "Earlier committed text.")
+        val seam = SeamSplit(
+            overlapText = "driving to the supermarket.",
+            strippedOverlap = "driving to the supermarket",
+        )
+        pipeline.submit("I realized something", seam)
+        pipeline.drain()
+
+        // The overlap carries local continuity, so the carried tail is deliberately not re-sent: a
+        // conversation rebuild must never be handed an unbounded context (D-089).
+        assertEquals(listOf<String?>(null), engine.contexts)
+    }
+
+    @Test
+    fun `an append-only pass sends the carried tail as context on the first turn`() = runBlocking {
+        val engine = FakeEngine()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            // healingSentencesCount defaults to 0, so no seam is manufactured: append-only mode.
+            onCommitted = {},
+        )
+
+        pipeline.begin(initialTail = "Earlier committed text.")
+        pipeline.submit("a new unit")
+        pipeline.drain()
+
+        assertEquals(listOf<String?>("Earlier committed text."), engine.contexts)
     }
 
     @Test

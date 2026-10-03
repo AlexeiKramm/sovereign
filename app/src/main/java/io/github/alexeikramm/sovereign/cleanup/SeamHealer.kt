@@ -3,12 +3,15 @@ package io.github.alexeikramm.sovereign.cleanup
 /**
  * Result of splitting committed text for seam healing.
  *
- * @property anchorContext Preceding text used strictly as read-only context if needed (empty when rewriting full sentences).
+ * There is deliberately **no** field for "text before the overlap". When an overlap is healed, the
+ * rewritten sentences are in the unit and the session's KV cache holds everything earlier, so the app
+ * sends no extra context. Re-stating the carried tail would be redundant, and after a conversation
+ * rebuild it would be unbounded — overflowing the 4096-token cache on a long utterance (D-089).
+ *
  * @property overlapText The exact substring committed at the tail of the editor to delete if the caret hasn't moved.
  * @property strippedOverlap The overlap text with provisional terminal punctuation and trailing whitespace stripped.
  */
 data class SeamSplit(
-    val anchorContext: String,
     val overlapText: String,
     val strippedOverlap: String,
 )
@@ -52,9 +55,8 @@ object SeamHealer {
      * @param committedText Text currently committed in the active text field during this utterance.
      * @param sentenceCount Number of sentences from the tail of [committedText] to rewrite across the seam.
      *
-     * @return [SeamSplit] containing the exact text to delete from the editor ([overlapText]),
-     *         the stripped overlap for merging with the new ASR segment ([strippedOverlap]),
-     *         and [anchorContext] (empty when rewriting full sentences).
+     * @return [SeamSplit] containing the exact text to delete from the editor ([overlapText])
+     *         and the stripped overlap for merging with the new ASR segment ([strippedOverlap]).
      */
     fun split(
         committedText: String,
@@ -62,7 +64,6 @@ object SeamHealer {
     ): SeamSplit {
         if (committedText.isBlank() || sentenceCount <= 0) {
             return SeamSplit(
-                anchorContext = "",
                 overlapText = "",
                 strippedOverlap = "",
             )
@@ -71,7 +72,6 @@ object SeamHealer {
         val starts = findSentenceStartIndices(committedText)
         if (starts.isEmpty()) {
             return SeamSplit(
-                anchorContext = "",
                 overlapText = "",
                 strippedOverlap = "",
             )
@@ -83,7 +83,6 @@ object SeamHealer {
         val strippedOverlap = overlapText.trimEnd { it in TERMINAL_CHARS }
 
         return SeamSplit(
-            anchorContext = "",
             overlapText = overlapText,
             strippedOverlap = strippedOverlap,
         )

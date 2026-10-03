@@ -9,12 +9,10 @@ class SeamHealerTest {
     @Test
     fun `empty or blank text returns empty split`() {
         val empty = SeamHealer.split("", sentenceCount = 2)
-        assertEquals("", empty.anchorContext)
         assertEquals("", empty.overlapText)
         assertEquals("", empty.strippedOverlap)
 
         val blank = SeamHealer.split("   \n\t  ", sentenceCount = 2)
-        assertEquals("", blank.anchorContext)
         assertEquals("", blank.overlapText)
         assertEquals("", blank.strippedOverlap)
     }
@@ -22,7 +20,6 @@ class SeamHealerTest {
     @Test
     fun `zero sentence count returns empty split (append-only mode)`() {
         val split = SeamHealer.split("Testing one two three. Next sentence.", sentenceCount = 0)
-        assertEquals("", split.anchorContext)
         assertEquals("", split.overlapText)
         assertEquals("", split.strippedOverlap)
     }
@@ -32,7 +29,6 @@ class SeamHealerTest {
         val text = "I was thinking that."
         val split = SeamHealer.split(text, sentenceCount = 2)
 
-        assertEquals("", split.anchorContext)
         assertEquals("I was thinking that.", split.overlapText)
         assertEquals("I was thinking that", split.strippedOverlap)
     }
@@ -42,7 +38,6 @@ class SeamHealerTest {
         val text = "I was thinking that"
         val split = SeamHealer.split(text, sentenceCount = 2)
 
-        assertEquals("", split.anchorContext)
         assertEquals("I was thinking that", split.overlapText)
         assertEquals("I was thinking that", split.strippedOverlap)
     }
@@ -52,7 +47,6 @@ class SeamHealerTest {
         val text = "First sentence. Second sentence."
         val split = SeamHealer.split(text, sentenceCount = 2)
 
-        assertEquals("", split.anchorContext)
         assertEquals("First sentence. Second sentence.", split.overlapText)
         // Note: internal period of first sentence is preserved; trailing period of second is stripped
         assertEquals("First sentence. Second sentence", split.strippedOverlap)
@@ -63,7 +57,6 @@ class SeamHealerTest {
         val text = "Sentence one. Sentence two. Sentence three."
         val split = SeamHealer.split(text, sentenceCount = 2)
 
-        assertEquals("", split.anchorContext)
         assertEquals("Sentence two. Sentence three.", split.overlapText)
         assertEquals("Sentence two. Sentence three", split.strippedOverlap)
         assertTrue(text.endsWith(split.overlapText))
@@ -74,7 +67,6 @@ class SeamHealerTest {
         val text = "Sentence one. Sentence two. Sentence three."
         val split = SeamHealer.split(text, sentenceCount = 1)
 
-        assertEquals("", split.anchorContext)
         assertEquals("Sentence three.", split.overlapText)
         assertEquals("Sentence three", split.strippedOverlap)
         assertTrue(text.endsWith(split.overlapText))
@@ -85,7 +77,6 @@ class SeamHealerTest {
         val text = "I met Dr. Smith and Mr. Brown today. They were very polite."
         val split = SeamHealer.split(text, sentenceCount = 1)
 
-        assertEquals("", split.anchorContext)
         assertEquals("They were very polite.", split.overlapText)
         assertEquals("They were very polite", split.strippedOverlap)
 
@@ -98,7 +89,6 @@ class SeamHealerTest {
         val text = "Otetaan esim. omena ja jne. Se toimii."
         val split = SeamHealer.split(text, sentenceCount = 1)
 
-        assertEquals("", split.anchorContext)
         assertEquals("Se toimii.", split.overlapText)
         assertEquals("Se toimii", split.strippedOverlap)
     }
