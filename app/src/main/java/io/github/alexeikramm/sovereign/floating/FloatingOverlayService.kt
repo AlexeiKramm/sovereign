@@ -41,6 +41,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import io.github.alexeikramm.sovereign.R
 import io.github.alexeikramm.sovereign.theme.DynamicThemeEngine
+import io.github.alexeikramm.sovereign.theme.rawTextColor
 import android.os.Handler
 import android.os.Looper
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
@@ -57,7 +58,6 @@ import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.DictationRecord
 import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.ProfileStore
-import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
 import io.github.alexeikramm.sovereign.dictation.DictationPipeline
@@ -711,23 +711,17 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * Resolves the provisional raw text's colour from the user's chosen M3 role + opacity, against
-     * the overlay's live scheme. Resolved at call time rather than stored, so a theme change or a
-     * settings edit takes effect without restarting the pill.
+     * Resolves the provisional text's colour from the user's chosen M3 role + opacity, against the
+     * overlay's live scheme. Resolved at call time rather than stored, so a theme change or a settings
+     * edit takes effect without restarting the pill.
      */
-    private fun rawTextColor(): Color {
+    private fun provisionalTailColor(): Color {
         val scheme = dynamicColorScheme ?: return Color.Unspecified
-        val role = settings.streamingPreviewColorRole
-        val base = when (role) {
-            RawTextColorRole.ON_SURFACE -> scheme.onSurface
-            RawTextColorRole.ON_SURFACE_VARIANT -> scheme.onSurfaceVariant
-            RawTextColorRole.OUTLINE -> scheme.outline
-            RawTextColorRole.OUTLINE_VARIANT -> scheme.outlineVariant
-            RawTextColorRole.PRIMARY -> scheme.primary
-            RawTextColorRole.SECONDARY -> scheme.secondary
-            RawTextColorRole.TERTIARY -> scheme.tertiary
-        }
-        return base.copy(alpha = settings.streamingPreviewOpacity.coerceIn(0.05f, 1f))
+        return rawTextColor(
+            role = settings.streamingPreviewColorRole,
+            opacity = settings.streamingPreviewOpacity,
+            scheme = scheme,
+        )
     }
 
     /**
@@ -746,7 +740,7 @@ class FloatingOverlayService : Service() {
                     previewText = previewText,
                     rawText = rawText,
                     provisionalText = provisionalText,
-                    provisionalColor = rawTextColor(),
+                    provisionalColor = provisionalTailColor(),
                     audioLevel = { audioLevel },
                     cardGrowth = cardGrowth,
                     cardExpandProgress = { expandProgress },

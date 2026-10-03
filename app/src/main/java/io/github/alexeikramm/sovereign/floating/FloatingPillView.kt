@@ -204,8 +204,8 @@ fun FloatingDictationOverlay(
      * in a muted colour (raw-preview). Blank between units and for offline models.
      */
     provisionalText: String,
-    /** Colour of [provisionalText]; already resolved from the theme role and opacity. */
-    provisionalColor: Color = Color.Unspecified,
+    /** The provisional (pending-cleanup) tail colour, resolved from the user's role + opacity. */
+    provisionalColor: Color,
     /**
      * A **provider**, not a value: the level changes on every audio frame, and reading it inside
      * the waveform's draw pass means a new frame invalidates drawing only — never a recomposition
@@ -785,8 +785,8 @@ fun ExpandedCardView(
     uiState: FloatingUiState,
     previewText: String,
     rawText: String,
-    provisionalText: String = "",
-    provisionalColor: Color = Color.Unspecified,
+    provisionalText: String,
+    provisionalColor: Color,
     audioLevel: () -> Float,
     cardGrowth: PillGrowth,
     cardExpandProgress: () -> Float,
@@ -1031,15 +1031,10 @@ private fun DictationCard(
                             Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT)
                         }
                         val transcriptText = if (showLiveTail) {
-                            // With cleanup on the tail is provisional — its own (grey) colour, so it
-                            // reads as "not final yet". With cleanup off there is nothing pending: the
-                            // ASR output *is* the final text, so the tail is already committed/white.
-                            val tailColor = if (!cleanupEnabled) {
-                                settledColor
-                            } else {
-                                provisionalColor.takeIf { it != Color.Unspecified }
-                                    ?: settledColor.copy(alpha = 0.55f)
-                            }
+                            // Colour tells the user whether the tail is final. With cleanup on it is
+                            // pending — the configured (grey) colour. With cleanup off there is no
+                            // pending pass, so the ASR output is already the final text: white.
+                            val tailColor = if (cleanupEnabled) provisionalColor else settledColor
                             buildAnnotatedString {
                                 append(transcript)
                                 val separator = if (displayText.isBlank() || displayText.endsWith(" ")) "" else " "

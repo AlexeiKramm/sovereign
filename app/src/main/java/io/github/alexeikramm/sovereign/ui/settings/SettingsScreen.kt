@@ -108,6 +108,7 @@ import io.github.alexeikramm.sovereign.theme.ColorHsvUtils
 import io.github.alexeikramm.sovereign.theme.Spacing
 import io.github.alexeikramm.sovereign.theme.ThemePaletteStyle
 import io.github.alexeikramm.sovereign.theme.ThemePresets
+import io.github.alexeikramm.sovereign.theme.rawTextColor
 import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.ServerStatus
 import io.github.alexeikramm.sovereign.ui.backup.BackupScreen
@@ -1711,6 +1712,7 @@ private fun LegacySettingsScreen(
 
                 RawTextColorRoleSelector(
                     selected = rawTextColorRole,
+                    opacity = rawTextOpacity,
                     onSelect = viewModel::setStreamingPreviewColorRole,
                 )
 
@@ -1732,11 +1734,12 @@ private fun LegacySettingsScreen(
 
 /**
  * The raw text colour role picker: a chip per [RawTextColorRole], each drawn in the colour it will
- * actually produce (the live scheme value at the chosen opacity), so the choice is what-you-see.
+ * actually produce (the live scheme value at the current opacity), so the choice is what-you-see.
  */
 @Composable
 private fun RawTextColorRoleSelector(
     selected: RawTextColorRole,
+    opacity: Float,
     onSelect: (RawTextColorRole) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1751,7 +1754,7 @@ private fun RawTextColorRoleSelector(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             RawTextColorRole.entries.forEach { role ->
-                val roleColor = role.color(MaterialTheme.colorScheme)
+                val roleColor = rawTextColor(role, opacity, MaterialTheme.colorScheme)
                 FilterChip(
                     selected = role == selected,
                     onClick = { onSelect(role) },
@@ -1773,17 +1776,6 @@ private fun RawTextColorRoleSelector(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-/** The live colour for a role under [scheme]; the one place the role→token mapping is defined. */
-private fun RawTextColorRole.color(scheme: androidx.compose.material3.ColorScheme) = when (this) {
-    RawTextColorRole.ON_SURFACE -> scheme.onSurface
-    RawTextColorRole.ON_SURFACE_VARIANT -> scheme.onSurfaceVariant
-    RawTextColorRole.OUTLINE -> scheme.outline
-    RawTextColorRole.OUTLINE_VARIANT -> scheme.outlineVariant
-    RawTextColorRole.PRIMARY -> scheme.primary
-    RawTextColorRole.SECONDARY -> scheme.secondary
-    RawTextColorRole.TERTIARY -> scheme.tertiary
 }
 
 // ----------------------------------------------------------------------------

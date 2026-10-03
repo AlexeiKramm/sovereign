@@ -56,6 +56,13 @@ class LocalAsrSession(
      */
     private val utterance = UtteranceText()
 
+    /**
+     * The text of the unit most recently emitted. The recogniser keeps returning a cut segment's text
+     * in [AsrEngine.accept] until the next segment's words arrive; that leftover is not a partial, so
+     * the feed loop skips it by comparing against this. Mutated only on [dispatcher].
+     */
+    private var lastEmittedUnit: String = ""
+
     /** Units emitted this utterance, for the status line and the tests of the commit path. */
     @Volatile
     var unitCount: Int = 0
@@ -128,7 +135,10 @@ class LocalAsrSession(
             for (frames in queue) {
                 val acceptStart = MonotonicClock.nowMs()
                 val text = engine.accept(frames, frames.size).orEmpty()
-                if (text.isNotBlank()) {
+                // The recogniser keeps returning the just-cut segment's text until the next segment's
+                // words arrive. That leftover is not a new partial — announcing it would re-show text
+                // that has already been committed — so it is skipped here, where the cut is known.
+                if (text.isNotBlank() && text.trim() != lastEmittedUnit) {
                     onPartialText(text)
                 }
                 val isSpeech = engine.isSpeechDetected()
@@ -194,6 +204,7 @@ class LocalAsrSession(
     private fun emitUnit(unit: String) {
         if (utterance.append(unit)) {
             unitCount++
+            lastEmittedUnit = unit.trim()
             onUnit(unit.trim())
         }
     }

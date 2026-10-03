@@ -74,13 +74,6 @@ class DictationPipeline(
     @Volatile
     private var provisional: String = ""
 
-    /**
-     * The recogniser keeps returning the just-cut segment's text until the next segment's words
-     * arrive, and the session reports that leftover as a partial. [onPartial] drops the one partial
-     * that matches this, so committed words cannot reappear as a tail.
-     */
-    private var lastCommittedUnit: String = ""
-
     private val session = LocalAsrSession(
         engine = asrEngine,
         dispatcher = asrDispatcher,
@@ -132,7 +125,6 @@ class DictationPipeline(
         if (fresh) {
             raw.clear()
             committed.clear()
-            lastCommittedUnit = ""
             clearProvisional()
         }
         cleanupEngaged = cleanupEnabled
@@ -191,7 +183,6 @@ class DictationPipeline(
         raw.clear()
         committed.clear()
         cleanupEngaged = false
-        lastCommittedUnit = ""
         clearProvisional()
     }
 
@@ -214,7 +205,6 @@ class DictationPipeline(
     /** Runs on the ASR worker: accumulate raw, then route the unit to cleanup or straight to text. */
     private fun onUnit(unit: String) {
         if (unit.isBlank()) return
-        lastCommittedUnit = unit.trim()
         onUnitCut(unit)
         synchronized(raw) {
             if (raw.isNotEmpty() && !raw.endsWith(" ")) raw.append(" ")
@@ -233,9 +223,6 @@ class DictationPipeline(
 
     /** Runs on the ASR worker: hand the provisional text to the main thread and surface it. */
     private fun onPartial(text: String) {
-        // Ignore the just-cut unit's text: the recogniser still returns it until the next segment's
-        // words arrive, and showing it would resurrect words already promoted to committedText.
-        if (text == lastCommittedUnit) return
         onPartialText(text)
         scope.launch(mainDispatcher) {
             provisional = text
