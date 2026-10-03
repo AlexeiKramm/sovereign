@@ -44,6 +44,8 @@ data class StreamingCellResult(
     val visibleCadenceMs: List<Long>,
     /** Gaps between cleanup commits (diverges from visible only if raw preview ships). */
     val commitCadenceMs: List<Long>,
+    /** Gaps between raw ASR partial updates — how often the provisional text would refresh. */
+    val partialCadenceMs: List<Long>,
     /** Last audio frame → settled text: the "I stopped talking" latency. */
     val tailLatencyMs: Long,
     val asrActiveMs: Long,

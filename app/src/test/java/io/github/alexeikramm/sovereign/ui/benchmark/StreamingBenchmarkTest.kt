@@ -82,6 +82,16 @@ class StreamingBenchmarkTest {
     }
 
     @Test
+    fun `partial cadence describes how often the streaming text would refresh`() {
+        // Three partial updates 100 ms and 220 ms apart: two gaps, median 160, max 220.
+        assertEquals(listOf(100L, 220L), StreamingMetrics.gaps(listOf(120L, 220L, 440L)))
+        val summary = StreamingMetrics.describeCadence(StreamingMetrics.gaps(listOf(120L, 220L, 440L)))
+        assertTrue(summary.contains("2 ·"))
+        assertTrue(summary.contains("160 ms"))
+        assertTrue(summary.contains("220 ms"))
+    }
+
+    @Test
     fun `progress describes each phase in human terms`() {
         assertEquals(
             "Preparing audio sample…",

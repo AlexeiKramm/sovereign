@@ -1,7 +1,6 @@
 package io.github.alexeikramm.sovereign.ui.benchmark
 
 import android.content.Context
-import android.util.Log
 import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.audio.WavReader
@@ -23,10 +22,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -81,7 +76,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
 
         val cutTimes = mutableListOf<Long>()
         val commitTimes = mutableListOf<Long>()
-        var firstPartialMs = -1L
+        val partialTimes = mutableListOf<Long>()
         var t0 = 0L
         fun rel(): Long = MonotonicClock.nowMs() - t0
 
@@ -96,7 +91,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
             cleanupVariant = { variant },
             healingSentencesCount = { cell.healingSentences },
             onText = { _, _ -> },
-            onPartialText = { if (firstPartialMs < 0L) firstPartialMs = rel() },
+            onPartialText = { partialTimes.add(rel()) },
             onUnitCut = { cutTimes.add(rel()) },
             onUnitCommitted = { commitTimes.add(rel()) },
         )
@@ -172,6 +167,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
 
             val firstCut = cutTimes.firstOrNull()
             val firstCommit = commitTimes.firstOrNull()
+            val firstPartial = partialTimes.firstOrNull()
 
             return StreamingCellResult(
                 cell = cell,
@@ -179,11 +175,12 @@ class StreamingBenchmarkEngine(private val context: Context) {
                 audioDurationSec = samples.size.toFloat() / AsrModels.SAMPLE_RATE,
                 unitCount = cutTimes.size,
                 timeToFirstTextMs = firstCommit ?: -1L,
-                deadAirMs = if (firstCommit != null && firstPartialMs >= 0L) firstCommit - firstPartialMs else -1L,
-                endpointGatingMs = if (firstCut != null && firstPartialMs >= 0L) firstCut - firstPartialMs else -1L,
+                deadAirMs = if (firstCommit != null && firstPartial != null) firstCommit - firstPartial else -1L,
+                endpointGatingMs = if (firstCut != null && firstPartial != null) firstCut - firstPartial else -1L,
                 cleanupLagMs = if (firstCut != null && firstCommit != null) firstCommit - firstCut else -1L,
                 visibleCadenceMs = StreamingMetrics.gaps(commitTimes),
                 commitCadenceMs = StreamingMetrics.gaps(commitTimes),
+                partialCadenceMs = StreamingMetrics.gaps(partialTimes),
                 tailLatencyMs = tailMs,
                 asrActiveMs = pipeline.totalActiveAsrMs,
                 llmActiveMs = pipeline.totalActiveLlmMs,
@@ -231,59 +228,3 @@ class StreamingBenchmarkEngine(private val context: Context) {
     }
 }
 
-/** Appends one row per cell to `filesDir/streaming_benchmark.csv`; the run's durable record. */
-object StreamingCsvLogger {
-    const val FILE_NAME = "streaming_benchmark.csv"
-
-    private const val HEADER =
-        "timestamp,asr_model,cleanup,pause_s,healing,cold,fixture,audio_dur_s,units,first_text_ms," +
-            "dead_air_ms,endpoint_gating_ms,cleanup_lag_ms,tail_ms,asr_active_ms,llm_active_ms,wall_ms," +
-            "visible_cadence_ms,committed_text,raw_text"
-
-    /** The accumulated CSV (all sessions), or null until a row has been written. */
-    fun file(context: Context): File? =
-        File(context.filesDir, FILE_NAME).takeIf { it.isFile && it.length() > 0L }
-
-    fun log(context: Context, result: StreamingCellResult): String {
-        val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
-        val line = listOf(
-            stamp,
-            escape(result.cell.asrModel.label),
-            result.cell.cleanup.toString(),
-            String.format(Locale.US, "%.2f", result.cell.pauseSeconds),
-            result.cell.healingSentences.toString(),
-            result.cell.cold.toString(),
-            result.fixtureId,
-            String.format(Locale.US, "%.2f", result.audioDurationSec),
-            result.unitCount.toString(),
-            result.timeToFirstTextMs.toString(),
-            result.deadAirMs.toString(),
-            result.endpointGatingMs.toString(),
-            result.cleanupLagMs.toString(),
-            result.tailLatencyMs.toString(),
-            result.asrActiveMs.toString(),
-            result.llmActiveMs.toString(),
-            result.wallMs.toString(),
-            result.visibleCadenceMs.joinToString(" ") { it.toString() },
-            escape(result.committedText),
-            escape(result.rawText),
-        ).joinToString(",")
-
-        try {
-            val file = File(context.filesDir, "streaming_benchmark.csv")
-            val isNew = !file.exists() || file.length() == 0L
-            file.appendText(if (isNew) "$HEADER\n$line\n" else "$line\n")
-        } catch (e: Exception) {
-            Log.e("StreamingBenchmark", "Failed to write streaming_benchmark.csv: ${e.message}")
-        }
-        Log.i("StreamingBenchmark", "CSV: $line")
-        return line
-    }
-
-    private fun escape(value: String): String =
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
-            "\"${value.replace("\"", "\"\"")}\""
-        } else {
-            value
-        }
-}

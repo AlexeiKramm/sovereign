@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -16,7 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -63,6 +64,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModels
+import io.github.alexeikramm.sovereign.ui.components.InlineDiffMode
+import io.github.alexeikramm.sovereign.ui.components.InlineDiffText
 import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
 import io.github.alexeikramm.sovereign.ui.components.SettingsIconBadge
 import io.github.alexeikramm.sovereign.ui.components.TopAppBarWithScrollShadow
@@ -113,6 +116,8 @@ fun StreamingBenchmarkScreen(
     var results by remember { mutableStateOf<List<StreamingCellResult>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showInfo by remember { mutableStateOf(false) }
+    // The cell whose raw/cleaned diff is open in the inspector; null = the run table.
+    var inspected by remember { mutableStateOf<StreamingCellResult?>(null) }
 
     /** Restore the whole matrix: every installed model, all pauses and healing windows, cold+warm. */
     fun selectFullMatrix() {
@@ -129,6 +134,11 @@ fun StreamingBenchmarkScreen(
             AsrModels.CATALOG.filter { it.isInstalled(it.directory(context.filesDir)) }
         }
         selectFullMatrix()
+        // Review results across app restarts: the CSV is the source of truth, not this run's memory.
+        val previous = withContext(Dispatchers.IO) {
+            StreamingCsv.file(context)?.readText()?.let { StreamingCsv.parse(it) }
+        }
+        if (!previous.isNullOrEmpty()) results = previous
     }
 
     val cells = remember(installedModels, selectedModelIds, selectedPauses, selectedHealings, selectedTemps, cleanupOn, cleanupOff) {
@@ -164,7 +174,7 @@ fun StreamingBenchmarkScreen(
                     currentCell = cell
                     currentProgress = StreamingProgress(StreamingPhase.PREPARING_AUDIO)
                     val result = engine.runCell(cell, selectedFixture) { progress -> currentProgress = progress }
-                    StreamingCsvLogger.log(context, result)
+                    StreamingCsv.append(context, result)
                     collected.add(result)
                     results = collected.toList()
                     completedCells = index + 1
@@ -185,7 +195,7 @@ fun StreamingBenchmarkScreen(
 
     /** Hand the accumulated CSV to any app via the system share sheet (no adb needed). */
     fun shareCsv() {
-        val file = StreamingCsvLogger.file(context)
+        val file = StreamingCsv.file(context)
         if (file == null) {
             errorMessage = "No CSV yet — run at least one cell first."
             return
@@ -479,8 +489,8 @@ fun StreamingBenchmarkScreen(
                 }
             }
 
-            items(results, key = { it.cell.label + it.fixtureId }) { result ->
-                StreamingResultCard(result)
+            itemsIndexed(results, key = { index, result -> "$index:${result.cell.label}:${result.fixtureId}" }) { index, result ->
+                StreamingResultCard(result, onClick = { inspected = result })
             }
         }
     }
@@ -523,6 +533,15 @@ fun StreamingBenchmarkScreen(
         content(PaddingValues(horizontal = 16.dp, vertical = 8.dp))
     }
 
+    if (inspected != null) {
+        CellInspectorDialog(
+            result = inspected!!,
+            onDismiss = { inspected = null },
+            onPrev = { results.previousOf(inspected!!)?.let { inspected = it } },
+            onNext = { results.nextOf(inspected!!)?.let { inspected = it } },
+        )
+    }
+
     if (showInfo) {
         AlertDialog(
             onDismissRequest = { showInfo = false },
@@ -543,6 +562,8 @@ fun StreamingBenchmarkScreen(
                     InfoLine("Cleanup lag", "The extra time cleanup adds after a segment is cut, before it appears.")
                     InfoLine("Tail latency", "From when the audio stops to the final text — what hold-to-dictate feels like.")
                     InfoLine("Visible cadence", "The gaps between visible updates while speaking.")
+                    InfoLine("Partial cadence", "How often the raw recognition text would refresh — what the live streaming preview would show.")
+                    InfoLine("Tap a result", "Opens the raw / cleaned / diff view for that cell, with arrows to step through the run.")
                     InfoLine("Transcription time", "Active on-device recognition compute for the run.")
                     InfoLine("Cleanup time", "Active LLM cleanup compute for the run.")
                     InfoLine("Wall time", "Total run duration, including model loads.")
@@ -582,18 +603,34 @@ private fun Label(text: String) {
 }
 
 @Composable
-private fun StreamingResultCard(result: StreamingCellResult) {
+private fun StreamingResultCard(result: StreamingCellResult, onClick: () -> Unit) {
     SettingsGroupCard {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = result.cell.label,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = result.cell.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "View ▸",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(
                 text = "${result.fixtureId} · ${String.format(Locale.US, "%.2f", result.audioDurationSec)}s audio · ${result.unitCount} units",
                 style = MaterialTheme.typography.labelSmall,
@@ -606,17 +643,102 @@ private fun StreamingResultCard(result: StreamingCellResult) {
             MetricRow("Cleanup lag", ms(result.cleanupLagMs))
             MetricRow("Tail latency", ms(result.tailLatencyMs))
             MetricRow("Visible cadence", StreamingMetrics.describeCadence(result.visibleCadenceMs))
+            MetricRow("Partial cadence", StreamingMetrics.describeCadence(result.partialCadenceMs))
             MetricRow("Transcription time", ms(result.asrActiveMs))
             MetricRow("Cleanup time", ms(result.llmActiveMs))
             MetricRow("Wall time", ms(result.wallMs))
-            if (result.committedText.isNotBlank()) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
-                Text(
-                    text = result.committedText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+        }
+    }
+}
+
+/** The SB-5 inspector: raw / cleaned / inline diff for one cell, with arrows to step the run. */
+@Composable
+private fun CellInspectorDialog(
+    result: StreamingCellResult,
+    onDismiss: () -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+) {
+    var mode by remember(result) { mutableStateOf(InlineDiffMode.DIFF) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = {
+            if (mode == InlineDiffMode.DIFF) {
+                TextButton(onClick = { mode = InlineDiffMode.CLEAN }) { Text("Cleaned") }
+            } else {
+                TextButton(onClick = { mode = InlineDiffMode.DIFF }) { Text("Diff") }
             }
+        },
+        title = {
+            Text(
+                text = result.cell.label,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "${result.fixtureId} · ${String.format(Locale.US, "%.2f", result.audioDurationSec)}s · " +
+                        "${result.unitCount} units" +
+                        if (result.cell.cleanup) " · heal ${result.cell.healingSentences}" else " · raw only",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (result.rawText.isBlank() && result.committedText.isBlank()) {
+                    Text(
+                        text = "No text was captured for this cell.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LabelledText("Cleaned output", result.committedText.ifBlank { "(nothing committed)" })
+                    if (result.cell.cleanup && result.rawText.isNotBlank()) {
+                        LabelledText("Raw recognition")
+                        InlineDiffText(
+                            rawText = result.rawText,
+                            cleanedText = result.committedText,
+                            mode = mode,
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    TextButton(onClick = onPrev) { Text("◀ Previous") }
+                    TextButton(onClick = onNext) { Text("Next ▶") }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun LabelledText(label: String, text: String? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label.uppercase(Locale.US),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        text?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
@@ -648,3 +770,14 @@ private fun formatDuration(valueMs: Long): String {
 
 /** Adds or removes one value, so a multi-select chip is a pure set operation. */
 private fun <T> Set<T>.toggled(value: T): Set<T> = if (value in this) this - value else this + value
+
+/** Neighbours in the run, so the inspector can step through results in order. */
+private fun List<StreamingCellResult>.nextOf(current: StreamingCellResult): StreamingCellResult? {
+    val index = indexOf(current)
+    return if (index in 0 until lastIndex) get(index + 1) else null
+}
+
+private fun List<StreamingCellResult>.previousOf(current: StreamingCellResult): StreamingCellResult? {
+    val index = indexOf(current)
+    return if (index > 0) get(index - 1) else null
+}
