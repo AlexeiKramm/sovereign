@@ -47,13 +47,12 @@ class LiteRtLmCleanupEngine(
      *
      * The shipped Gemma 4 E2B bundle is compiled with a *fixed* sequence dimension and has been
      * observed to enforce ~2048 on device despite a larger request (LiteRT-LM issue #3444; D-086).
-     * Pinned back to **4096** at the user's request for the next device run: the rebuild wrapper bug
-     * meant the trigger had never actually fired in the 4096 experiment, so this re-tests whether 4096
-     * is servable now that rebuilds are wired. If the native wall still lands at ~2014 tokens before
-     * the 80% trigger (3276), D-086 stands and this must return to 2048.
+     * Pinned to **2048**, the physical ceiling, so the 80% trigger (~1638 tokens) fires with headroom
+     * before the native wall. The 4096 re-test (D-087) is being settled on a device; this is the safe
+     * configuration to test against it.
      */
     companion object {
-        const val CONTEXT_TOKENS = 4096
+        const val CONTEXT_TOKENS = 2048
         private const val TAG = "LiteRtLmCleanup"
     }
 
