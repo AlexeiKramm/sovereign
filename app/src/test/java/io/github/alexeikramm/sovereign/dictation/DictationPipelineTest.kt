@@ -6,6 +6,7 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
 import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -137,9 +138,47 @@ class DictationPipelineTest {
         override fun unload() {}
     }
 
+    /**
+     * Like [FakeCleanupEngine] but blocks inside `clean()` until [release] is called, so a test can
+     * observe the pipeline *during* the cleanup latency — the window where the grey tail must stay
+     * on screen. Runs on the pipeline's cleanup dispatcher; the DONE commit fires once released.
+     */
+    private class GatedCleanupEngine : CleanupEngine {
+        private val gate = CompletableDeferred<Unit>()
+        override val isLoaded: Boolean = true
+        override val lastLoadMs: Long = 0L
+
+        fun release() = gate.complete(Unit)
+
+        override suspend fun load(): Result<Unit> = Result.success(Unit)
+        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {}
+        override fun closeSession() {}
+        override fun unload() {}
+
+        override suspend fun clean(
+            unit: String,
+            context: String?,
+            variant: CleanupPrompt.Variant,
+            customRules: String?,
+        ): CleanupPass {
+            gate.await()
+            return CleanupPass(
+                unit = unit,
+                text = unit.trim().uppercase(),
+                cleaned = true,
+                note = "gated",
+                loadMs = 0L,
+                ttftMs = 0.0,
+                decodeTimeMs = 0.0,
+                generatedTokens = 1L,
+                promptSent = unit,
+            )
+        }
+    }
+
     private fun pipeline(
         engine: AsrEngine,
-        cleaner: FakeCleanupEngine,
+        cleaner: CleanupEngine,
         onText: (String, String, String) -> Unit = { _, _, _ -> },
         onPartialText: (String) -> Unit = {},
     ): DictationPipeline = DictationPipeline(
@@ -248,7 +287,7 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun `provisional text is exposed live and cleared once the unit settles`() = runBlocking {
+    fun `provisional text survives the cut and is retired only when the unit commits`() = runBlocking {
         val engine = FakeAsrEngine(listOf("Hello."))
         val pipeline = pipeline(engine, FakeCleanupEngine())
 
@@ -259,8 +298,8 @@ class DictationPipelineTest {
         assertEquals("", pipeline.provisionalText)
 
         feed(pipeline, 1)
-        // Once the unit cuts, the provisional text is promoted and the live field is cleared, so a
-        // later read never re-shows text that is now part of the committed output.
+        // With cleanup off the unit commits in the same update as the cut, so by the time we read,
+        // the tail has already been replaced by the committed text.
         assertEquals("", pipeline.provisionalText)
         assertEquals("Hello.", pipeline.committedText)
     }
@@ -280,11 +319,37 @@ class DictationPipelineTest {
     }
 
     /**
-     * The bug that reached the device: provisional text must be delivered to the *display contract*
-     * (`onText`'s third argument), not just held on the pipeline field, or the card's copy never
-     * clears. This asserts the last `onText` emission carries an empty provisional once the unit
-     * commits — the exact observable the UI reads.
+     * The device bug (RP-1c): with cleanup on, the grey tail must stay visible across the cleanup
+     * latency — from the partial, through the cut, until the cleaned text is committed — and be
+     * replaced *in that same update*. Clearing it at cut time is what produced the blank gap.
      */
+    @Test
+    fun `with cleanup on the provisional tail persists until the cleaned text commits`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello."))
+        val cleaner = GatedCleanupEngine()
+        val emissions = mutableListOf<Triple<String, String, String>>()
+        val pipeline = pipeline(engine, cleaner, onText = { c, r, p -> emissions.add(Triple(c, r, p)) })
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 1) // partial, then cut -> cleanup submitted but not yet released
+
+        // The unit was cut but cleanup has not finished: the grey tail must still be delivered.
+        assertEquals("", pipeline.committedText)
+        assertEquals("Hello.", pipeline.provisionalText)
+        assertTrue(
+            "a delivered update still carries the live tail while cleanup runs",
+            emissions.any { it.third == "Hello." },
+        )
+
+        cleaner.release()
+        // Now the cleaned text commits and the tail is retired in the same update.
+        assertEquals("HELLO.", pipeline.committedText)
+        assertEquals("", pipeline.provisionalText)
+        assertEquals(Triple("HELLO.", "Hello.", ""), emissions.last())
+    }
+
     @Test
     fun `a committed unit is delivered with an empty provisional in the same update`() = runBlocking {
         val engine = FakeAsrEngine(listOf("Hello."))

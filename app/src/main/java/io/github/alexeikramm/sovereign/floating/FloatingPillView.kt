@@ -871,6 +871,7 @@ fun ExpandedCardView(
                     rawText = rawText,
                     provisionalText = provisionalText,
                     provisionalColor = provisionalColor,
+                    cleanupEnabled = cleanupEnabled,
                     audioLevel = audioLevel,
                     isProcessing = isProcessing,
                     statusNote = statusNote,
@@ -901,6 +902,8 @@ private fun DictationCard(
     rawText: String,
     provisionalText: String,
     provisionalColor: Color,
+    /** When cleanup is off the live tail is already final, so it is drawn in the committed colour. */
+    cleanupEnabled: Boolean,
     audioLevel: () -> Float,
     isProcessing: Boolean,
     statusNote: String?,
@@ -1028,17 +1031,19 @@ private fun DictationCard(
                             Color(CardLayout.COLOR_TEXT_PRIMARY_LIGHT)
                         }
                         val transcriptText = if (showLiveTail) {
-                            // Settled text solid, the live raw tail in its own colour so the two are
-                            // told apart even in the moment before the unit settles.
+                            // With cleanup on the tail is provisional — its own (grey) colour, so it
+                            // reads as "not final yet". With cleanup off there is nothing pending: the
+                            // ASR output *is* the final text, so the tail is already committed/white.
+                            val tailColor = if (!cleanupEnabled) {
+                                settledColor
+                            } else {
+                                provisionalColor.takeIf { it != Color.Unspecified }
+                                    ?: settledColor.copy(alpha = 0.55f)
+                            }
                             buildAnnotatedString {
                                 append(transcript)
                                 val separator = if (displayText.isBlank() || displayText.endsWith(" ")) "" else " "
-                                withStyle(
-                                    SpanStyle(
-                                        color = provisionalColor.takeIf { it != Color.Unspecified }
-                                            ?: settledColor.copy(alpha = 0.55f),
-                                    ),
-                                ) {
+                                withStyle(SpanStyle(color = tailColor)) {
                                     append(separator)
                                     append(provisional)
                                 }

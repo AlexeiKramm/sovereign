@@ -67,15 +67,17 @@ class DictationPipeline(
     private val committed = StringBuilder()
     private var cleanupEngaged = false
 
-    /** The recogniser's provisional text for the unit in flight; cleared when the unit cuts. */
+    /**
+     * The recogniser's live partial for the unit in flight. Set by [onPartial], retired by
+     * [commitUnit] — the grey/white tail lives exactly as long as its unit has not been committed.
+     */
     @Volatile
     private var provisional: String = ""
 
     /**
-     * The text of the unit that most recently cut. The recogniser keeps returning the just-cut
-     * segment's text (until it is replaced by the next segment's words), and the session reports it
-     * as a partial; suppressing that one re-emission is what stops the committed words reappearing as
-     * a grey tail after they have already been promoted into [committedText].
+     * The recogniser keeps returning the just-cut segment's text until the next segment's words
+     * arrive, and the session reports that leftover as a partial. [onPartial] drops the one partial
+     * that matches this, so committed words cannot reappear as a tail.
      */
     private var lastCommittedUnit: String = ""
 
@@ -104,9 +106,10 @@ class DictationPipeline(
     val rawText: String get() = raw.toString()
 
     /**
-     * The provisional text of the unit currently being spoken — recognised but not yet cut/committed.
-     * Empty between units. This is what the expanded card shows live; [committedText] replaces it as
-     * each unit settles. **Blank for offline models**, which emit nothing until a segment ends.
+     * The provisional text of the unit currently being spoken — recognised, not yet committed. Empty
+     * between units. The card shows it live, coloured by whether it is pending cleanup (grey) or
+     * already final (white); [committedText] replaces it as each unit commits. **Blank for offline
+     * models**, which emit nothing until a segment ends.
      */
     val provisionalText: String get() = provisional
 
@@ -192,42 +195,39 @@ class DictationPipeline(
         clearProvisional()
     }
 
+    /**
+     * Retires the provisional tail by appending [unit] to the committed text. This is the **one**
+     * place provisional is cleared: the grey tail lives for exactly as long as its unit has not yet
+     * been committed, so it is replaced by the committed text in the *same* update — never cleared at
+     * cut time (which left a blank gap while cleanup ran) and never lingering after a commit.
+     */
+    private fun commitUnit(unit: String) {
+        if (committed.isNotEmpty() && !committed.endsWith(" ") && !unit.startsWith(" ")) {
+            committed.append(" ")
+        }
+        committed.append(unit)
+        clearProvisional()
+        emit()
+        onUnitCommitted(committed.toString())
+    }
+
     /** Runs on the ASR worker: accumulate raw, then route the unit to cleanup or straight to text. */
     private fun onUnit(unit: String) {
-        if (unit.isBlank()) {
-            scope.launch(mainDispatcher) {
-                clearProvisional()
-                emit()
-            }
-            return
-        }
+        if (unit.isBlank()) return
         lastCommittedUnit = unit.trim()
         onUnitCut(unit)
         synchronized(raw) {
             if (raw.isNotEmpty() && !raw.endsWith(" ")) raw.append(" ")
             raw.append(unit)
         }
-        // Clearing the provisional tail in the same main-thread update that surfaces the unit is what
-        // makes the grey text disappear the moment it commits. All writes to `provisional` happen on
-        // `mainDispatcher`; the read (`provisionalText`) is @Volatile and races only against a fresh
-        // partial, never a half-written string (a Kotlin String assignment is atomic).
-        scope.launch(mainDispatcher) {
-            clearProvisional()
-            emit()
-        }
+        scope.launch(mainDispatcher) { emit() }
 
         if (cleanupEngaged) {
+            // The grey tail stays visible while cleanup runs; `onCleanupCommit` replaces it.
             cleanup.submit(unit)
         } else {
-            scope.launch(mainDispatcher) {
-                if (committed.isNotEmpty() && !committed.endsWith(" ") && !unit.startsWith(" ")) {
-                    committed.append(" ")
-                }
-                committed.append(unit)
-                clearProvisional()
-                emit()
-                onUnitCommitted(committed.toString())
-            }
+            // No cleanup: the unit becomes committed text at once, so the tail is white immediately.
+            scope.launch(mainDispatcher) { commitUnit(unit) }
         }
     }
 
@@ -243,16 +243,14 @@ class DictationPipeline(
         }
     }
 
-    /** Runs on the cleanup worker: replace the seam overlap and append the cleaned unit. */
+    /** Runs on the cleanup worker: replace the seam overlap and commit the cleaned unit. */
     private suspend fun onCleanupCommit(commit: CleanupCommit) {
         withContext(mainDispatcher) {
             if (commit.overlapToDelete.isNotEmpty() && committed.endsWith(commit.overlapToDelete)) {
                 committed.setLength(committed.length - commit.overlapToDelete.length)
             }
             committed.append(commit.prefix)
-            committed.append(commit.text)
-            emit()
-            onUnitCommitted(committed.toString())
+            commitUnit(commit.text)
             if (cleanup.lastPass?.cleaned == false) onCleanupUnavailable()
         }
     }
