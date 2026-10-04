@@ -18,16 +18,16 @@ import org.junit.Test
 class CleanupPromptTest {
 
     @Test
-    fun `the system message carries the safety core and formatting rules`() {
+    fun `the system message carries the task-neutral safety core and the profile instructions`() {
         val built = CleanupPrompt.build("hello there", null)
-        assertTrue(built.system.contains("clean and format transcribed speech"))
-        assertTrue(built.system.contains("Formatting Rules:"))
+        assertTrue(built.system.contains("transform transcribed speech according to the instructions"))
+        assertTrue(built.system.contains("Instructions:"))
     }
 
     @Test
     fun `the user message carries the one wording, with the segment`() {
         val built = CleanupPrompt.build("next words")
-        assertTrue(built.user.contains("Clean this segment:"))
+        assertTrue(built.user.contains("Transform this segment using the instructions above:"))
         assertTrue(built.user.contains("next words"))
     }
 
@@ -37,13 +37,13 @@ class CleanupPromptTest {
 
         // Cold / first turn: the context is stated in the user message.
         val withContext = CleanupPrompt.build("next words", context = carried, includeContext = true)
-        assertTrue(withContext.user.contains("do not repeat it or clean it again"))
+        assertTrue(withContext.user.contains("do not repeat it or transform it again"))
         assertTrue(withContext.user.contains(carried))
 
         // Later turns of the same session: the context is already in the KV cache, so it is omitted.
         val without = CleanupPrompt.build("next words", context = carried, includeContext = false)
         assertFalse("later turns must not re-state the cached context", without.user.contains(carried))
-        assertEquals("Clean this segment:\nnext words", without.user)
+        assertEquals("Transform this segment using the instructions above:\nnext words", without.user)
 
         // No context at all: the block never appears, ask or not.
         val none = CleanupPrompt.build("next words", context = null, includeContext = true)
@@ -58,12 +58,24 @@ class CleanupPromptTest {
     fun `every built-in ruleset keeps the safety core, and only the editing rules differ`() {
         listOf(CleanupPrompt.SMART_CLEAN_RULES, CleanupPrompt.CONSERVATIVE_RULES).forEach { rules ->
             val system = CleanupPrompt.build("anything", null, rules = rules).system
-            assertTrue("every built-in must keep the safety core", system.contains("clean and format"))
+            assertTrue("every built-in must keep the safety core", system.contains(CleanupPrompt.SAFETY_CORE))
             assertTrue("every built-in must carry its own rules", system.contains(rules))
+            assertTrue("every built-in must state its task first", rules.startsWith("- Your task is to"))
         }
         assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("filler"))
         assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("bullet points"))
         assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("numbers"))
+    }
+
+    @Test
+    fun `the safety core names no task, so a profile can choose one`() {
+        assertFalse("the core must not prescribe cleanup", CleanupPrompt.SAFETY_CORE.contains("clean"))
+        assertFalse("the core must not prescribe formatting", CleanupPrompt.SAFETY_CORE.contains("format"))
+        assertTrue(
+            "the core must still guard the meaning",
+            CleanupPrompt.SAFETY_CORE.contains("Preserve the meaning exactly"),
+        )
+        assertTrue("the core must still forbid answering", CleanupPrompt.SAFETY_CORE.contains("do not answer"))
     }
 
     @Test
@@ -122,7 +134,7 @@ class CleanupPromptTest {
     }
 
     @Test
-    fun `the prefix order is system, then dictionary, followed by formatting rules`() {
+    fun `the prefix order is system, then dictionary, followed by the profile instructions`() {
         val built = CleanupPrompt.build(
             unit = "and also book the room",
             dictionary = listOf("Gemma", "GenieX"),
@@ -145,6 +157,10 @@ class CleanupPromptTest {
         assertEquals(
             "Okay, so I think we should move it.",
             CleanupPrompt.parse("Rewritten text: Okay, so I think we should move it."),
+        )
+        assertEquals(
+            "Okay, so I think we should move it.",
+            CleanupPrompt.parse("Transformed text: Okay, so I think we should move it."),
         )
         assertEquals(
             "Okay, so I think we should move it.",
