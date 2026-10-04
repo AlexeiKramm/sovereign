@@ -50,6 +50,14 @@ class UtteranceFinalizerTest {
     }
 
     @Test
+    fun `forInsertion ends a list capture with a blank line, not a space`() {
+        // A capture that ends on a bullet must not glue the next capture onto it (Obsidian would
+        // absorb the following prose into that bullet).
+        assertEquals("- a\n- b\n\n", UtteranceFinalizer.forInsertion("- a\n- b"))
+        assertEquals("intro:\n- a\n\n", UtteranceFinalizer.forInsertion("intro:\n- a"))
+    }
+
+    @Test
     fun `forInsertion leaves nothing to insert for blank text`() {
         assertEquals("", UtteranceFinalizer.forInsertion(null))
         assertEquals("", UtteranceFinalizer.forInsertion(""))

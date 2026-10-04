@@ -8,6 +8,7 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.cleanup.CleanupCommit
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
+import io.github.alexeikramm.sovereign.text.MarkdownLists
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -156,7 +157,18 @@ class DictationPipeline(
                 }
             }
         }
-        withContext(mainDispatcher) { finalizePunctuation() }
+        withContext(mainDispatcher) {
+            finalizePunctuation()
+            // One-shot, end-of-capture Markdown hygiene: a list must not swallow following prose.
+            // Deliberately here and not per segment, so a pause that lands mid-list-item is never cut
+            // apart. The preview, delivery and history all read `committed`, so they stay consistent.
+            val normalized = MarkdownLists.normalize(committed.toString())
+            if (normalized != committed.toString()) {
+                committed.setLength(0)
+                committed.append(normalized)
+                emit()
+            }
+        }
         return committed.toString()
     }
 
