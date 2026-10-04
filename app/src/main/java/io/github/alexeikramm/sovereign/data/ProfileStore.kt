@@ -31,7 +31,7 @@ class ProfileStore(private val filesDir: File) {
         CleaningProfile(
             id = "smart_clean",
             name = "Smart Clean",
-            description = "Rewrites into clean, natural written prose: restructures sentences and wording, keeps the meaning.",
+            description = "Rewrites into clean, natural written prose; removes fillers and repetition, formats numbers and lists, never invents.",
             rules = CleanupPrompt.SMART_CLEAN_RULES,
             isBuiltin = true,
         ),

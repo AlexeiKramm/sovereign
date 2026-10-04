@@ -48,23 +48,22 @@ object CleanupPrompt {
             "wording, tone, and voice may change only when the instructions ask for it."
 
     /**
-     * The default rewrite profile. It **opens with its own task rule** ("clean and format transcribed
-     * speech") because the safety core no longer names a task, then restructures sentences and wording
-     * into clean, natural written prose while preserving the speaker's meaning and all facts. Exposed
-     * here so `ProfileStore` builds its built-in from the same source and no rules text is duplicated.
+     * The default rewrite profile, **retuned against real dictations** (CHUNK-3, D-097). It opens with
+     * its own task rule (the safety core names no task), licenses reordering and rewording, then pins
+     * the fixes the tuning run measured: repetition removal, no invented context, digits and ordinals,
+     * and bullet layout that Markdown's lazy continuation cannot swallow. Exposed here so
+     * `ProfileStore` builds its built-in from the same source and no rules text is duplicated.
      */
     const val SMART_CLEAN_RULES: String =
-        "- Your task is to clean and format transcribed speech.\n" +
-            "- Rewrite the whole text into clean, natural written prose: turn the rough spoken transcript into the written form it was reaching for.\n" +
-            "- You may reorder words, restructure, split, or merge sentences, and replace wording wherever it improves grammar, clarity, or flow.\n" +
-            "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
-            "- Repair false starts, abandoned clauses, and self-corrections into complete, coherent sentences, keeping the speaker's final intent.\n" +
-            "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
-            "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
-            "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
-            "- Format spoken enumerations, sequences, and list items as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
-            "- Keep the meaning exactly: never add a fact, name, number, or detail that was not spoken, and never omit or merge away an idea that was.\n" +
-            "- Keep the result close to the original length; this is a rewrite, not a summary."
+        "- Your task is to clean and format transcribed speech into clean, natural written prose, keeping every fact and the speaker's meaning.\n" +
+            "- You may reorder, split, or merge sentences and replace wording to improve grammar, clarity, or flow; repair false starts and self-corrections into complete sentences, keeping the final intent.\n" +
+            "- Remove vocal fillers and hesitations in any language (for example \"um\", \"uh\", \"you know\", \"like\", \"I guess\", \"I mean\", \"kind of\"), plus stutters.\n" +
+            "- Delete repetition: if a word, phrase, or sentence is repeated (a stutter, a tic, or a repeated idea), keep only one copy, unless the repetition is clearly deliberate emphasis.\n" +
+            "- Never invent content: add no context, subject, setting, or fact that was not spoken.\n" +
+            "- Write numbers as digits and symbols (\"three\" -> \"3\", \"forty-five\" -> \"45\", \"one hundred and twelve\" -> \"112\", \"twenty twenty five\" -> \"2025\", \"three PM\" -> \"3 PM\", \"twenty euros\" -> \"20 €\", \"eighteenth\" -> \"18th\"); never change a number's value.\n" +
+            "- When the speaker lists three or more separate items — a shopping list, steps, or \"first... second... third...\" — format them as markdown bullets.\n" +
+            "- Put each bullet on its own line starting with \"- \" (no leading spaces), and leave a blank line before and after the list; never bullet a single sentence or ordinary narrative.\n" +
+            "- Break the text into paragraphs at clear topic changes, separated by a blank line, but never summarize."
 
     /**
      * Conservative cleanup profile: preserves original words and phrasing, and like every profile it

@@ -11,9 +11,8 @@ import org.junit.Test
 /**
  * The prompt is a contract with the model, and every clause in it exists because something went wrong
  * without it: the safety core because an LLM asked to clean text will happily answer it instead, the
- * fragment rule because a pause-delimited unit may be half a sentence and a model that treats it as
- * complete will invent a sentence end (D-032), and the ordering because D-015's stable prefix is the
- * only part that could ever be cached.
+ * meaning invariant because a model will otherwise invent a sentence end for a half-sentence unit
+ * (D-032), and the ordering because D-015's stable prefix is the only part that could ever be cached.
  */
 class CleanupPromptTest {
 
@@ -61,7 +60,7 @@ class CleanupPromptTest {
             assertTrue("every built-in must state its task first", rules.startsWith("- Your task is to"))
         }
         assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("filler"))
-        assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("bullet points"))
+        assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("bullets"))
         assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("numbers"))
     }
 
@@ -88,14 +87,29 @@ class CleanupPromptTest {
     @Test
     fun `the smart clean rules are licensed to rewrite but keep every fact`() {
         val rules = CleanupPrompt.SMART_CLEAN_RULES
-        assertTrue(rules.contains("Rewrite the whole text"))
-        assertTrue(rules.contains("restructure"))
-        assertTrue(rules.contains("Keep the meaning exactly"))
-        assertTrue(rules.contains("not a summary"))
+        assertTrue(rules.contains("natural written prose"))
+        assertTrue(rules.contains("reorder, split, or merge"))
+        assertTrue(rules.contains("keeping every fact and the speaker's meaning"))
+        assertTrue(rules.contains("never summarize"))
         assertTrue(
             "the smart clean rules must differ from conservative",
             CleanupPrompt.SMART_CLEAN_RULES != CleanupPrompt.CONSERVATIVE_RULES,
         )
+    }
+
+    @Test
+    fun `the smart clean rules pin the fixes measured against real dictations`() {
+        val rules = CleanupPrompt.SMART_CLEAN_RULES
+        // The failure modes CHUNK-3 tuned, each with a clause of its own.
+        assertTrue("repetition removal", rules.contains("Delete repetition"))
+        assertTrue("no invented context", rules.contains("Never invent content"))
+        assertTrue("digits and ordinals", rules.contains("digits and symbols"))
+        assertTrue(rules.contains("\"eighteenth\" -> \"18th\""))
+        assertTrue("bullet layout", rules.contains("markdown bullets"))
+        assertTrue("blank line around lists", rules.contains("blank line"))
+        // English-first: no language-specific filler examples in the built-in.
+        assertFalse(rules.contains("niinku"))
+        assertFalse(rules.contains("tota"))
     }
 
     @Test
