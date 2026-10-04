@@ -1865,14 +1865,6 @@ class FloatingOverlayService : Service() {
         stopIdleUnload()
         stopKeyboardCloseUnload()
 
-        // Field seam: read before anything else moves a window, while the target app still holds
-        // editable focus. A cold start has no pill memory, so the field's ending decides how the new
-        // text joins it; a resume (fresh = false) has pill memory and is left alone. With the setting
-        // off — or cleanup off, which is the only consumer — no accessibility read happens at all.
-        val fieldSeam = if (fresh && settings.cleanupEnabled && settings.fieldPreambleEnabled) {
-            VoiceAccessibilityService.instance?.readFieldSeam()
-        } else null
-
         quickCaptureActive = quick
         recordStartedAtMs = SystemClock.elapsedRealtime()
         // The card path is the one transition that expands the window; capture the minimized state
@@ -1902,7 +1894,7 @@ class FloatingOverlayService : Service() {
             quickStatusIsError = false
         }
         reprocessActiveLlmMs = null
-        pipeline.begin(fresh = fresh, cleanupEnabled = settings.cleanupEnabled, fieldSeam = fieldSeam)
+        pipeline.begin(fresh = fresh, cleanupEnabled = settings.cleanupEnabled)
 
         localEngine.applyModel(settings.asrModel, filesDir)
         localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
@@ -2159,8 +2151,7 @@ class FloatingOverlayService : Service() {
         if (textToInject.isBlank()) {
             showQuickResult("Nothing heard")
         } else {
-            val toType = pipeline.currentFieldSeam?.leadingSpace().orEmpty() +
-                UtteranceFinalizer.forInsertion(textToInject)
+            val toType = UtteranceFinalizer.forInsertion(textToInject)
             val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
             recordUsageStats(deliveredText = textToInject, latencyMs = latency)
             recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
@@ -2269,10 +2260,7 @@ class FloatingOverlayService : Service() {
                 // A trailing space separates this session from the next: the pill has no memory of where
                 // the cursor sits between sessions, and re-dictating must not glue the new segment onto
                 // this one. It comes after terminal punctuation too ("Done. ").
-                // The field seam adds a leading space when the field ends without one; `forInsertion`
-                // adds the trailing separator for the *next* dictation.
-                val toType = pipeline.currentFieldSeam?.leadingSpace().orEmpty() +
-                    UtteranceFinalizer.forInsertion(textToInject)
+                val toType = UtteranceFinalizer.forInsertion(textToInject)
                 injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
                 if (!injected) {
                     // Never fail silently: the words are on the clipboard, so tell the user how to use them.

@@ -92,8 +92,8 @@ object CleanupPrompt {
      * Builds the one prompt this app uses. The **same** [Messages.system] is prefilled into a
      * conversation once; the **same** [Messages.user] wording is sent for every segment. The only
      * thing that varies is the unit itself — for the first unit of a continuation utterance that unit
-     * already carries the seam overlap (Scenario 2), it is not a separate block. The target field's
-     * text never enters the prompt (the seam is deterministic; see `text/FieldSeam`).
+     * already carries the seam overlap (Scenario 2), it is not a separate block. The pipeline never
+     * adds a context block of its own.
      */
     fun build(
         unit: String,

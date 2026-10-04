@@ -8,7 +8,6 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.cleanup.CleanupCommit
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
-import io.github.alexeikramm.sovereign.text.FieldSeam
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -117,31 +116,17 @@ class DictationPipeline(
     val boundaryState: BoundaryState get() = session.boundaryState
 
     /**
-     * The seam of the field this utterance is dictated into, captured at capture start for a cold
-     * start, or null when the utterance has pill memory (a resume) or the feature is off. It only
-     * adjusts the delivered text's first letter; the field's own text never enters the prompt.
-     */
-    @Volatile
-    var currentFieldSeam: FieldSeam? = null
-        private set
-
-    /**
      * Opens an utterance. [fresh] clears any text left from a previous one; [cleanupEnabled] decides
      * the routing and seeds cleanup with whatever text is already committed (so a resumed utterance
      * keeps its context — D-037).
-     *
-     * [fieldSeam] is the deterministic continuation seam for a **cold start** — the app read the
-     * target field and derived how the new text must join it (`text/FieldSeam`). It is used only when
-     * [fresh]; a resumed utterance has pill memory, so the field must not compete with it.
      */
-    fun begin(fresh: Boolean, cleanupEnabled: Boolean, fieldSeam: FieldSeam? = null) {
+    fun begin(fresh: Boolean, cleanupEnabled: Boolean) {
         if (fresh) {
             raw.clear()
             committed.clear()
             clearProvisional()
         }
         cleanupEngaged = cleanupEnabled
-        currentFieldSeam = fieldSeam.takeIf { fresh }
         if (cleanupEnabled) cleanup.begin(committed.toString())
     }
 
@@ -172,7 +157,6 @@ class DictationPipeline(
             }
         }
         withContext(mainDispatcher) { finalizePunctuation() }
-        withContext(mainDispatcher) { fitFieldSeamCase() }
         return committed.toString()
     }
 
@@ -198,7 +182,6 @@ class DictationPipeline(
         raw.clear()
         committed.clear()
         cleanupEngaged = false
-        currentFieldSeam = null
         clearProvisional()
     }
 
@@ -274,22 +257,6 @@ class DictationPipeline(
             }
         } else if (action == UtteranceFinalizer.Action.APPEND_PERIOD) {
             committed.append('.')
-            emit()
-        }
-    }
-
-    /**
-     * Applies the deterministic field seam: the delivered text's first letter joins what the field
-     * already contains (lowercase mid-sentence, uppercase at a sentence end). No-op without a seam.
-     */
-    private fun fitFieldSeamCase() {
-        val seam = currentFieldSeam ?: return
-        if (committed.isEmpty()) return
-        val before = committed.toString()
-        val after = seam.fitCase(before)
-        if (after != before) {
-            committed.clear()
-            committed.append(after)
             emit()
         }
     }

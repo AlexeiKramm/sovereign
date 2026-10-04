@@ -6,14 +6,12 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
 import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
-import io.github.alexeikramm.sovereign.text.FieldSeam
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -471,41 +469,5 @@ class DictationPipelineTest {
             emissions.all { it.third.isEmpty() },
         )
         assertEquals("", pipeline.provisionalText)
-    }
-
-    @Test
-    fun `a fresh cold start fits the delivered text to the field seam`() = runBlocking {
-        val engine = FakeAsrEngine(listOf("Hello."))
-        val pipeline = pipeline(engine, FakeCleanupEngine())
-
-        pipeline.begin(
-            fresh = true,
-            cleanupEnabled = true,
-            fieldSeam = FieldSeam(endsMidSentence = true, needsSpace = true),
-        )
-        pipeline.beginSession()
-        pipeline.open("en")
-        feed(pipeline, 1)
-        pipeline.finish()
-
-        // The seam lowercases the first letter; the leading space is applied at insertion, not here.
-        assertEquals("hello.", pipeline.committedText)
-        assertEquals(FieldSeam(endsMidSentence = true, needsSpace = true), pipeline.currentFieldSeam)
-    }
-
-    @Test
-    fun `a resumed utterance keeps its own text and no field seam`() = runBlocking {
-        val engine = FakeAsrEngine(listOf("Hello."))
-        val pipeline = pipeline(engine, FakeCleanupEngine())
-
-        // fresh = false is a resume: the pill's own text is the context, so the field seam is dropped.
-        pipeline.begin(fresh = false, cleanupEnabled = true, fieldSeam = FieldSeam(true, true))
-        pipeline.beginSession()
-        pipeline.open("en")
-        feed(pipeline, 1)
-        pipeline.finish()
-
-        assertEquals("Hello.", pipeline.committedText)
-        assertNull(pipeline.currentFieldSeam)
     }
 }

@@ -322,17 +322,6 @@ class AppSettings(context: Context) {
         get() = prefs.getInt(KEY_HEALING_SENTENCES_COUNT, DEFAULT_HEALING_SENTENCES_COUNT)
         set(value) = prefs.edit { putInt(KEY_HEALING_SENTENCES_COUNT, value) }
 
-    /**
-     * Whether a cold-start utterance is joined to the text already in the focused field — a separating
-     * space and the first letter's case — so it reads as a continuation (`text/FieldSeam`,
-     * `docs/work/field-preamble-context/`). The field text is never sent to the model. Off by default:
-     * reading another app's field is a privacy step change, so it is opt-in. When off, the field is
-     * never read.
-     */
-    var fieldPreambleEnabled: Boolean
-        get() = prefs.getBoolean(KEY_FIELD_PREAMBLE_ENABLED, DEFAULT_FIELD_PREAMBLE_ENABLED)
-        set(value) = prefs.edit { putBoolean(KEY_FIELD_PREAMBLE_ENABLED, value) }
-
     /** Whether the Wispr Flow floating dictation pill overlay is enabled. */
     var floatingPillEnabled: Boolean
         get() = prefs.getBoolean(KEY_FLOATING_PILL_ENABLED, DEFAULT_FLOATING_PILL_ENABLED)
@@ -518,7 +507,6 @@ class AppSettings(context: Context) {
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
         private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
-        private const val KEY_FIELD_PREAMBLE_ENABLED = "field_preamble_enabled"
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
@@ -546,7 +534,6 @@ class AppSettings(context: Context) {
         const val DEFAULT_FLOATING_PILL_EDGE_ANCHORING = true
         const val DEFAULT_QUICK_DICTATE_ON_HOLD = true
         const val DEFAULT_HAPTIC_FEEDBACK_ON_HOLD = true
-        const val DEFAULT_FIELD_PREAMBLE_ENABLED = false
 
         const val DEFAULT_STREAMING_PREVIEW_ENABLED = true
         const val DEFAULT_STREAMING_PREVIEW_OPACITY = 0.55f

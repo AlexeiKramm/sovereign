@@ -223,9 +223,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _healingSentencesCount = MutableStateFlow(settings.healingSentencesCount)
     val healingSentencesCount: StateFlow<Int> = _healingSentencesCount.asStateFlow()
 
-    private val _fieldPreambleEnabled = MutableStateFlow(settings.fieldPreambleEnabled)
-    val fieldPreambleEnabled: StateFlow<Boolean> = _fieldPreambleEnabled.asStateFlow()
-
     /** What a timing change actually did, said out loud — notably that one of them rebuilds the model. */
     private val _timingNote = MutableStateFlow<String?>(null)
     val timingNote: StateFlow<String?> = _timingNote.asStateFlow()
@@ -542,15 +539,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         settings.healingSentencesCount = clamped
     }
 
-    /**
-     * Whether a cold-start utterance is given the focused field's tail as cleanup context. The pill
-     * reads this at capture start, so the change applies to the next utterance without a restart.
-     */
-    fun setFieldPreambleEnabled(enabled: Boolean) {
-        settings.fieldPreambleEnabled = enabled
-        _fieldPreambleEnabled.value = enabled
-    }
-
     fun resetTimingsToDefaults() {
         onPauseFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_PAUSE_SILENCE_S))
         onStopFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STOP_AFTER_SILENCE_S))
@@ -793,7 +781,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _pauseField.value = field(settings.pauseSilenceSeconds)
         _stopField.value = field(settings.stopAfterSilenceSeconds)
         _healingSentencesCount.value = settings.healingSentencesCount
-        _fieldPreambleEnabled.value = settings.fieldPreambleEnabled
         _floatingPillEnabled.value = settings.floatingPillEnabled
         _floatingPillOnlyWhenKeyboardOpen.value = settings.floatingPillOnlyWhenKeyboardOpen
         _floatingPillAutoCommit.value = settings.floatingPillAutoCommit
