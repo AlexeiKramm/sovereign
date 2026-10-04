@@ -54,8 +54,7 @@ interface CleanupEngine {
     suspend fun clean(
         unit: String,
         context: String?,
-        variant: CleanupPrompt.Variant = CleanupPrompt.Variant.DEFAULT,
-        customRules: String? = null,
+        rules: String,
     ): CleanupPass
 
     /** Releases the model. Called on teardown and by the settings screen's explicit release. */
@@ -65,7 +64,7 @@ interface CleanupEngine {
     fun isServing(settings: io.github.alexeikramm.sovereign.data.AppSettings): Boolean = true
 
     /** Optional: opens a session for the current utterance to reuse KV cache across units. */
-    fun startSession(variant: CleanupPrompt.Variant = CleanupPrompt.Variant.DEFAULT, customRules: String? = null) {}
+    fun startSession(rules: String) {}
 
     /** Optional: closes the session and releases conversation KV cache. */
     fun closeSession() {}

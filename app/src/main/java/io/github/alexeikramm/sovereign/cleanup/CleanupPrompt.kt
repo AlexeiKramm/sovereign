@@ -4,20 +4,20 @@ import io.github.alexeikramm.sovereign.data.DictionaryEntry
 
 
 /**
- * The cleanup prompt, as a pure function of (unit, context, dictionary, variant) — so its shape is
+ * The cleanup prompt, as a pure function of (unit, context, dictionary, rules) — so its shape is
  * pinned by tests on this machine rather than discovered on a phone, and so D-015's ordering rule has
  * one implementation:
  *
  *   stable prefix first → system core, then dictionary → then the growing part: cleaned context,
- *   then the unit to clean.
+ *   then the unit to transform.
  *
- * **The variant is the interesting knob.** Measured on the phone 2026-09-12, the first Finnish case came
+ * **The rules are the interesting knob.** Measured on the phone 2026-09-12, the first Finnish case came
  * back *identical to its input except one capital letter* — no fillers removed, no comma before "että",
  * no final mark. The English case in the same run was punctuated correctly. That points at the rules
  * rather than the model: the wording said "do not add, remove or reorder information" and "never add
  * sentence-ending punctuation to a fragment", which a cautious 2B model reads as "change almost
- * nothing". The variants exist so the same unit can be run under each rule set and compared, instead of
- * arguing about it.
+ * nothing". A profile supplies exactly one rules string; the built-ins' strings live here so they are
+ * defined once and reused by [io.github.alexeikramm.sovereign.data.ProfileStore].
  */
 object CleanupPrompt {
 
@@ -29,7 +29,8 @@ object CleanupPrompt {
     const val MAX_TOKENS = 512
 
     /**
-     * What the model must never do: answer, explain, summarise, translate (D-022's safety core).
+     * What the model must never do: answer, explain, summarise, translate, or quote (D-022's safety
+     * core).
      *
      * The last two sentences arrived with the Rewrite profile. The no-answer rule also covers a
      * transcript that contains an instruction (prompt injection — the transcript is untrusted), and
@@ -43,56 +44,38 @@ object CleanupPrompt {
             "name, number, or the speaker's intent."
 
     /**
-     * Which editing rules a pass runs under.
+     * The default rewrite profile: restructures sentences and wording into clean, natural written
+     * prose while preserving the speaker's meaning and all facts. Exposed here so `ProfileStore`
+     * builds its built-in from the same source and no rules text is duplicated.
      */
-    enum class Variant(val label: String, val rules: String) {
-        /**
-         * The default rewrite profile: restructures sentences and wording into clean, natural written
-         * prose while preserving the speaker's meaning and all facts.
-         */
-        SMART_CLEAN(
-            label = "smart clean — restructure and polish",
-            rules = "- Rewrite the whole text into clean, natural written prose: turn the rough spoken transcript into the written form it was reaching for.\n" +
-                "- You may reorder words, restructure, split, or merge sentences, and replace wording wherever it improves grammar, clarity, or flow.\n" +
-                "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
-                "- Repair false starts, abandoned clauses, and self-corrections into complete, coherent sentences, keeping the speaker's final intent.\n" +
-                "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
-                "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
-                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
-                "- Format spoken enumerations, sequences, and list items as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
-                "- Keep the meaning exactly: never add a fact, name, number, or detail that was not spoken, and never omit or merge away an idea that was.\n" +
-                "- Keep the result close to the original length; this is a rewrite, not a summary.",
-        ),
+    const val SMART_CLEAN_RULES: String =
+        "- Rewrite the whole text into clean, natural written prose: turn the rough spoken transcript into the written form it was reaching for.\n" +
+            "- You may reorder words, restructure, split, or merge sentences, and replace wording wherever it improves grammar, clarity, or flow.\n" +
+            "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
+            "- Repair false starts, abandoned clauses, and self-corrections into complete, coherent sentences, keeping the speaker's final intent.\n" +
+            "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
+            "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
+            "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
+            "- Format spoken enumerations, sequences, and list items as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
+            "- Keep the meaning exactly: never add a fact, name, number, or detail that was not spoken, and never omit or merge away an idea that was.\n" +
+            "- Keep the result close to the original length; this is a rewrite, not a summary."
 
-        /**
-         * Conservative cleanup profile: preserves original words and phrasing. Drops vocal fillers,
-         * repairs stutters and mid-sentence self-corrections, converts spoken numbers/times/currency
-         * into digits and symbols, and formats spoken enumerations into clean markdown bullet points.
-         */
-        CONSERVATIVE(
-            label = "conservative — fillers, lists, numbers, punctuation",
-            rules = "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
-                "- Smooth out false starts, abandoned clauses, and self-corrections so sentences read cleanly and coherently.\n" +
-                "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
-                "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
-                "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
-                "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
-                "- Preserve the speaker's core message, vocabulary, and tone—do not summarize, add outside facts, or rewrite into a completely different voice.",
-        );
+    /**
+     * Conservative cleanup profile: preserves original words and phrasing. Drops vocal fillers,
+     * repairs stutters and mid-sentence self-corrections, converts spoken numbers/times/currency
+     * into digits and symbols, and formats spoken enumerations into clean markdown bullet points.
+     */
+    const val CONSERVATIVE_RULES: String =
+        "- Remove vocal fillers (\"um\", \"uh\", \"you know\", \"like\", \"kind of\", \"tota\", \"niinku\", \"tuota\"), stutters, and verbal hesitations.\n" +
+            "- Smooth out false starts, abandoned clauses, and self-corrections so sentences read cleanly and coherently.\n" +
+            "- Fix grammatical errors and restore small missing words dropped in fast speech (e.g., \"way efficient\" -> \"way more efficient\", \"listen music\" -> \"listen to music\").\n" +
+            "- Restore natural punctuation (commas after introductory phrases, compound clauses, and natural pauses) and capitalization.\n" +
+            "- Convert spoken numbers, dates, times, units, and currency into standard digits and symbols (e.g., \"one hundred and twelve\" -> \"112\", \"ten twenty AM\" -> \"10:20 AM\", \"twenty euros\" -> \"20 €\").\n" +
+            "- Format spoken enumerations, sequences, and list items (e.g., \"first... second...\", groceries, tasks) as clean markdown bullet points (\"- Item\") on new lines, preceded by an introductory colon where natural.\n" +
+            "- Preserve the speaker's core message, vocabulary, and tone—do not summarize, add outside facts, or rewrite into a completely different voice."
 
-        companion object {
-            val DEFAULT = SMART_CLEAN
-            val REWRITE: Variant get() = SMART_CLEAN
-
-            fun fromId(id: String?): Variant = when (id) {
-                "conservative" -> CONSERVATIVE
-                "smart_clean" -> SMART_CLEAN
-                "rewrite" -> SMART_CLEAN
-                "legacy_standard" -> CONSERVATIVE
-                else -> SMART_CLEAN
-            }
-        }
-    }
+    /** The ruleset used when a call site has no profile to read from. */
+    const val DEFAULT_RULES: String = SMART_CLEAN_RULES
 
     /** The two messages handed to the runtime's chat template. */
     data class Messages(val system: String, val user: String, val context: String?)
@@ -111,8 +94,7 @@ object CleanupPrompt {
         context: String? = null,
         dictionary: List<String> = emptyList(),
         dictionaryEntries: List<DictionaryEntry> = emptyList(),
-        variant: Variant = Variant.DEFAULT,
-        customRules: String? = null,
+        rules: String = DEFAULT_RULES,
         includeContext: Boolean = false,
     ): Messages {
         val system = buildString {
@@ -133,7 +115,7 @@ object CleanupPrompt {
                 append('.')
             }
             append("\n\nFormatting Rules:\n")
-            append(customRules ?: variant.rules)
+            append(rules)
         }
 
         val user = buildString {

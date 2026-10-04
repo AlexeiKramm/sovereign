@@ -13,7 +13,6 @@ import io.github.alexeikramm.sovereign.audio.WavRecorder
 import io.github.alexeikramm.sovereign.asr.ListenerTimings
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
-import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelSpec
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelStore
@@ -264,9 +263,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     /** Cold-load evidence for the cleanup model (D-010 rule 2), or an unload/failure message. */
     private val _cleanupLoad = MutableStateFlow<String?>(null)
     val cleanupLoad: StateFlow<String?> = _cleanupLoad.asStateFlow()
-
-    private val _cleanupVariant = MutableStateFlow(CleanupPrompt.Variant.DEFAULT)
-    val cleanupVariant: StateFlow<CleanupPrompt.Variant> = _cleanupVariant.asStateFlow()
 
     fun selectAsrModel(spec: AsrModelSpec) {
         if (spec.id == _selectedAsrModel.value.id) return
@@ -637,12 +633,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _cleanupEnabled = MutableStateFlow(settings.cleanupEnabled)
     val cleanupEnabled: StateFlow<Boolean> = _cleanupEnabled.asStateFlow()
 
-    fun activeProfileVariant(): CleanupPrompt.Variant {
-        return when (profileStore.activeProfile().id) {
-            "conservative" -> CleanupPrompt.Variant.CONSERVATIVE
-            else -> CleanupPrompt.Variant.SMART_CLEAN
-        }
-    }
+    fun activeProfileRules(): String = profileStore.activeProfile().rules
 
     fun toggleCleanupEnabled() {
         val updated = !settings.cleanupEnabled
@@ -1204,10 +1195,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun onCleanupVariantChange(variant: CleanupPrompt.Variant) {
-        _cleanupVariant.value = variant
-    }
-
     // ------------------------------------------------------------------ dictation
 
     fun startRecording() {
@@ -1309,7 +1296,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     val pass = cleanupEngine.clean(
                         unit = rawText,
                         context = null,
-                        variant = _cleanupVariant.value,
+                        rules = activeProfileRules(),
                     )
                     cleanedText = pass.text
                     diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = pass.text)
@@ -1557,7 +1544,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                         engine = engine(),
                         scope = this,
                         dispatcher = cleanupDispatcher,
-                        rules = { activeProfileVariant() },
+                        rules = { activeProfileRules() },
                         healingSentencesCount = { settings.healingSentencesCount },
                         onCommitted = {
                             llmDoneCount++

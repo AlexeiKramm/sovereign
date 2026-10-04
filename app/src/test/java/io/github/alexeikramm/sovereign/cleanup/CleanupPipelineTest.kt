@@ -33,7 +33,7 @@ class CleanupPipelineTest {
 
         override suspend fun load(): Result<Unit> = Result.success(Unit)
 
-        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
+        override fun startSession(rules: String) {
             sessionStarts++
         }
 
@@ -44,8 +44,7 @@ class CleanupPipelineTest {
         override suspend fun clean(
             unit: String,
             context: String?,
-            variant: CleanupPrompt.Variant,
-            customRules: String?,
+            rules: String,
         ): CleanupPass {
             reportedTokens += tokensPerPass
             contexts.add(context)
@@ -75,7 +74,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             onCommitted = { committed.add(it.text) },
         )
 
@@ -100,7 +99,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             onCommitted = {},
         )
 
@@ -122,7 +121,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             onCommitted = { commits.add(it) },
         )
 
@@ -149,7 +148,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             onCommitted = {},
         )
 
@@ -174,7 +173,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             // healingSentencesCount defaults to 0, so no seam is manufactured: append-only mode.
             onCommitted = {},
         )
@@ -196,7 +195,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             healingSentencesCount = { 2 },
             onCommitted = { commit ->
                 if (commit.overlapToDelete.isNotEmpty() && committedText.endsWith(commit.overlapToDelete)) {
@@ -233,7 +232,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             onCommitted = {},
         )
 
@@ -264,15 +263,14 @@ class CleanupPipelineTest {
             override val lastLoadMs: Long = 0L
             var sessionStarts = 0
             override suspend fun load(): Result<Unit> = Result.success(Unit)
-            override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
+            override fun startSession(rules: String) {
                 sessionStarts++
             }
 
             override suspend fun clean(
                 unit: String,
                 context: String?,
-                variant: CleanupPrompt.Variant,
-                customRules: String?,
+                rules: String,
             ): CleanupPass = CleanupPass.failed(unit, "unused")
 
             override fun unload() {}
@@ -287,7 +285,7 @@ class CleanupPipelineTest {
             engine = engine,
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
-            rules = { CleanupPrompt.Variant.SMART_CLEAN },
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
             onCommitted = {},
         )
 

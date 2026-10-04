@@ -48,7 +48,6 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.audio.WavRecorder
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
-import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.SeamHealer
 import io.github.alexeikramm.sovereign.data.AppSettings
@@ -704,10 +703,7 @@ class FloatingOverlayService : Service() {
             scope = scope,
             mainDispatcher = Dispatchers.Main.immediate,
             timings = { settings.listenerTimings() },
-            cleanupVariant = {
-                val active = profileStore.activeProfile()
-                CleanupPrompt.Variant.fromId(active.id)
-            },
+            cleanupRules = { profileStore.activeProfile().rules },
             healingSentencesCount = { settings.healingSentencesCount },
             // All three strings arrive together, so a commit clears the provisional tail in the same
             // update that shows the committed text — no separate partial channel to fall out of sync.
@@ -2383,15 +2379,12 @@ class FloatingOverlayService : Service() {
                 cleanupModelLoaded = true
             }
 
-            val activeProfile = profileStore.activeProfile()
-            val rules = if (!activeProfile.isBuiltin) activeProfile.rules else null
-            val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
+            val rules = profileStore.activeProfile().rules
 
             val pass = engine.clean(
                 unit = textToRewrite,
                 context = null, // No context prefix; rewrites the whole text cleanly
-                variant = variant,
-                customRules = rules,
+                rules = rules,
             )
 
             withContext(Dispatchers.Main.immediate) {
@@ -2562,25 +2555,16 @@ class FloatingOverlayService : Service() {
         override suspend fun clean(
             unit: String,
             context: String?,
-            variant: CleanupPrompt.Variant,
-            customRules: String?,
-        ): CleanupPass {
-            val engine = engineForUtterance()
-            val active = profileStore.activeProfile()
-            val effectiveRules = customRules ?: if (!active.isBuiltin) active.rules else null
-            return engine.clean(unit, context, variant, effectiveRules)
-        }
+            rules: String,
+        ): CleanupPass = engineForUtterance().clean(unit, context, rules)
 
         override fun unload() {
             cleanupEngine?.unload()
             cleanupModelLoaded = false
         }
 
-        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
-            val engine = engineForUtterance()
-            val active = profileStore.activeProfile()
-            val effectiveRules = customRules ?: if (!active.isBuiltin) active.rules else null
-            engine.startSession(variant, effectiveRules)
+        override fun startSession(rules: String) {
+            engineForUtterance().startSession(rules)
         }
 
         override fun closeSession() {

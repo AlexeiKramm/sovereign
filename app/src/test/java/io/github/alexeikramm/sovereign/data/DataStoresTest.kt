@@ -213,6 +213,17 @@ class DataStoresTest {
     }
 
     @Test
+    fun `a retired or unknown active profile id falls back to smart clean`() {
+        val store = ProfileStore(temp.root)
+        // Retired id: the old Rewrite profile now resolves to Smart Clean.
+        store.setActiveProfile("rewrite")
+        assertEquals("smart_clean", store.activeProfile().id)
+        // Unknown id: never crash, fall back to the first built-in.
+        store.setActiveProfile("does_not_exist")
+        assertEquals("smart_clean", store.activeProfile().id)
+    }
+
+    @Test
     fun `idle timeout options contain expected intervals and defaults`() {
         assertTrue(AppSettings.IDLE_TIMEOUT_OPTIONS.contains(0))
         assertTrue(AppSettings.IDLE_TIMEOUT_OPTIONS.contains(5))

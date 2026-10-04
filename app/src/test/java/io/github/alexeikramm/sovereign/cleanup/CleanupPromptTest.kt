@@ -4,6 +4,7 @@ import io.github.alexeikramm.sovereign.data.DictionaryEntry
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,47 +55,47 @@ class CleanupPromptTest {
     }
 
     @Test
-    fun `every variant keeps the safety core, and only the editing rules differ`() {
-        CleanupPrompt.Variant.entries.forEach { variant ->
-            val system = CleanupPrompt.build("anything", null, variant = variant).system
-            assertTrue("${variant.name} must keep the safety core", system.contains("clean and format"))
-            assertTrue("${variant.name} must carry its own rules", system.contains(variant.rules))
+    fun `every built-in ruleset keeps the safety core, and only the editing rules differ`() {
+        listOf(CleanupPrompt.SMART_CLEAN_RULES, CleanupPrompt.CONSERVATIVE_RULES).forEach { rules ->
+            val system = CleanupPrompt.build("anything", null, rules = rules).system
+            assertTrue("every built-in must keep the safety core", system.contains("clean and format"))
+            assertTrue("every built-in must carry its own rules", system.contains(rules))
         }
-        assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("filler"))
-        assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("bullet points"))
-        assertTrue(CleanupPrompt.Variant.SMART_CLEAN.rules.contains("numbers"))
+        assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("filler"))
+        assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("bullet points"))
+        assertTrue(CleanupPrompt.SMART_CLEAN_RULES.contains("numbers"))
     }
 
     @Test
-    fun `the variant labels are distinct, so the bench cannot show two identical rows`() {
-        val labels = CleanupPrompt.Variant.entries.map { it.label }
-        assertEquals(labels.size, labels.toSet().size)
-        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.DEFAULT)
-        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("smart_clean"))
-        assertEquals(CleanupPrompt.Variant.CONSERVATIVE, CleanupPrompt.Variant.fromId("conservative"))
-        // Retired profile: an unknown id must fall back to the default variant, not crash.
-        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("aggressive_rewrite"))
+    fun `the built-in rulesets are distinct, so the bench cannot show two identical rows`() {
+        assertNotEquals(CleanupPrompt.SMART_CLEAN_RULES, CleanupPrompt.CONSERVATIVE_RULES)
+        assertTrue(CleanupPrompt.SMART_CLEAN_RULES.isNotBlank())
+        assertTrue(CleanupPrompt.CONSERVATIVE_RULES.isNotBlank())
+        // The default ruleset is Smart Clean.
+        assertEquals(CleanupPrompt.SMART_CLEAN_RULES, CleanupPrompt.DEFAULT_RULES)
     }
 
     @Test
-    fun `the smart clean variant is licensed to rewrite but keeps every fact`() {
-        val rules = CleanupPrompt.Variant.SMART_CLEAN.rules
+    fun `the smart clean rules are licensed to rewrite but keep every fact`() {
+        val rules = CleanupPrompt.SMART_CLEAN_RULES
         assertTrue(rules.contains("Rewrite the whole text"))
         assertTrue(rules.contains("restructure"))
         assertTrue(rules.contains("Keep the meaning exactly"))
         assertTrue(rules.contains("not a summary"))
         assertTrue(
             "the smart clean rules must differ from conservative",
-            CleanupPrompt.Variant.SMART_CLEAN.rules != CleanupPrompt.Variant.CONSERVATIVE.rules,
+            CleanupPrompt.SMART_CLEAN_RULES != CleanupPrompt.CONSERVATIVE_RULES,
         )
-        assertEquals(CleanupPrompt.Variant.SMART_CLEAN, CleanupPrompt.Variant.fromId("rewrite"))
     }
 
     @Test
-    fun `a retired or unknown profile id falls back to the default variant`() {
-        assertEquals(CleanupPrompt.Variant.DEFAULT, CleanupPrompt.Variant.fromId("aggressive_rewrite"))
-        assertEquals(CleanupPrompt.Variant.DEFAULT, CleanupPrompt.Variant.fromId("does_not_exist"))
-        assertEquals(CleanupPrompt.Variant.DEFAULT, CleanupPrompt.Variant.fromId(null))
+    fun `build falls back to the default ruleset when none is given`() {
+        assertEquals(CleanupPrompt.SMART_CLEAN_RULES, CleanupPrompt.DEFAULT_RULES)
+        val system = CleanupPrompt.build("anything").system
+        assertTrue(
+            "an unspecified ruleset must fall back to the default",
+            system.endsWith(CleanupPrompt.DEFAULT_RULES),
+        )
     }
 
     @Test

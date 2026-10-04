@@ -31,7 +31,7 @@ class CleanupPipeline(
     private val scope: CoroutineScope,
     private val dispatcher: CoroutineDispatcher,
     /** Read per unit, so a settings change applies without a rebuild. */
-    private val rules: () -> CleanupPrompt.Variant,
+    private val rules: () -> String,
     /** Number of sentences to rewrite across pause boundaries for seam healing. */
     private val healingSentencesCount: () -> Int = { 0 },
     /** Called on [dispatcher], in order, once per unit. */

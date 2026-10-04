@@ -140,7 +140,7 @@ class LiteRtLmCleanupEngine(
         ensureLoaded().map { }
     }
 
-    override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {
+    override fun startSession(rules: String) {
         closeSession()
         sessionTurns = 0
         val eng = engine ?: return
@@ -149,8 +149,7 @@ class LiteRtLmCleanupEngine(
                 unit = "",
                 context = null,
                 dictionaryEntries = vocabulary(),
-                variant = variant,
-                customRules = customRules,
+                rules = rules,
             )
             sessionConversation = eng.createConversation(conversationConfig(promptData.system))
         } catch (_: Throwable) {
@@ -205,8 +204,7 @@ class LiteRtLmCleanupEngine(
     override suspend fun clean(
         unit: String,
         context: String?,
-        variant: CleanupPrompt.Variant,
-        customRules: String?,
+        rules: String,
     ): CleanupPass = lock.withLock {
         val eng = ensureLoaded().getOrElse { error ->
             return@withLock CleanupPass.failed(
@@ -222,7 +220,7 @@ class LiteRtLmCleanupEngine(
         // open the session so the rest of the utterance reuses the KV cache instead of rebuilding the
         // prompt (system + growing context) for every chunk.
         if (sessionConversation == null) {
-            startSession(variant, customRules)
+            startSession(rules)
         }
 
         withContext(Dispatchers.IO) {
@@ -236,8 +234,7 @@ class LiteRtLmCleanupEngine(
                 unit = unit,
                 context = context,
                 dictionaryEntries = vocabulary(),
-                variant = variant,
-                customRules = customRules,
+                rules = rules,
                 includeContext = !isSession || sessionTurns == 0,
             )
             // An active session already holds the system instruction — safety core, vocabulary and
@@ -322,7 +319,7 @@ class LiteRtLmCleanupEngine(
                     unit = unit,
                     text = cleaned,
                     cleaned = true,
-                    note = "cleaned on LiteRT-LM ($backendLabel$specTag)$cacheTag · rules: ${variant.name.lowercase()}",
+                    note = "cleaned on LiteRT-LM ($backendLabel$specTag)$cacheTag",
                     loadMs = loadMs,
                     ttftMs = actualTtftMs,
                     promptTimeMs = promptDurationMs,

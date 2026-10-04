@@ -8,7 +8,6 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.cleanup.CleanupCommit
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
-import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -44,7 +43,7 @@ class DictationPipeline(
     private val scope: CoroutineScope,
     private val mainDispatcher: CoroutineDispatcher,
     timings: () -> ListenerTimings,
-    cleanupVariant: () -> CleanupPrompt.Variant,
+    cleanupRules: () -> String,
     healingSentencesCount: () -> Int,
     /**
      * Called on [mainDispatcher] whenever the utterance's text changes — committed, raw, **or
@@ -87,7 +86,7 @@ class DictationPipeline(
         engine = cleanupEngine,
         scope = scope,
         dispatcher = cleanupDispatcher,
-        rules = cleanupVariant,
+        rules = cleanupRules,
         healingSentencesCount = healingSentencesCount,
         onCommitted = { commit -> onCleanupCommit(commit) },
     )

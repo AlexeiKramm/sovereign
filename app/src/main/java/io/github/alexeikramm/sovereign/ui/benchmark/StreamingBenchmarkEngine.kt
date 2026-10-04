@@ -5,8 +5,6 @@ import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.audio.WavReader
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
-import io.github.alexeikramm.sovereign.cleanup.CleanupPass
-import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.DictionaryStore
@@ -47,8 +45,6 @@ class StreamingBenchmarkEngine(private val context: Context) {
         val dictionaryStore = DictionaryStore(context)
         val profileStore = ProfileStore(context)
         val activeProfile = profileStore.activeProfile()
-        val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
-        val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
 
         val modelDir = cell.asrModel.directory(context.filesDir)
         check(cell.asrModel.isInstalled(modelDir)) { "${cell.asrModel.label} is not installed" }
@@ -67,7 +63,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
             speculativeDecoding = settings.litertSpeculativeDecoding && settings.litertModel.supportsSpeculativeDecoding,
             vocabulary = dictionaryStore::getEntries,
         )
-        val cleanupEngine: CleanupEngine = RulesCleanupEngine(llmDelegate, { customRules })
+        val cleanupEngine: CleanupEngine = llmDelegate
 
         val asrDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
         val cleanupDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -88,7 +84,7 @@ class StreamingBenchmarkEngine(private val context: Context) {
             scope = scope,
             mainDispatcher = mainDispatcher,
             timings = { settings.listenerTimings() },
-            cleanupVariant = { variant },
+            cleanupRules = { activeProfile.rules },
             healingSentencesCount = { cell.healingSentences },
             onText = { _, _, _ -> },
             onPartialText = { partialTimes.add(rel()) },
@@ -199,22 +195,6 @@ class StreamingBenchmarkEngine(private val context: Context) {
             cleanupDispatcher.close()
             mainDispatcher.close()
         }
-    }
-
-    /** Fills in the active profile's custom rules, which [DictationPipeline] does not carry itself. */
-    private class RulesCleanupEngine(
-        private val delegate: CleanupEngine,
-        private val rules: () -> String?,
-    ) : CleanupEngine by delegate {
-        override suspend fun clean(
-            unit: String,
-            context: String?,
-            variant: CleanupPrompt.Variant,
-            customRules: String?,
-        ): CleanupPass = delegate.clean(unit, context, variant, customRules ?: rules())
-
-        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) =
-            delegate.startSession(variant, customRules ?: rules())
     }
 
     private fun floatToS16Le(samples: FloatArray, from: Int, to: Int): ByteArray {

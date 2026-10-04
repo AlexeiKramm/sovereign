@@ -8,7 +8,6 @@ import io.github.alexeikramm.sovereign.asr.AsrModelType
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.audio.WavReader
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
-import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelSpec
 import io.github.alexeikramm.sovereign.data.DictionaryStore
@@ -242,9 +241,7 @@ class BenchmarkEngine(private val context: Context) {
 
         val profileStore = ProfileStore(context)
         val dictionaryStore = DictionaryStore(context)
-        val activeProfile = profileStore.activeProfile()
-        val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
-        val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
+        val rules = profileStore.activeProfile().rules
         val processor = if (config.computeTarget == "cpu" || !llmSpec.supportsGpu) {
             LiteRtProcessor.CPU
         } else {
@@ -308,7 +305,7 @@ class BenchmarkEngine(private val context: Context) {
             if (!config.coldReloadEachRep) {
                 onProgress(0.15f, "Warming up pipeline...")
                 persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
-                persistentLlm?.clean(unit = "warmup pass", context = null, variant = variant, customRules = customRules)
+                persistentLlm?.clean(unit = "warmup pass", context = null, rules = rules)
             } else {
                 // If coldReloadEachRep, unload now so rep 1 does a cold reload
                 unloadAsr()
@@ -343,8 +340,7 @@ class BenchmarkEngine(private val context: Context) {
                 val pass = persistentLlm!!.clean(
                     unit = rawAsr,
                     context = null,
-                    variant = variant,
-                    customRules = customRules,
+                    rules = rules,
                 )
                 val llmWallMs = pass.activeMs
                 val e2eWallMs = SystemClock.elapsedRealtime() - e2eStart
@@ -502,9 +498,7 @@ class BenchmarkEngine(private val context: Context) {
 
         val profileStore = ProfileStore(context)
         val dictionaryStore = DictionaryStore(context)
-        val activeProfile = profileStore.activeProfile()
-        val variant = CleanupPrompt.Variant.fromId(activeProfile.id)
-        val customRules = if (!activeProfile.isBuiltin) activeProfile.rules else null
+        val rules = profileStore.activeProfile().rules
         val processor = if (config.computeTarget == "cpu" || !llmSpec.supportsGpu) {
             LiteRtProcessor.CPU
         } else {
@@ -548,8 +542,7 @@ class BenchmarkEngine(private val context: Context) {
                 engine.clean(
                     unit = "warmup run",
                     context = null,
-                    variant = variant,
-                    customRules = customRules,
+                    rules = rules,
                 )
             }
 
@@ -568,8 +561,7 @@ class BenchmarkEngine(private val context: Context) {
                 val pass = engine.clean(
                     unit = prompt,
                     context = null,
-                    variant = variant,
-                    customRules = customRules,
+                    rules = rules,
                 )
                 val llmWallMs = pass.activeMs
 

@@ -115,15 +115,14 @@ class DictationPipelineTest {
 
         override suspend fun load(): Result<Unit> = Result.success(Unit)
 
-        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {}
+        override fun startSession(rules: String) {}
 
         override fun closeSession() {}
 
         override suspend fun clean(
             unit: String,
             context: String?,
-            variant: CleanupPrompt.Variant,
-            customRules: String?,
+            rules: String,
         ): CleanupPass {
             cleanCalls++
             return CleanupPass(
@@ -159,15 +158,14 @@ class DictationPipelineTest {
         fun release() = gate.complete(Unit)
 
         override suspend fun load(): Result<Unit> = Result.success(Unit)
-        override fun startSession(variant: CleanupPrompt.Variant, customRules: String?) {}
+        override fun startSession(rules: String) {}
         override fun closeSession() {}
         override fun unload() {}
 
         override suspend fun clean(
             unit: String,
             context: String?,
-            variant: CleanupPrompt.Variant,
-            customRules: String?,
+            rules: String,
         ): CleanupPass {
             gate.await()
             return CleanupPass(
@@ -240,7 +238,7 @@ class DictationPipelineTest {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
         mainDispatcher = Dispatchers.Unconfined,
         timings = { ListenerTimings() },
-        cleanupVariant = { CleanupPrompt.Variant.SMART_CLEAN },
+        cleanupRules = { CleanupPrompt.SMART_CLEAN_RULES },
         healingSentencesCount = { 0 },
         onText = onText,
         onPartialText = onPartialText,
