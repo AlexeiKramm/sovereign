@@ -61,8 +61,13 @@ class CleanupPipeline(
      * Starts an utterance. [initialTail] is any text already committed for this utterance — cleanup can
      * engage *mid-utterance*, when the model finishes loading, so the tail must start from what the user
      * already has on screen rather than from nothing (D-037).
+     *
+     * [initialContext] is **pure context** for the utterance's first unit only — never rewritten,
+     * never replaced. It is how the field-preamble feature hands the model the tail of the text
+     * already in the target field so the new text fits it (`docs/work/field-preamble-context/`).
+     * Later units send no context: the session's KV cache already holds the first turn (D-093).
      */
-    fun begin(initialTail: String = "") {
+    fun begin(initialTail: String = "", initialContext: String? = null) {
         abort()
         state.reset()
         state.seed(initialTail)
@@ -72,6 +77,8 @@ class CleanupPipeline(
         val channel = Channel<CleanupUnit>(Channel.UNLIMITED)
         queue = channel
         worker = scope.launch(dispatcher) {
+            // Consumed by the first unit and then dropped, so exactly one pass carries the preamble.
+            var pendingContext = initialContext
             for (request in channel) {
                 val unit = request.text
                 val healingCount = healingSentencesCount()
@@ -80,13 +87,13 @@ class CleanupPipeline(
                 } else null
                 val hasOverlap = seam != null && seam.strippedOverlap.isNotBlank()
                 val textToClean = if (hasOverlap) "${seam.strippedOverlap} ${unit.trim()}" else unit
-                // Continuity comes from the healed overlap itself or from the session's KV cache, so
-                // the pipeline sends no context of its own: re-stating the carried tail would be
-                // redundant, and after a rebuild it would be unbounded (D-089). The `context`
-                // parameter stays for the field-preamble feature, which supplies the target field's
-                // tail on the first unit (docs/work/field-preamble-context/).
+                // Continuity comes from the healed overlap itself, the KV cache, or the field
+                // preamble below. The pipeline manufactures no context of its own: re-stating the
+                // carried tail would be redundant, and after a rebuild it would be unbounded (D-089).
+                val context = pendingContext
+                pendingContext = null
                 val passStart = MonotonicClock.nowMs()
-                val pass = runCatching { engine.clean(textToClean, null, rules()) }
+                val pass = runCatching { engine.clean(textToClean, context, rules()) }
                     .getOrElse { error ->
                         CleanupPass.failed(
                             unit,

@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
+import io.github.alexeikramm.sovereign.cleanup.FieldPreamble
 import io.github.alexeikramm.sovereign.data.AppSettings
 
 /**
@@ -126,6 +127,36 @@ class VoiceAccessibilityService : AccessibilityService() {
             return focused
         }
         return lastFocusedNode?.takeIf { it.refresh() && it.isEditable }
+    }
+
+    /**
+     * Reads the tail of the currently focused editable field — the last [sentences] sentences before
+     * the caret — to hand the cleanup model as **pure context** for a cold-start utterance
+     * (`docs/work/field-preamble-context/`), so the new text fits what is already in the field.
+     *
+     * Returns null when no editable field is focused, the field exposes no text, or there is nothing
+     * before the caret. Editors that expose neither text nor selection (some Compose/custom fields)
+     * thus behave exactly as before. When the node reports no selection (`-1`), the end of the text is
+     * used, which matches the common "append at the end" case.
+     *
+     * `node.text` reads the whole field (O(document)); the extractor strips it down to [sentences].
+     * The caller invokes this once, at the start of an utterance, only when the user has opted in.
+     */
+    fun readFocusedFieldTail(sentences: Int): String? {
+        val node = findFocusedInputNode() ?: run {
+            Log.i(TAG, "Field preamble: no editable field focused")
+            return null
+        }
+        val text = node.text?.toString() ?: run {
+            Log.i(TAG, "Field preamble: focused field exposes no text")
+            return null
+        }
+        val cursor = node.textSelectionStart
+        val at = if (cursor >= 0) cursor else text.length
+        val tail = FieldPreamble.extract(text, at, sentences)
+        // Length only: the tail itself is the user's field content and never belongs in logcat.
+        Log.i(TAG, "Field preamble: ${tail?.length ?: 0}ch from ${text.length}ch at cursor $at")
+        return tail
     }
 
     /**

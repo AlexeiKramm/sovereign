@@ -1865,6 +1865,15 @@ class FloatingOverlayService : Service() {
         stopIdleUnload()
         stopKeyboardCloseUnload()
 
+        // Field preamble: read before anything else moves a window, while the target app still holds
+        // editable focus. A cold start has no pill memory, so the field's own tail is the only context
+        // available; a resume (fresh = false) has pill memory and must not be given a competing
+        // context. With the setting off — or cleanup off, which is the only consumer — no
+        // accessibility read happens at all.
+        val preamble = if (fresh && settings.cleanupEnabled && settings.fieldPreambleEnabled) {
+            VoiceAccessibilityService.instance?.readFocusedFieldTail(settings.healingSentencesCount)
+        } else null
+
         quickCaptureActive = quick
         recordStartedAtMs = SystemClock.elapsedRealtime()
         // The card path is the one transition that expands the window; capture the minimized state
@@ -1894,7 +1903,7 @@ class FloatingOverlayService : Service() {
             quickStatusIsError = false
         }
         reprocessActiveLlmMs = null
-        pipeline.begin(fresh = fresh, cleanupEnabled = settings.cleanupEnabled)
+        pipeline.begin(fresh = fresh, cleanupEnabled = settings.cleanupEnabled, initialContext = preamble)
 
         localEngine.applyModel(settings.asrModel, filesDir)
         localEngine.applyPauseSilence(settings.pauseSilenceSeconds)

@@ -108,6 +108,8 @@ class DictationPipelineTest {
         override val isLoaded: Boolean = true
         override val lastLoadMs: Long = 0L
         var cleanCalls = 0
+        /** The `context` argument of every `clean`, in order, so the preamble wiring is assertable. */
+        val contexts = mutableListOf<String?>()
 
         /** This fake has no cache model; explicit 0s satisfy the abstract interface members. */
         override val tokenCount: Int get() = 0
@@ -125,6 +127,7 @@ class DictationPipelineTest {
             rules: String,
         ): CleanupPass {
             cleanCalls++
+            contexts.add(context)
             return CleanupPass(
                 unit = unit,
                 text = transform(unit),
@@ -471,5 +474,38 @@ class DictationPipelineTest {
             emissions.all { it.third.isEmpty() },
         )
         assertEquals("", pipeline.provisionalText)
+    }
+
+    @Test
+    fun `a fresh utterance passes the field preamble to the first cleaned unit only`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello.", "World."))
+        val cleaner = FakeCleanupEngine()
+        val pipeline = pipeline(engine, cleaner)
+
+        pipeline.begin(fresh = true, cleanupEnabled = true, initialContext = "Earlier field text.")
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 2)
+        pipeline.finish()
+
+        // Cold start: the field tail is pure context for the first unit, then the KV cache holds it.
+        assertEquals(listOf<String?>("Earlier field text.", null), cleaner.contexts)
+    }
+
+    @Test
+    fun `a resumed utterance never uses the field preamble`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello.", "World."))
+        val cleaner = FakeCleanupEngine()
+        val pipeline = pipeline(engine, cleaner)
+
+        // fresh = false is a resume: the pill's own committed text is the context, so a supplied
+        // field preamble must be dropped rather than compete with it.
+        pipeline.begin(fresh = false, cleanupEnabled = true, initialContext = "Earlier field text.")
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 2)
+        pipeline.finish()
+
+        assertEquals(listOf<String?>(null, null), cleaner.contexts)
     }
 }

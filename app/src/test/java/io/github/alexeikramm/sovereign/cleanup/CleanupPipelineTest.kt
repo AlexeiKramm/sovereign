@@ -188,6 +188,27 @@ class CleanupPipelineTest {
     }
 
     @Test
+    fun `the initial context reaches the first unit only`() = runBlocking {
+        val engine = FakeEngine()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
+            onCommitted = {},
+        )
+
+        pipeline.begin(initialContext = "Text already in the field.")
+        pipeline.submit("first unit")
+        pipeline.submit("second unit")
+        pipeline.drain()
+
+        // Pure context for the first turn only; the session's KV cache holds it for the rest.
+        assertEquals(listOf<String?>("Text already in the field.", null), engine.contexts)
+    }
+
+    @Test
     fun `queued units during continuous dictation do not repeat earlier sentences`() = runBlocking {
         val engine = FakeEngine()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

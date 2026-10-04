@@ -119,15 +119,22 @@ class DictationPipeline(
      * Opens an utterance. [fresh] clears any text left from a previous one; [cleanupEnabled] decides
      * the routing and seeds cleanup with whatever text is already committed (so a resumed utterance
      * keeps its context — D-037).
+     *
+     * [initialContext] is the field preamble for a **cold start** — the tail of the target field,
+     * read by the service when this utterance has no pill memory (`docs/work/field-preamble-context/`).
+     * It is forwarded only when [fresh]; a resumed utterance has pill memory, so the field must not
+     * compete with it.
      */
-    fun begin(fresh: Boolean, cleanupEnabled: Boolean) {
+    fun begin(fresh: Boolean, cleanupEnabled: Boolean, initialContext: String? = null) {
         if (fresh) {
             raw.clear()
             committed.clear()
             clearProvisional()
         }
         cleanupEngaged = cleanupEnabled
-        if (cleanupEnabled) cleanup.begin(committed.toString())
+        if (cleanupEnabled) {
+            cleanup.begin(committed.toString(), initialContext = initialContext.takeIf { fresh })
+        }
     }
 
     /** Starts the ASR worker. Separate from [begin] so the service can warm the engines in between. */

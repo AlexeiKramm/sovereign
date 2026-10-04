@@ -243,6 +243,7 @@ fun SettingsScreen(
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
     val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
     val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
+    val fieldPreambleEnabled by viewModel.fieldPreambleEnabled.collectAsStateWithLifecycle()
     val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
     val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
     val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
@@ -690,6 +691,15 @@ fun SettingsScreen(
                         },
                         minusEnabled = healingSentencesCount > 1,
                         plusEnabled = healingSentencesCount < 10,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsToggleRow(
+                        title = "Read the field before dictating",
+                        subtitle = "Let cleanup read the text already in the field so your dictation fits it. Off by default — the field is read only at the start of an utterance, never later.",
+                        checked = fieldPreambleEnabled,
+                        onCheckedChange = viewModel::setFieldPreambleEnabled,
                     )
                 }
             }
