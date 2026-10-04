@@ -4,11 +4,11 @@ import io.github.alexeikramm.sovereign.data.DictionaryEntry
 
 
 /**
- * The cleanup prompt, as a pure function of (unit, context, dictionary, rules) — so its shape is
+ * The cleanup prompt, as a pure function of (unit, dictionaryEntries, rules) — so its shape is
  * pinned by tests on this machine rather than discovered on a phone, and so D-015's ordering rule has
  * one implementation:
  *
- *   stable prefix first → system core, then dictionary → then the growing part: the unit to
+ *   stable prefix first → system core, then custom vocabulary → then the growing part: the unit to
  *   transform.
  *
  * **The rules are the interesting knob.** Measured on the phone 2026-09-12, the first Finnish case came
@@ -97,7 +97,6 @@ object CleanupPrompt {
      */
     fun build(
         unit: String,
-        dictionary: List<String> = emptyList(),
         dictionaryEntries: List<DictionaryEntry> = emptyList(),
         rules: String = DEFAULT_RULES,
     ): Messages {
@@ -113,10 +112,6 @@ object CleanupPrompt {
                         append("- \"${entry.correct}\"\n")
                     }
                 }
-            } else if (dictionary.isNotEmpty()) {
-                append("\n\nSpell these terms exactly as written: ")
-                append(dictionary.joinToString(", "))
-                append('.')
             }
             append("\n\nInstructions:\n")
             append(rules)

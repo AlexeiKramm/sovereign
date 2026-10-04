@@ -23,7 +23,6 @@ import kotlinx.coroutines.launch
  */
 data class CleanupUnit(
     val text: String,
-    val seam: SeamSplit? = null,
 )
 
 class CleanupPipeline(
@@ -79,7 +78,7 @@ class CleanupPipeline(
             for (request in channel) {
                 val unit = request.text
                 val healingCount = healingSentencesCount()
-                val seam = request.seam ?: if (healingCount > 0 && state.carriedTail.isNotBlank()) {
+                val seam = if (healingCount > 0 && state.carriedTail.isNotBlank()) {
                     SeamHealer.split(state.carriedTail, healingCount)
                 } else null
                 val hasOverlap = seam != null && seam.strippedOverlap.isNotBlank()
@@ -127,15 +126,15 @@ class CleanupPipeline(
 
     /**
      * Hands one unit to the queue. Called from the ASR thread, between frames: `trySend` and a counter,
-     * nothing that can wait for the model.
+     * nothing that can wait for the model. The seam, when healing is on, is derived from the carried
+     * tail by the worker — there is no separate context to pass.
      *
      * @param unit The new text segment from ASR.
-     * @param seam Optional seam split with overlap to heal across the pause boundary.
      */
-    fun submit(unit: String, seam: SeamSplit? = null) {
+    fun submit(unit: String) {
         val channel = queue ?: return
         if (unit.isBlank()) return
-        if (channel.trySend(CleanupUnit(unit, seam)).isSuccess) {
+        if (channel.trySend(CleanupUnit(unit)).isSuccess) {
             submitted++
         }
     }

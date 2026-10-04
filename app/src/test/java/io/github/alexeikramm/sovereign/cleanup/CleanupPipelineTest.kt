@@ -121,22 +121,19 @@ class CleanupPipelineTest {
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
             rules = { CleanupPrompt.SMART_CLEAN_RULES },
+            healingSentencesCount = { 1 },
             onCommitted = { commits.add(it) },
         )
 
-        pipeline.begin()
-        val seam = SeamSplit(
-            overlapText = "driving to the supermarket.",
-            strippedOverlap = "driving to the supermarket",
-        )
-        pipeline.submit("I realized something", seam)
+        pipeline.begin(initialTail = "First sentence. Second sentence.")
+        pipeline.submit("and then some")
         pipeline.drain()
 
         assertEquals(1, commits.size)
         val commit = commits[0]
-        assertEquals("driving to the supermarket I realized something", commit.text)
-        assertEquals("driving to the supermarket.", commit.overlapToDelete)
-        org.junit.Assert.assertTrue(commit.cleaned)
+        assertEquals("Second sentence and then some", commit.text)
+        assertEquals("Second sentence.", commit.overlapToDelete)
+        assertTrue(commit.cleaned)
     }
 
     @Test
@@ -148,20 +145,17 @@ class CleanupPipelineTest {
             scope = scope,
             dispatcher = Dispatchers.Unconfined,
             rules = { CleanupPrompt.SMART_CLEAN_RULES },
+            healingSentencesCount = { 1 },
             onCommitted = {},
         )
 
-        pipeline.begin(initialTail = "Earlier committed text.")
-        val seam = SeamSplit(
-            overlapText = "driving to the supermarket.",
-            strippedOverlap = "driving to the supermarket",
-        )
-        pipeline.submit("I realized something", seam)
+        pipeline.begin(initialTail = "First sentence. Second sentence.")
+        pipeline.submit("and then some")
         pipeline.drain()
 
-        // Continuity is the overlap itself, part of the unit handed to the model; the pipeline adds
-        // no separate context (D-089, D-095).
-        assertEquals(listOf("driving to the supermarket I realized something"), engine.units)
+        // The seam overlap is part of the unit handed to the model; the pipeline adds no separate
+        // context (D-089, D-095).
+        assertEquals(listOf("Second sentence and then some"), engine.units)
     }
 
     @Test

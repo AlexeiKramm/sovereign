@@ -54,9 +54,6 @@ class LiteRtLmCleanupEngine(
     companion object {
         const val CONTEXT_TOKENS = 4096
         private const val TAG = "LiteRtLmCleanup"
-
-        /** How many characters of the context/segment the diagnostic log shows. */
-        private const val PREVIEW_CHARS = 120
     }
 
     @Volatile
@@ -239,13 +236,13 @@ class LiteRtLmCleanupEngine(
                 dictionaryEntries = vocabulary(),
                 rules = rules,
             )
-            // The diagnostic trail: which turn this is and the sizes that matter.
+            // A size-only diagnostic. The transcript itself is deliberately not logged: it is user
+            // content, and it is already available in the history store for tuning.
             Log.i(
                 TAG,
                 "pass: session=$isSession turn=$sessionTurns " +
                     "unit=${unit.length}ch user=${promptData.user.length}ch rules=${rules.length}ch",
             )
-            Log.i(TAG, "  segment: ${unit.take(PREVIEW_CHARS)}")
             // An active session already holds the system instruction — safety core, vocabulary and
             // rules — in its KV cache, so only the new segment's user message is sent. Without one,
             // build a fresh conversation (reading the dictionary as it is at this moment).

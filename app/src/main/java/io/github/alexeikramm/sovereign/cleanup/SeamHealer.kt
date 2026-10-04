@@ -95,7 +95,7 @@ object SeamHealer {
      * or by newlines. Punctuation following abbreviations (e.g. "Dr.", "esim.", "e.g.") or inside
      * decimal numbers (e.g. "3.14") is ignored.
      */
-    fun findSentenceStartIndices(text: String): List<Int> {
+    private fun findSentenceStartIndices(text: String): List<Int> {
         val firstNonWs = text.indexOfFirst { !it.isWhitespace() }
         if (firstNonWs == -1) return emptyList()
 

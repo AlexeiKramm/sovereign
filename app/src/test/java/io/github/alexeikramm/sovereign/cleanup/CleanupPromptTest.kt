@@ -131,14 +131,18 @@ class CleanupPromptTest {
     }
 
     @Test
-    fun `the prefix order is system, then dictionary, followed by the profile instructions`() {
+    fun `the prefix order is system, then custom vocabulary, followed by the profile instructions`() {
         val built = CleanupPrompt.build(
             unit = "and also book the room",
-            dictionary = listOf("Gemma", "GenieX"),
+            dictionaryEntries = listOf(
+                DictionaryEntry("Gemma", emptyList()),
+                DictionaryEntry("GenieX", emptyList()),
+            ),
         )
-        val systemDictionary = built.system.indexOf("Spell these terms exactly as written")
-        assertTrue("dictionary lives in the system message", systemDictionary > 0)
-        assertTrue("the dictionary follows the safety core", built.system.contains("Gemma, GenieX"))
+        val systemVocabulary = built.system.indexOf("Custom Vocabulary & Spelling Replacements:")
+        assertTrue("vocabulary lives in the system message", systemVocabulary > 0)
+        assertTrue("the vocabulary follows the safety core", built.system.contains("\"Gemma\""))
+        assertTrue(built.system.contains("\"GenieX\""))
     }
 
     @Test
