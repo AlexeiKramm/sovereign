@@ -166,7 +166,7 @@ class CleanupPipelineTest {
     }
 
     @Test
-    fun `an append-only pass sends the carried tail as context on the first turn`() = runBlocking {
+    fun `an append-only pass sends no carried context either`() = runBlocking {
         val engine = FakeEngine()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val pipeline = CleanupPipeline(
@@ -182,7 +182,9 @@ class CleanupPipelineTest {
         pipeline.submit("a new unit")
         pipeline.drain()
 
-        assertEquals(listOf<String?>("Earlier committed text."), engine.contexts)
+        // The pipeline holds no context of its own in any mode: an unbounded carried tail must never
+        // be handed to the model (D-089). The field-preamble feature supplies the only context.
+        assertEquals(listOf<String?>(null), engine.contexts)
     }
 
     @Test

@@ -80,16 +80,13 @@ class CleanupPipeline(
                 } else null
                 val hasOverlap = seam != null && seam.strippedOverlap.isNotBlank()
                 val textToClean = if (hasOverlap) "${seam.strippedOverlap} ${unit.trim()}" else unit
-                // When an overlap is healed, the rewritten sentences are the unit and the session's KV
-                // cache holds the earlier text, so **no** extra context is sent: re-stating the carried
-                // tail would be redundant, and after a rebuild it would be unbounded — overflowing the
-                // 4096-token cache on a long utterance (D-089). On an append-only pass (healing off)
-                // there is no overlap to carry continuity, so the carried tail is sent once on the
-                // first turn (later turns find it in the cache).
-                val contextForClean = if (hasOverlap) null else state.carriedTail.takeIf { it.isNotBlank() }
-
+                // Continuity comes from the healed overlap itself or from the session's KV cache, so
+                // the pipeline sends no context of its own: re-stating the carried tail would be
+                // redundant, and after a rebuild it would be unbounded (D-089). The `context`
+                // parameter stays for the field-preamble feature, which supplies the target field's
+                // tail on the first unit (docs/work/field-preamble-context/).
                 val passStart = MonotonicClock.nowMs()
-                val pass = runCatching { engine.clean(textToClean, contextForClean, rules()) }
+                val pass = runCatching { engine.clean(textToClean, null, rules()) }
                     .getOrElse { error ->
                         CleanupPass.failed(
                             unit,

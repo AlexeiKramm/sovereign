@@ -54,6 +54,9 @@ class LiteRtLmCleanupEngine(
     companion object {
         const val CONTEXT_TOKENS = 4096
         private const val TAG = "LiteRtLmCleanup"
+
+        /** How many characters of the context/segment the diagnostic log shows. */
+        private const val PREVIEW_CHARS = 120
     }
 
     @Volatile
@@ -143,7 +146,10 @@ class LiteRtLmCleanupEngine(
     override fun startSession(rules: String) {
         closeSession()
         sessionTurns = 0
-        val eng = engine ?: return
+        val eng = engine ?: run {
+            Log.i(TAG, "session start skipped: engine not loaded yet")
+            return
+        }
         try {
             val promptData = CleanupPrompt.build(
                 unit = "",
@@ -152,8 +158,10 @@ class LiteRtLmCleanupEngine(
                 rules = rules,
             )
             sessionConversation = eng.createConversation(conversationConfig(promptData.system))
-        } catch (_: Throwable) {
+            Log.i(TAG, "session start: preface=${promptData.system.length}ch rules=${rules.length}ch")
+        } catch (e: Throwable) {
             sessionConversation = null
+            Log.w(TAG, "session start failed: ${e.message}")
         }
     }
 
@@ -226,6 +234,7 @@ class LiteRtLmCleanupEngine(
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null
+            val includeContext = !isSession || sessionTurns == 0
             // One prompt builder for every path. Only `includeContext` differs: a standalone pass and
             // the first turn of a session must state the carried context (it is not in the KV cache
             // yet); later turns must not, because the cache already holds it and re-stating it only
@@ -235,8 +244,18 @@ class LiteRtLmCleanupEngine(
                 context = context,
                 dictionaryEntries = vocabulary(),
                 rules = rules,
-                includeContext = !isSession || sessionTurns == 0,
+                includeContext = includeContext,
             )
+            // The diagnostic trail for "which context went where": which turn this is, whether the
+            // context block was attached, and a bounded preview of the context and the segment.
+            Log.i(
+                TAG,
+                "pass: session=$isSession turn=$sessionTurns includeContext=$includeContext " +
+                    "unit=${unit.length}ch context=${context?.length?.let { "${it}ch" } ?: "none"} " +
+                    "user=${promptData.user.length}ch rules=${rules.length}ch",
+            )
+            if (!context.isNullOrBlank()) Log.i(TAG, "  context: ${context.take(PREVIEW_CHARS)}")
+            Log.i(TAG, "  segment: ${unit.take(PREVIEW_CHARS)}")
             // An active session already holds the system instruction — safety core, vocabulary and
             // rules — in its KV cache, so only the new segment's user message is sent. Without one,
             // build a fresh conversation (reading the dictionary as it is at this moment).
