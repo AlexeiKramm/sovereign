@@ -6,12 +6,14 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
 import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
+import io.github.alexeikramm.sovereign.text.FieldSeam
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -108,8 +110,6 @@ class DictationPipelineTest {
         override val isLoaded: Boolean = true
         override val lastLoadMs: Long = 0L
         var cleanCalls = 0
-        /** The `context` argument of every `clean`, in order, so the preamble wiring is assertable. */
-        val contexts = mutableListOf<String?>()
 
         /** This fake has no cache model; explicit 0s satisfy the abstract interface members. */
         override val tokenCount: Int get() = 0
@@ -123,11 +123,9 @@ class DictationPipelineTest {
 
         override suspend fun clean(
             unit: String,
-            context: String?,
             rules: String,
         ): CleanupPass {
             cleanCalls++
-            contexts.add(context)
             return CleanupPass(
                 unit = unit,
                 text = transform(unit),
@@ -167,7 +165,6 @@ class DictationPipelineTest {
 
         override suspend fun clean(
             unit: String,
-            context: String?,
             rules: String,
         ): CleanupPass {
             gate.await()
@@ -477,35 +474,38 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun `a fresh utterance passes the field preamble to the first cleaned unit only`() = runBlocking {
-        val engine = FakeAsrEngine(listOf("Hello.", "World."))
-        val cleaner = FakeCleanupEngine()
-        val pipeline = pipeline(engine, cleaner)
+    fun `a fresh cold start fits the delivered text to the field seam`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello."))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
 
-        pipeline.begin(fresh = true, cleanupEnabled = true, initialContext = "Earlier field text.")
+        pipeline.begin(
+            fresh = true,
+            cleanupEnabled = true,
+            fieldSeam = FieldSeam(endsMidSentence = true, needsSpace = true),
+        )
         pipeline.beginSession()
         pipeline.open("en")
-        feed(pipeline, 2)
+        feed(pipeline, 1)
         pipeline.finish()
 
-        // Cold start: the field tail is pure context for the first unit, then the KV cache holds it.
-        assertEquals(listOf<String?>("Earlier field text.", null), cleaner.contexts)
+        // The seam lowercases the first letter; the leading space is applied at insertion, not here.
+        assertEquals("hello.", pipeline.committedText)
+        assertEquals(FieldSeam(endsMidSentence = true, needsSpace = true), pipeline.currentFieldSeam)
     }
 
     @Test
-    fun `a resumed utterance never uses the field preamble`() = runBlocking {
-        val engine = FakeAsrEngine(listOf("Hello.", "World."))
-        val cleaner = FakeCleanupEngine()
-        val pipeline = pipeline(engine, cleaner)
+    fun `a resumed utterance keeps its own text and no field seam`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello."))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
 
-        // fresh = false is a resume: the pill's own committed text is the context, so a supplied
-        // field preamble must be dropped rather than compete with it.
-        pipeline.begin(fresh = false, cleanupEnabled = true, initialContext = "Earlier field text.")
+        // fresh = false is a resume: the pill's own text is the context, so the field seam is dropped.
+        pipeline.begin(fresh = false, cleanupEnabled = true, fieldSeam = FieldSeam(true, true))
         pipeline.beginSession()
         pipeline.open("en")
-        feed(pipeline, 2)
+        feed(pipeline, 1)
         pipeline.finish()
 
-        assertEquals(listOf<String?>(null, null), cleaner.contexts)
+        assertEquals("Hello.", pipeline.committedText)
+        assertNull(pipeline.currentFieldSeam)
     }
 }

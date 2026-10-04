@@ -22,8 +22,8 @@ class CleanupPipelineTest {
         var tokensPerPass: Int = 0
         /** Records every `onConversationRebuilt` call, for asserting the reported figures. */
         val rebuildReports = mutableListOf<Pair<Int, Int>>()
-        /** Records the `context` argument of every `clean`, in order. */
-        val contexts = mutableListOf<String?>()
+        /** Records the unit handed to every `clean`, in order. */
+        val units = mutableListOf<String>()
         override val contextTokens: Int = 2048
         override val tokenCount: Int get() = reportedTokens
 
@@ -43,11 +43,10 @@ class CleanupPipelineTest {
 
         override suspend fun clean(
             unit: String,
-            context: String?,
             rules: String,
         ): CleanupPass {
             reportedTokens += tokensPerPass
-            contexts.add(context)
+            units.add(unit)
             return CleanupPass(
                 unit = unit,
                 text = unit.trim(),
@@ -141,7 +140,7 @@ class CleanupPipelineTest {
     }
 
     @Test
-    fun `a healed overlap sends no carried context, so a rebuild cannot re-send the tail`() = runBlocking {
+    fun `a healed overlap is glued into the unit, not sent as separate context`() = runBlocking {
         val engine = FakeEngine()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val pipeline = CleanupPipeline(
@@ -160,13 +159,13 @@ class CleanupPipelineTest {
         pipeline.submit("I realized something", seam)
         pipeline.drain()
 
-        // The overlap carries local continuity, so the carried tail is deliberately not re-sent: a
-        // conversation rebuild must never be handed an unbounded context (D-089).
-        assertEquals(listOf<String?>(null), engine.contexts)
+        // Continuity is the overlap itself, part of the unit handed to the model; the pipeline adds
+        // no separate context (D-089, D-095).
+        assertEquals(listOf("driving to the supermarket I realized something"), engine.units)
     }
 
     @Test
-    fun `an append-only pass sends no carried context either`() = runBlocking {
+    fun `an append-only pass cleans the unit alone`() = runBlocking {
         val engine = FakeEngine()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val pipeline = CleanupPipeline(
@@ -182,13 +181,12 @@ class CleanupPipelineTest {
         pipeline.submit("a new unit")
         pipeline.drain()
 
-        // The pipeline holds no context of its own in any mode: an unbounded carried tail must never
-        // be handed to the model (D-089). The field-preamble feature supplies the only context.
-        assertEquals(listOf<String?>(null), engine.contexts)
+        // No seam is manufactured and no context is added: the unit is cleaned as spoken (D-089, D-095).
+        assertEquals(listOf("a new unit"), engine.units)
     }
 
     @Test
-    fun `the initial context reaches the first unit only`() = runBlocking {
+    fun `each queued unit is cleaned as its own unit, in order`() = runBlocking {
         val engine = FakeEngine()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val pipeline = CleanupPipeline(
@@ -199,13 +197,12 @@ class CleanupPipelineTest {
             onCommitted = {},
         )
 
-        pipeline.begin(initialContext = "Text already in the field.")
+        pipeline.begin()
         pipeline.submit("first unit")
         pipeline.submit("second unit")
         pipeline.drain()
 
-        // Pure context for the first turn only; the session's KV cache holds it for the rest.
-        assertEquals(listOf<String?>("Text already in the field.", null), engine.contexts)
+        assertEquals(listOf("first unit", "second unit"), engine.units)
     }
 
     @Test
@@ -292,7 +289,6 @@ class CleanupPipelineTest {
 
             override suspend fun clean(
                 unit: String,
-                context: String?,
                 rules: String,
             ): CleanupPass = CleanupPass.failed(unit, "unused")
 

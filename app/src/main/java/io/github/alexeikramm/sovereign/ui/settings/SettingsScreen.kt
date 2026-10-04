@@ -696,8 +696,8 @@ fun SettingsScreen(
                     SettingsDivider(startIndent = 0.dp)
 
                     SettingsToggleRow(
-                        title = "Read the field before dictating",
-                        subtitle = "Let cleanup read the text already in the field so your dictation fits it. Off by default — the field is read only at the start of an utterance, never later.",
+                        title = "Match the field's text",
+                        subtitle = "Join your dictation to the text already in the field (capitalisation and spacing). Off by default — the field is read only at the start of an utterance and is never sent to the model.",
                         checked = fieldPreambleEnabled,
                         onCheckedChange = viewModel::setFieldPreambleEnabled,
                     )

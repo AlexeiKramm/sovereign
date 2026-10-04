@@ -323,10 +323,11 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putInt(KEY_HEALING_SENTENCES_COUNT, value) }
 
     /**
-     * Whether a cold-start utterance is handed the tail of the focused text field as **pure context**
-     * for cleanup, so the new text fits text already in the field (`docs/work/field-preamble-context/`).
-     * The number of sentences is [healingSentencesCount]. Off by default: reading another app's field
-     * is a privacy step change, so it is opt-in. When off, the field is never read.
+     * Whether a cold-start utterance is joined to the text already in the focused field — a separating
+     * space and the first letter's case — so it reads as a continuation (`text/FieldSeam`,
+     * `docs/work/field-preamble-context/`). The field text is never sent to the model. Off by default:
+     * reading another app's field is a privacy step change, so it is opt-in. When off, the field is
+     * never read.
      */
     var fieldPreambleEnabled: Boolean
         get() = prefs.getBoolean(KEY_FIELD_PREAMBLE_ENABLED, DEFAULT_FIELD_PREAMBLE_ENABLED)

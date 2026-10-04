@@ -1308,7 +1308,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     val cleanupEngine = engine()
                     val pass = cleanupEngine.clean(
                         unit = rawText,
-                        context = null,
                         rules = activeProfileRules(),
                     )
                     cleanedText = pass.text

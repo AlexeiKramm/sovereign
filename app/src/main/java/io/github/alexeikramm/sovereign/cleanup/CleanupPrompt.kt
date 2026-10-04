@@ -8,8 +8,8 @@ import io.github.alexeikramm.sovereign.data.DictionaryEntry
  * pinned by tests on this machine rather than discovered on a phone, and so D-015's ordering rule has
  * one implementation:
  *
- *   stable prefix first → system core, then dictionary → then the growing part: cleaned context,
- *   then the unit to transform.
+ *   stable prefix first → system core, then dictionary → then the growing part: the unit to
+ *   transform.
  *
  * **The rules are the interesting knob.** Measured on the phone 2026-09-12, the first Finnish case came
  * back *identical to its input except one capital letter* — no fillers removed, no comma before "että",
@@ -86,24 +86,20 @@ object CleanupPrompt {
     const val DEFAULT_RULES: String = SMART_CLEAN_RULES
 
     /** The two messages handed to the runtime's chat template. */
-    data class Messages(val system: String, val user: String, val context: String?)
+    data class Messages(val system: String, val user: String)
 
     /**
      * Builds the one prompt this app uses. The **same** [Messages.system] is prefilled into a
-     * conversation once; the **same** [Messages.user] wording is sent for every segment.
-     *
-     * [includeContext] controls whether the carried context is re-stated in the user message. It is
-     * `true` for a standalone pass and for the first turn of a session (the context is not in the KV
-     * cache yet) and `false` for later turns of the same session, where the cache already holds it and
-     * re-stating it would only add tokens. The wording itself does not change.
+     * conversation once; the **same** [Messages.user] wording is sent for every segment. The only
+     * thing that varies is the unit itself — for the first unit of a continuation utterance that unit
+     * already carries the seam overlap (Scenario 2), it is not a separate block. The target field's
+     * text never enters the prompt (the seam is deterministic; see `text/FieldSeam`).
      */
     fun build(
         unit: String,
-        context: String? = null,
         dictionary: List<String> = emptyList(),
         dictionaryEntries: List<DictionaryEntry> = emptyList(),
         rules: String = DEFAULT_RULES,
-        includeContext: Boolean = false,
     ): Messages {
         val system = buildString {
             append(SAFETY_CORE)
@@ -126,17 +122,9 @@ object CleanupPrompt {
             append(rules)
         }
 
-        val user = buildString {
-            if (includeContext && !context.isNullOrBlank()) {
-                append("Already transformed (context — do not repeat it or transform it again):\n")
-                append(context)
-                append("\n\n")
-            }
-            append("Transform this segment using the instructions above:\n")
-            append(unit)
-        }
+        val user = "Transform this segment using the instructions above:\n$unit"
 
-        return Messages(system = system, user = user, context = context)
+        return Messages(system = system, user = user)
     }
 
 

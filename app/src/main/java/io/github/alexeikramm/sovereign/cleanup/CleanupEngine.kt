@@ -47,13 +47,11 @@ interface CleanupEngine {
     suspend fun load(): Result<Unit>
 
     /**
-     * Cleans one pause-delimited unit (D-032). `context` is the cleaned text of this utterance so
-     * far, or null on the first unit. Never throws: a pass that fails comes back with
+     * Cleans one pause-delimited unit (D-032). Never throws: a pass that fails comes back with
      * `cleaned = false` and the unit untouched.
      */
     suspend fun clean(
         unit: String,
-        context: String?,
         rules: String,
     ): CleanupPass
 

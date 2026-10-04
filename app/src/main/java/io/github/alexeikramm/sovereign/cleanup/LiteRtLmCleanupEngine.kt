@@ -153,7 +153,6 @@ class LiteRtLmCleanupEngine(
         try {
             val promptData = CleanupPrompt.build(
                 unit = "",
-                context = null,
                 dictionaryEntries = vocabulary(),
                 rules = rules,
             )
@@ -211,7 +210,6 @@ class LiteRtLmCleanupEngine(
 
     override suspend fun clean(
         unit: String,
-        context: String?,
         rules: String,
     ): CleanupPass = lock.withLock {
         val eng = ensureLoaded().getOrElse { error ->
@@ -234,27 +232,19 @@ class LiteRtLmCleanupEngine(
         withContext(Dispatchers.IO) {
             val activeConv = sessionConversation
             val isSession = activeConv != null
-            val includeContext = !isSession || sessionTurns == 0
-            // One prompt builder for every path. Only `includeContext` differs: a standalone pass and
-            // the first turn of a session must state the carried context (it is not in the KV cache
-            // yet); later turns must not, because the cache already holds it and re-stating it only
-            // adds tokens. LiteRT-LM has no prefix matching, so this split has to stay explicit.
+            // One prompt builder for every path. The wording is identical for every segment; only
+            // the unit differs (a continuation's first unit already carries its seam overlap).
             val promptData = CleanupPrompt.build(
                 unit = unit,
-                context = context,
                 dictionaryEntries = vocabulary(),
                 rules = rules,
-                includeContext = includeContext,
             )
-            // The diagnostic trail for "which context went where": which turn this is, whether the
-            // context block was attached, and a bounded preview of the context and the segment.
+            // The diagnostic trail: which turn this is and the sizes that matter.
             Log.i(
                 TAG,
-                "pass: session=$isSession turn=$sessionTurns includeContext=$includeContext " +
-                    "unit=${unit.length}ch context=${context?.length?.let { "${it}ch" } ?: "none"} " +
-                    "user=${promptData.user.length}ch rules=${rules.length}ch",
+                "pass: session=$isSession turn=$sessionTurns " +
+                    "unit=${unit.length}ch user=${promptData.user.length}ch rules=${rules.length}ch",
             )
-            if (!context.isNullOrBlank()) Log.i(TAG, "  context: ${context.take(PREVIEW_CHARS)}")
             Log.i(TAG, "  segment: ${unit.take(PREVIEW_CHARS)}")
             // An active session already holds the system instruction — safety core, vocabulary and
             // rules — in its KV cache, so only the new segment's user message is sent. Without one,

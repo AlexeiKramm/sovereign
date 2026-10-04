@@ -305,7 +305,7 @@ class BenchmarkEngine(private val context: Context) {
             if (!config.coldReloadEachRep) {
                 onProgress(0.15f, "Warming up pipeline...")
                 persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
-                persistentLlm?.clean(unit = "warmup pass", context = null, rules = rules)
+                persistentLlm?.clean(unit = "warmup pass", rules = rules)
             } else {
                 // If coldReloadEachRep, unload now so rep 1 does a cold reload
                 unloadAsr()
@@ -339,7 +339,6 @@ class BenchmarkEngine(private val context: Context) {
                 onProgress(repFraction, "Rep $rep/$totalReps: Running LLM Cleanup...")
                 val pass = persistentLlm!!.clean(
                     unit = rawAsr,
-                    context = null,
                     rules = rules,
                 )
                 val llmWallMs = pass.activeMs
@@ -541,7 +540,6 @@ class BenchmarkEngine(private val context: Context) {
                 val engine = checkNotNull(persistentLlm)
                 engine.clean(
                     unit = "warmup run",
-                    context = null,
                     rules = rules,
                 )
             }
@@ -560,7 +558,6 @@ class BenchmarkEngine(private val context: Context) {
                 val engine = checkNotNull(persistentLlm)
                 val pass = engine.clean(
                     unit = prompt,
-                    context = null,
                     rules = rules,
                 )
                 val llmWallMs = pass.activeMs

@@ -14,6 +14,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
 import io.github.alexeikramm.sovereign.cleanup.FieldPreamble
 import io.github.alexeikramm.sovereign.data.AppSettings
+import io.github.alexeikramm.sovereign.text.FieldSeam
 
 /**
  * Monitors active input fields and software keyboard (IME) visibility,
@@ -130,33 +131,34 @@ class VoiceAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Reads the tail of the currently focused editable field — the last [sentences] sentences before
-     * the caret — to hand the cleanup model as **pure context** for a cold-start utterance
-     * (`docs/work/field-preamble-context/`), so the new text fits what is already in the field.
+     * Reads the **continuation seam** of the focused editable field: whether the caret sits after a
+     * sentence end or mid-sentence, and whether the insertion needs a separating space
+     * (`text/FieldSeam`, `docs/work/field-preamble-context/`). The model never sees the field text;
+     * this seam drives a deterministic join instead.
      *
-     * Returns null when no editable field is focused, the field exposes no text, or there is nothing
-     * before the caret. Editors that expose neither text nor selection (some Compose/custom fields)
-     * thus behave exactly as before. When the node reports no selection (`-1`), the end of the text is
-     * used, which matches the common "append at the end" case.
-     *
-     * `node.text` reads the whole field (O(document)); the extractor strips it down to [sentences].
-     * The caller invokes this once, at the start of an utterance, only when the user has opted in.
+     * Returns null when no editable field is focused, it exposes no text, or there is nothing before
+     * the caret (editors that expose neither text nor selection behave exactly as before). When the
+     * node reports no selection (`-1`), the end of the text is used, matching the common "append at
+     * the end" case. `node.text` reads the whole field (O(document)); the caller invokes this once,
+     * at the start of an opted-in utterance.
      */
-    fun readFocusedFieldTail(sentences: Int): String? {
+    fun readFieldSeam(): FieldSeam? {
         val node = findFocusedInputNode() ?: run {
-            Log.i(TAG, "Field preamble: no editable field focused")
+            Log.i(TAG, "Field seam: no editable field focused")
             return null
         }
         val text = node.text?.toString() ?: run {
-            Log.i(TAG, "Field preamble: focused field exposes no text")
+            Log.i(TAG, "Field seam: focused field exposes no text")
             return null
         }
         val cursor = node.textSelectionStart
         val at = if (cursor >= 0) cursor else text.length
-        val tail = FieldPreamble.extract(text, at, sentences)
-        // Length only: the tail itself is the user's field content and never belongs in logcat.
-        Log.i(TAG, "Field preamble: ${tail?.length ?: 0}ch from ${text.length}ch at cursor $at")
-        return tail
+        val tail = FieldPreamble.extract(text, at, sentences = 1) ?: return null
+        val endsMidSentence = tail.last() !in SENTENCE_ENDERS
+        val needsSpace = at > 0 && !text[at - 1].isWhitespace()
+        // Booleans only: the field's text itself never belongs in logcat.
+        Log.i(TAG, "Field seam: endsMidSentence=$endsMidSentence needsSpace=$needsSpace (field ${text.length}ch, cursor $at)")
+        return FieldSeam(endsMidSentence = endsMidSentence, needsSpace = needsSpace)
     }
 
     /**
@@ -203,6 +205,9 @@ class VoiceAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "VoiceAccessibility"
+
+        /** Punctuation that ends a sentence, so the text after it starts a new one. */
+        private val SENTENCE_ENDERS = setOf('.', '!', '?', '…')
 
         @Volatile
         var instance: VoiceAccessibilityService? = null
