@@ -71,10 +71,14 @@ object LiteRtLmModels {
         sampling = SamplingParams(temperature = 0.2, topK = 64, topP = 0.95, seed = 0),
     )
 
-    /** Obsolete: Pruned per D-055 (matches E2B quality with 3x slower throughput and 13s cold load). */
+    /**
+     * Re-enabled 2026-10-04 for an on-device quality comparison against E2B. D-055 pruned it (roughly
+     * E2B-level quality at ~3x slower throughput and a ~13 s cold load); it is selectable again so the
+     * quality/speed trade-off can be judged with the retuned Smart Clean prompt rather than on paper.
+     */
     val GEMMA_4_E4B = LiteRtLmModelSpec(
         id = "gemma-4-e4b",
-        label = "Gemma4 E4B [Pruned]",
+        label = "Gemma4 E4B",
         repository = "litert-community/gemma-4-E4B-it-litert-lm",
         fileName = "gemma-4-E4B-it.litertlm",
         sha256 = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
@@ -105,6 +109,7 @@ object LiteRtLmModels {
      */
     val ALL: List<LiteRtLmModelSpec> = listOf(
         GEMMA_4_E2B,
+        GEMMA_4_E4B,
     )
 
     val DEFAULT: LiteRtLmModelSpec get() = ALL.first()

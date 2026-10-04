@@ -196,7 +196,6 @@ class BackupManagerTest {
         // Verify profiles replaced
         val loadedProfiles = profileStore.allProfiles()
         assertTrue(loadedProfiles.any { it.id == "smart_clean" && it.isBuiltin })
-        assertTrue(loadedProfiles.any { it.id == "conservative" && it.isBuiltin })
         assertTrue(loadedProfiles.any { it.id == "custom_restored" && !it.isBuiltin })
         assertFalse(loadedProfiles.any { it.id == "custom_initial" })
         assertEquals("custom_restored", profileStore.activeProfile().id)
