@@ -30,6 +30,7 @@ data class SettingsBackup(
     val unloadOnKeyboardClose: Boolean = AppSettings.DEFAULT_UNLOAD_KEYBOARD_CLOSE,
     val modelIdleTimeoutMinutes: Int = AppSettings.DEFAULT_IDLE_TIMEOUT_MIN,
     val healingSentencesCount: Int = AppSettings.DEFAULT_HEALING_SENTENCES_COUNT,
+    val maxTurns: Int = AppSettings.DEFAULT_MAX_TURNS,
     val floatingPillEnabled: Boolean = AppSettings.DEFAULT_FLOATING_PILL_ENABLED,
     val floatingPillOnlyWhenKeyboardOpen: Boolean = AppSettings.DEFAULT_FLOATING_PILL_ONLY_KEYBOARD,
     val floatingPillAutoCommit: Boolean = AppSettings.DEFAULT_FLOATING_PILL_AUTO_COMMIT,

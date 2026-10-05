@@ -223,6 +223,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _healingSentencesCount = MutableStateFlow(settings.healingSentencesCount)
     val healingSentencesCount: StateFlow<Int> = _healingSentencesCount.asStateFlow()
 
+    private val _maxTurns = MutableStateFlow(settings.maxTurns)
+    val maxTurns: StateFlow<Int> = _maxTurns.asStateFlow()
+
     /** What a timing change actually did, said out loud — notably that one of them rebuilds the model. */
     private val _timingNote = MutableStateFlow<String?>(null)
     val timingNote: StateFlow<String?> = _timingNote.asStateFlow()
@@ -539,10 +542,18 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         settings.healingSentencesCount = clamped
     }
 
+    /** 0 = no turn limit; up to 8 segments. See [AppSettings.maxTurns]. */
+    fun onMaxTurnsChange(value: Int) {
+        val clamped = value.coerceIn(0, 8)
+        _maxTurns.value = clamped
+        settings.maxTurns = clamped
+    }
+
     fun resetTimingsToDefaults() {
         onPauseFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_PAUSE_SILENCE_S))
         onStopFieldChange(ListenerTimings.formatSeconds(AppSettings.DEFAULT_STOP_AFTER_SILENCE_S))
         onHealingSentencesCountChange(AppSettings.DEFAULT_HEALING_SENTENCES_COUNT)
+        onMaxTurnsChange(AppSettings.DEFAULT_MAX_TURNS)
     }
 
     // ------------------------------------------------------------------ Floating Dictation Pill
@@ -781,6 +792,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _pauseField.value = field(settings.pauseSilenceSeconds)
         _stopField.value = field(settings.stopAfterSilenceSeconds)
         _healingSentencesCount.value = settings.healingSentencesCount
+        _maxTurns.value = settings.maxTurns
         _floatingPillEnabled.value = settings.floatingPillEnabled
         _floatingPillOnlyWhenKeyboardOpen.value = settings.floatingPillOnlyWhenKeyboardOpen
         _floatingPillAutoCommit.value = settings.floatingPillAutoCommit
@@ -1545,6 +1557,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                         dispatcher = cleanupDispatcher,
                         rules = { activeProfileRules() },
                         healingSentencesCount = { settings.healingSentencesCount },
+                        maxTurns = { settings.maxTurns },
                         onCommitted = {
                             llmDoneCount++
                             reportProgress()

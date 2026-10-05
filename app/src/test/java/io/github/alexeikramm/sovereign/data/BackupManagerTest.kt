@@ -51,6 +51,7 @@ class BackupManagerTest {
             unloadOnKeyboardClose = false,
             modelIdleTimeoutMinutes = 5,
             healingSentencesCount = 4,
+            maxTurns = 5,
             floatingPillEnabled = true,
             floatingPillOnlyWhenKeyboardOpen = false,
             floatingPillAutoCommit = true,

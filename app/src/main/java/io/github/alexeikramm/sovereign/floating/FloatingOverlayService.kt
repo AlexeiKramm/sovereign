@@ -705,6 +705,7 @@ class FloatingOverlayService : Service() {
             timings = { settings.listenerTimings() },
             cleanupRules = { profileStore.activeProfile().rules },
             healingSentencesCount = { settings.healingSentencesCount },
+            maxTurns = { settings.maxTurns },
             // All three strings arrive together, so a commit clears the provisional tail in the same
             // update that shows the committed text — no separate partial channel to fall out of sync.
             onText = { committed, raw, provisional ->

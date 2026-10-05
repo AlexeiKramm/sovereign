@@ -75,6 +75,7 @@ object BackupManager {
             unloadOnKeyboardClose = settings.unloadOnKeyboardClose,
             modelIdleTimeoutMinutes = settings.modelIdleTimeoutMinutes,
             healingSentencesCount = settings.healingSentencesCount,
+            maxTurns = settings.maxTurns,
             floatingPillEnabled = settings.floatingPillEnabled,
             floatingPillOnlyWhenKeyboardOpen = settings.floatingPillOnlyWhenKeyboardOpen,
             floatingPillAutoCommit = settings.floatingPillAutoCommit,
@@ -170,6 +171,7 @@ object BackupManager {
         settings.unloadOnKeyboardClose = s.unloadOnKeyboardClose
         settings.modelIdleTimeoutMinutes = s.modelIdleTimeoutMinutes
         settings.healingSentencesCount = s.healingSentencesCount
+        settings.maxTurns = s.maxTurns
         settings.floatingPillEnabled = s.floatingPillEnabled
         settings.floatingPillOnlyWhenKeyboardOpen = s.floatingPillOnlyWhenKeyboardOpen
         settings.floatingPillAutoCommit = s.floatingPillAutoCommit

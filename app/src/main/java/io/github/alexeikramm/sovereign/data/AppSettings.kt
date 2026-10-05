@@ -322,6 +322,16 @@ class AppSettings(context: Context) {
         get() = prefs.getInt(KEY_HEALING_SENTENCES_COUNT, DEFAULT_HEALING_SENTENCES_COUNT)
         set(value) = prefs.edit { putInt(KEY_HEALING_SENTENCES_COUNT, value) }
 
+    /**
+     * Rebuild the cleanup conversation after this many segments even when the KV cache is not near
+     * full. 0 means no turn limit: one conversation until the cache triggers a rebuild, which is the
+     * old behaviour. Default 2 — a small cleanup model drifts as its context fills (Cleanup Lab,
+     * D-101), so a short cap holds filler-removal quality on long dictations.
+     */
+    var maxTurns: Int
+        get() = prefs.getInt(KEY_MAX_TURNS, DEFAULT_MAX_TURNS)
+        set(value) = prefs.edit { putInt(KEY_MAX_TURNS, value) }
+
     /** Whether the Wispr Flow floating dictation pill overlay is enabled. */
     var floatingPillEnabled: Boolean
         get() = prefs.getBoolean(KEY_FLOATING_PILL_ENABLED, DEFAULT_FLOATING_PILL_ENABLED)
@@ -507,6 +517,7 @@ class AppSettings(context: Context) {
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
         private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
+        private const val KEY_MAX_TURNS = "cleanup_max_turns"
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
         private const val KEY_FLOATING_PILL_ONLY_KEYBOARD = "floating_pill_only_keyboard"
         private const val KEY_FLOATING_PILL_AUTO_COMMIT = "floating_pill_auto_commit"
@@ -564,6 +575,8 @@ class AppSettings(context: Context) {
         const val MIN_PILL_SNAP_DAMPING = 0.5f
         const val MAX_PILL_SNAP_DAMPING = 1.5f
         const val DEFAULT_HEALING_SENTENCES_COUNT = 3
+        /** Turn cap for the cleanup conversation; 0 = no limit. See [AppSettings.maxTurns]. */
+        const val DEFAULT_MAX_TURNS = 2
         const val DEFAULT_ONBOARDING_COMPLETED = false
 
         const val DEFAULT_LITERT_SPECULATIVE_DECODING = true

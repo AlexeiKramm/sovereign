@@ -257,6 +257,7 @@ fun SettingsScreen(
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
     val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
     val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
+    val maxTurns by viewModel.maxTurns.collectAsStateWithLifecycle()
     val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
     val unloadOnScreenOff by viewModel.unloadOnScreenOff.collectAsStateWithLifecycle()
     val unloadOnKeyboardClose by viewModel.unloadOnKeyboardClose.collectAsStateWithLifecycle()
@@ -704,6 +705,19 @@ fun SettingsScreen(
                         },
                         minusEnabled = healingSentencesCount > 1,
                         plusEnabled = healingSentencesCount < 10,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsStepperRow(
+                        title = "Conversation turn limit",
+                        subtitle = "Rebuild the cleanup conversation every N segments; the model drifts " +
+                            "once its context fills. Off keeps one conversation until the cache is full.",
+                        valueLabel = if (maxTurns == 0) "off" else "$maxTurns",
+                        onMinusClick = { if (maxTurns > 0) viewModel.onMaxTurnsChange(maxTurns - 1) },
+                        onPlusClick = { if (maxTurns < 8) viewModel.onMaxTurnsChange(maxTurns + 1) },
+                        minusEnabled = maxTurns > 0,
+                        plusEnabled = maxTurns < 8,
                     )
                 }
             }
