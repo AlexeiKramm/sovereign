@@ -35,6 +35,10 @@ app/libs/*.aar
 # Spike payloads: GenieX bench bundle is fetched from its GitHub release, not committed
 tools/*.tar.gz
 
+# Python tool bytecode (tools/*.py)
+__pycache__/
+*.pyc
+
 # VS Code Counter
 .VSCodeCounter/
 
