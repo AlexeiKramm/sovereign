@@ -409,6 +409,15 @@ fun SettingsScreen(
 
                     SettingsDivider(startIndent = 0.dp)
 
+                    SettingsToggleRow(
+                        title = "Show streaming text while speaking",
+                        subtitle = "Displays live text as you speak (streaming models only; ignored by offline models)",
+                        checked = streamingPreviewEnabled,
+                        onCheckedChange = viewModel::setStreamingPreviewEnabled,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
                     SettingsStepperRow(
                         title = "Pause sensitivity",
                         subtitle = "How long you can pause before speech splits into a new chunk",
@@ -533,15 +542,6 @@ fun SettingsScreen(
                         subtitle = "Prevent display from dimming or locking during dictation",
                         checked = keepScreenOnWhileRecording,
                         onCheckedChange = viewModel::onKeepScreenOnWhileRecordingChange,
-                    )
-
-                    SettingsDivider(startIndent = 0.dp)
-
-                    SettingsToggleRow(
-                        title = "Show streaming text while speaking",
-                        subtitle = "Displays live text as you speak (streaming models only; ignored by offline models)",
-                        checked = streamingPreviewEnabled,
-                        onCheckedChange = viewModel::setStreamingPreviewEnabled,
                     )
 
                     SettingsDivider(startIndent = 0.dp)
