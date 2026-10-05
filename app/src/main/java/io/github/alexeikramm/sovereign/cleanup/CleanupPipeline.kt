@@ -146,8 +146,16 @@ class CleanupPipeline(
                 }
 
                 lastPass = finalPass
-                val effectiveSeam = if (finalPass.cleaned) seam else null
-                onCommitted(state.onPass(finalPass, effectiveSeam))
+                // A pass that FAILED with seam healing carries `textToClean` (overlap included) as its
+                // unit. Committing that with the seam dropped would append the overlap a second time, so
+                // fail closed on the new unit only — the words the user just spoke, shown once.
+                val settledPass = if (hasOverlap && !finalPass.cleaned) {
+                    CleanupPass.failed(unit, finalPass.note, activeMs = finalPass.activeMs)
+                } else {
+                    finalPass
+                }
+                val effectiveSeam = if (settledPass.cleaned) seam else null
+                onCommitted(state.onPass(settledPass, effectiveSeam))
 
                 // Conversation policy. `turnsInConversation` is the count *before* this pass's rebuild
                 // decision, which is what a quality-vs-position plot wants on the x-axis. The turn rule
@@ -164,19 +172,19 @@ class CleanupPipeline(
                     CleanupPassTelemetry(
                         index = ++passIndex,
                         unit = textToClean,
-                        cleanedText = finalPass.text,
-                        cleaned = finalPass.cleaned,
+                        cleanedText = settledPass.text,
+                        cleaned = settledPass.cleaned,
                         tokensBefore = tokensBefore,
                         tokensAfter = tokensAfter,
                         turnsInConversation = turnsSinceRebuild,
                         rebuiltAfter = reason != null,
                         rebuildReason = reason,
-                        activeMs = finalPass.activeMs,
-                        ttftMs = finalPass.ttftMs,
-                        decodeTimeMs = finalPass.decodeTimeMs,
-                        promptTokens = finalPass.promptTokens,
-                        generatedTokens = finalPass.generatedTokens,
-                        note = finalPass.note,
+                        activeMs = settledPass.activeMs,
+                        ttftMs = settledPass.ttftMs,
+                        decodeTimeMs = settledPass.decodeTimeMs,
+                        promptTokens = settledPass.promptTokens,
+                        generatedTokens = settledPass.generatedTokens,
+                        note = settledPass.note,
                     ),
                 )
 

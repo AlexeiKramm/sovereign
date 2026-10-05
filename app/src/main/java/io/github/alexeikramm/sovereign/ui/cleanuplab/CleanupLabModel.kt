@@ -71,6 +71,8 @@ data class LabUnitResult(
     val modelInput: String = rawUnit,
     val cleanedUnit: String,
     val cleanedOk: Boolean,
+    /** The engine's note for this pass (why it failed, cache hit, etc.). */
+    val note: String = "",
     val tokensBefore: Int,
     val tokensAfter: Int,
     val turnsInConversation: Int,

@@ -1,6 +1,7 @@
 package io.github.alexeikramm.sovereign.ui.cleanuplab
 
 import android.content.Context
+import android.util.Log
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
@@ -20,6 +21,7 @@ import io.github.alexeikramm.sovereign.engine.MonotonicClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
@@ -92,9 +94,15 @@ class CleanupLabEngine(private val context: Context) {
             onProgress(LabProgress("Transcribing", 1f, "Settling the last unit…"))
             pipeline.finish()
             withContext(probes.mainDispatcher) { /* flush queued callbacks */ }
+            Log.i(
+                TAG,
+                "Phase A done: units=${probes.units.size} dropped=${pipeline.droppedFrames} " +
+                    "audio=${String.format(java.util.Locale.US, "%.1f", totalSec)}s",
+            )
         } finally {
             pipeline.abort()
-            withContext(Dispatchers.IO) { runCatching { asr.unload() } }
+            // NonCancellable: a cancelled run must still release the model and the executor threads.
+            withContext(NonCancellable + Dispatchers.IO) { runCatching { asr.unload() } }
             probes.close()
         }
 
@@ -156,11 +164,19 @@ class CleanupLabEngine(private val context: Context) {
             probes.close()
             scope.cancel()
             cleanupDispatcher.close()
-            withContext(Dispatchers.IO) { runCatching { llm.unload() } }
+            // NonCancellable so a cancelled run still releases the LLM.
+            withContext(NonCancellable + Dispatchers.IO) { runCatching { llm.unload() } }
         }
         val wallMs = MonotonicClock.nowMs() - startedAt
 
         val units = alignUnits(unitSet, telemetry)
+        if (telemetry.size != unitSet.units.size) {
+            Log.w(
+                TAG,
+                "Phase B alignment mismatch: ${telemetry.size} passes for ${unitSet.units.size} units — " +
+                    "per-unit metrics cover only the first ${telemetry.size}",
+            )
+        }
         val rawText = unitSet.rawText
         // The assembled committed text, not a join of per-pass outputs: with seam healing the model's
         // reply repeats the overlap, and it is the pipeline's `overlapToDelete` bookkeeping (inside
@@ -236,9 +252,14 @@ class CleanupLabEngine(private val context: Context) {
             onProgress(LabProgress("Replaying", 1f, "Draining the last cleanup pass…"))
             pipeline.finish()
             withContext(probes.mainDispatcher) { /* flush queued callbacks */ }
+            Log.i(
+                TAG,
+                "Full replay done: units=${probes.units.size} dropped=${pipeline.droppedFrames} " +
+                    "telemetry=${telemetry.size} audio=${String.format(java.util.Locale.US, "%.1f", totalSec)}s",
+            )
         } finally {
             pipeline.abort()
-            withContext(Dispatchers.IO) {
+            withContext(NonCancellable + Dispatchers.IO) {
                 runCatching { asr.unload() }
                 runCatching { llm.unload() }
             }
@@ -246,6 +267,12 @@ class CleanupLabEngine(private val context: Context) {
         }
         val wallMs = MonotonicClock.nowMs() - startedAt
 
+        if (telemetry.size != probes.units.size) {
+            Log.w(
+                TAG,
+                "Full replay alignment mismatch: ${telemetry.size} passes for ${probes.units.size} cuts",
+            )
+        }
         val units = probes.units.mapIndexedNotNull { i, cut ->
             val pass = telemetry.getOrNull(i) ?: return@mapIndexedNotNull null
             LabUnitResult(
@@ -254,6 +281,7 @@ class CleanupLabEngine(private val context: Context) {
                 modelInput = pass.unit,
                 cleanedUnit = pass.cleanedText,
                 cleanedOk = pass.cleaned,
+                note = pass.note,
                 tokensBefore = pass.tokensBefore,
                 tokensAfter = pass.tokensAfter,
                 turnsInConversation = pass.turnsInConversation,
@@ -303,21 +331,28 @@ class CleanupLabEngine(private val context: Context) {
         maxTurns: Int,
         probes: Probes,
         onPass: (CleanupPassTelemetry) -> Unit = {},
-    ): DictationPipeline = DictationPipeline(
-        asrEngine = asr,
-        asrDispatcher = probes.asrDispatcher,
-        cleanupEngine = cleanup,
-        cleanupDispatcher = probes.cleanupDispatcher,
-        scope = probes.scope,
-        mainDispatcher = probes.mainDispatcher,
-        timings = { settings.listenerTimings() },
-        cleanupRules = rules,
-        healingSentencesCount = { healing },
-        maxTurns = { maxTurns },
-        onText = { _, _, _ -> },
-        onUnitCut = { text -> probes.onCut(text) },
-        onCleanupPass = onPass,
-    )
+    ): DictationPipeline {
+        val pipeline = DictationPipeline(
+            asrEngine = asr,
+            asrDispatcher = probes.asrDispatcher,
+            cleanupEngine = cleanup,
+            cleanupDispatcher = probes.cleanupDispatcher,
+            scope = probes.scope,
+            mainDispatcher = probes.mainDispatcher,
+            timings = { settings.listenerTimings() },
+            cleanupRules = rules,
+            healingSentencesCount = { healing },
+            maxTurns = { maxTurns },
+            onText = { _, _, _ -> },
+            onUnitCut = { text -> probes.onCut(text) },
+            onCleanupPass = onPass,
+        )
+        // Cut timestamps come from the ASR session's own audio clock, not the feed loop's position. With
+        // a backpressured queue the feed runs ahead of the decode by up to the queue depth (~51 s), so
+        // the feed's idea of "elapsed audio" would mislabel every unit.
+        probes.processedAudioSeconds = { pipeline.boundaryState.seconds }
+        return pipeline
+    }
 
     /** Align per-pass telemetry with the cached raw units, in order. */
     private fun alignUnits(
@@ -331,6 +366,7 @@ class CleanupLabEngine(private val context: Context) {
             modelInput = pass.unit,
             cleanedUnit = pass.cleanedText,
             cleanedOk = pass.cleaned,
+            note = pass.note,
             tokensBefore = pass.tokensBefore,
             tokensAfter = pass.tokensAfter,
             turnsInConversation = pass.turnsInConversation,
@@ -358,7 +394,7 @@ class CleanupLabEngine(private val context: Context) {
             val end = minOf(index + frameSamples, samples.size)
             probes.audioSeconds = end.toFloat() / AsrModels.SAMPLE_RATE
             val pcm = floatToS16Le(samples, index, end)
-            pipeline.onFrames(pcm, pcm.size)
+            pipeline.onFramesSuspending(pcm, pcm.size)
             index = end
             onProgress(probes.audioSeconds)
         }
@@ -389,14 +425,18 @@ class CleanupLabEngine(private val context: Context) {
         @Volatile
         var audioSeconds: Float = 0f
 
+        /** Reads the ASR session's processed audio clock; wired to the pipeline after it is built. */
+        @Volatile
+        var processedAudioSeconds: () -> Double = { 0.0 }
+
         private var lastEnd = 0f
 
         @Synchronized
         fun onCut(text: String) {
             if (text.isBlank()) return
-            val start = lastEnd
-            lastEnd = audioSeconds
-            units.add(CutUnit(text = text, startSeconds = start, endSeconds = audioSeconds))
+            val end = processedAudioSeconds().toFloat()
+            units.add(CutUnit(text = text, startSeconds = lastEnd, endSeconds = end))
+            lastEnd = end
         }
 
         fun close() {
@@ -405,6 +445,10 @@ class CleanupLabEngine(private val context: Context) {
             cleanupDispatcher.close()
             mainDispatcher.close()
         }
+    }
+
+    private companion object {
+        const val TAG = "CleanupLab"
     }
 
     /** A cleanup engine that does nothing: Phase A runs the ASR path without loading an LLM. */

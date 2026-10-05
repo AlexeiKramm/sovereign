@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -139,15 +139,22 @@ fun CleanupLabScreen(
         )
     }
 
+    val fixtureReady = fixtures.firstOrNull { it.id == fixtureId }?.exists(context) == true
+
     fun buildUnitsThenRun(full: Boolean) {
+        // Snapshot every selection up front so changing a chip mid-run cannot record a config the run
+        // did not actually use, or pair Phase-A units from one fixture with another's id.
+        val fixture = fixture()
+        val asrModel = asr()
+        val pause = settings.pauseSilenceSeconds
+        val runConfig = config(pause)
         launch {
-            val pause = settings.pauseSilenceSeconds
-            val set = unitSet ?: engine.buildUnitSet(fixture(), asr(), pause) { progress = it }
+            val set = unitSet ?: engine.buildUnitSet(fixture, asrModel, pause) { progress = it }
                 .also { unitSet = it }
             val result = if (full) {
-                engine.runFullReplay(fixture(), asr(), pause, config(pause)) { progress = it }
+                engine.runFullReplay(fixture, asrModel, pause, runConfig) { progress = it }
             } else {
-                engine.runCleanup(set, config(set.pauseSeconds)) { progress = it }
+                engine.runCleanup(set, runConfig) { progress = it }
             }
             runs = listOf(result) + runs
             CleanupLabCsv.append(context, result)
@@ -252,29 +259,33 @@ fun CleanupLabScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { launch {
+                        onClick = {
+                            val fixture = fixture()
+                            val asrModel = asr()
                             val pause = settings.pauseSilenceSeconds
-                            progress = LabProgress("Preparing", 0f, "Phase A")
-                            unitSet = engine.buildUnitSet(fixture(), asr(), pause) { progress = it }
-                            progress = LabProgress("Done", 1f, "${unitSet?.units?.size ?: 0} units cached")
-                        } },
+                            launch {
+                                progress = LabProgress("Preparing", 0f, "Phase A")
+                                unitSet = engine.buildUnitSet(fixture, asrModel, pause) { progress = it }
+                                progress = LabProgress("Done", 1f, "${unitSet?.units?.size ?: 0} units cached")
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         shape = CircleShape,
-                        enabled = !running && asrModels.isNotEmpty(),
+                        enabled = !running && fixtureReady && asrModels.isNotEmpty(),
                     ) { Text("Build units (Phase A)", fontWeight = FontWeight.SemiBold) }
 
                     Button(
                         onClick = { buildUnitsThenRun(full = false) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = CircleShape,
-                        enabled = !running && llmModels.isNotEmpty() && asrModels.isNotEmpty(),
+                        enabled = !running && fixtureReady && llmModels.isNotEmpty() && asrModels.isNotEmpty(),
                     ) { Text("Run cleanup on cached units (Phase B)", fontWeight = FontWeight.SemiBold) }
 
                     OutlinedButton(
                         onClick = { buildUnitsThenRun(full = true) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = CircleShape,
-                        enabled = !running && llmModels.isNotEmpty() && asrModels.isNotEmpty(),
+                        enabled = !running && fixtureReady && llmModels.isNotEmpty() && asrModels.isNotEmpty(),
                     ) { Text("Full replay (audio → cleaned)", fontWeight = FontWeight.SemiBold) }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -326,7 +337,7 @@ fun CleanupLabScreen(
                     Text("Results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
             }
-            items(runs, key = { "${it.config.label}:${it.wallMs}:${it.units.size}" }) { result ->
+            itemsIndexed(runs, key = { index, run -> "$index:${run.config.label}:${run.wallMs}" }) { _, result ->
                 RunCard(result)
             }
         }

@@ -181,6 +181,28 @@ class LocalAsrSession(
     }
 
     /**
+     * Suspending variant of [onFrames] for **offline replay**: the caller is not a real-time capture
+     * thread and can afford backpressure, so a frame waits for queue space instead of being dropped.
+     *
+     * Live capture must never block (hence `trySend`), but an unpaced replay through [onFrames] would
+     * overflow the bounded queue (512 frames ≈ 51 s) the moment the ASR worker falls behind — which is
+     * exactly what silently truncated a 33-minute Cleanup Lab run to ~51 s of audio.
+     */
+    suspend fun onFramesSuspending(bytes: ByteArray, count: Int) {
+        if (count <= 0) return
+        val queue = this.queue ?: return
+        val frame = AudioFrames.toFloat(bytes, count)
+        if (queue.trySend(frame).isSuccess) return
+        // Full: wait for the worker. A closed queue means the utterance ended mid-feed; count it so the
+        // loss is visible rather than silent.
+        try {
+            queue.send(frame)
+        } catch (_: Exception) {
+            droppedFrames++
+        }
+    }
+
+    /**
      * Closes the queue, waits for the drain loop (so every frame has been fed), flushes, and emits the
      * final unit through [onUnit]. The returned text is the complete utterance, units and tail joined.
      */

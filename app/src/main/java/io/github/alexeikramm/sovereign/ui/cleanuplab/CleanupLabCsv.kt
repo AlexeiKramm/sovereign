@@ -28,10 +28,11 @@ object CleanupLabCsv {
         "llm_active_ms", "raw_text", "cleaned_text",
     )
     private val UNIT_COLUMNS = listOf(
-        "timestamp", "fixture_id", "llm_model", "max_turns", "healing", "unit_index",
-        "audio_start_s", "audio_end_s", "tokens_before", "tokens_after", "turns_in_context",
-        "rebuilt_after", "rebuild_reason", "cleaned_ok", "active_ms", "ttft_ms", "decode_ms",
-        "prompt_tokens", "generated_tokens", "raw_unit", "model_input", "cleaned_unit",
+        "timestamp", "fixture_id", "asr_model", "pause_s", "llm_model", "max_turns", "healing",
+        "profile", "unit_index", "audio_start_s", "audio_end_s", "tokens_before", "tokens_after",
+        "turns_in_context", "rebuilt_after", "rebuild_reason", "cleaned_ok", "note", "active_ms",
+        "ttft_ms", "decode_ms", "prompt_tokens", "generated_tokens", "raw_unit", "model_input",
+        "cleaned_unit",
     )
 
     val RUN_HEADER: String = RUN_COLUMNS.joinToString(",")
@@ -88,9 +89,12 @@ object CleanupLabCsv {
     fun encodeUnit(result: LabRunResult, unit: LabUnitResult): String = listOf(
         stamp(),
         escape(result.config.fixtureId),
+        escape(result.config.asrModelId),
+        fmt(result.config.pauseSeconds.toDouble()),
         escape(result.config.llmModelId),
         result.config.maxTurns.toString(),
         result.config.healingSentences.toString(),
+        escape(result.config.profileName),
         unit.index.toString(),
         fmt(unit.audioStartSeconds.toDouble()),
         fmt(unit.audioEndSeconds.toDouble()),
@@ -100,6 +104,7 @@ object CleanupLabCsv {
         unit.rebuiltAfter.toString(),
         escape(unit.rebuildReason.orEmpty()),
         unit.cleanedOk.toString(),
+        escape(unit.note),
         unit.activeMs.toString(),
         fmt(unit.ttftMs),
         fmt(unit.decodeTimeMs),

@@ -137,6 +137,9 @@ object CleanupLabMetrics {
         var added = 0
         var contentRemoved = 0
         for (unit in units) {
+            // A failed pass returns its input unchanged; diffing it would read the seam overlap as
+            // removed content. Failures are reported through `failedUnits`, not as deletions.
+            if (!unit.cleanedOk) continue
             val diff = WordDiffCalculator.calculate(unit.modelInput, unit.cleanedUnit)
             removed += diff.wordsRemoved
             changed += diff.wordsChanged
@@ -165,16 +168,18 @@ object CleanupLabMetrics {
 
     /** The per-unit quality-vs-context curve, in unit order. */
     fun positions(units: List<LabUnitResult>): List<LabPositionPoint> = units.map { unit ->
-        val rawTokens = WordDiffCalculator.tokenizeWords(unit.rawUnit)
+        // Both sides carry the seam overlap, so this is the pass's own transformation. Comparing the
+        // bare raw unit to a cleaned unit that repeats the overlap would read as a negative removal.
+        val inputTokens = WordDiffCalculator.tokenizeWords(unit.modelInput)
         val cleanedTokens = WordDiffCalculator.tokenizeWords(unit.cleanedUnit)
         LabPositionPoint(
             unitIndex = unit.index,
             tokensInContext = unit.tokensBefore,
             turnsInConversation = unit.turnsInConversation,
             audioSeconds = unit.audioEndSeconds,
-            rawFillers = countFillers(rawTokens),
+            rawFillers = countFillers(inputTokens),
             leftoverFillers = countFillers(cleanedTokens),
-            contentWordsRemoved = contentWordsRemoved(unit.modelInput, unit.cleanedUnit),
+            contentWordsRemoved = if (unit.cleanedOk) contentWordsRemoved(unit.modelInput, unit.cleanedUnit) else 0,
             rebuiltAfter = unit.rebuiltAfter,
             cleanedOk = unit.cleanedOk,
         )
