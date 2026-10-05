@@ -36,6 +36,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Build
@@ -737,49 +738,51 @@ fun SettingsScreen(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        SettingsToggleRow(
-                            title = "Save dictation history",
-                            subtitle = "Keep recent transcripts stored securely on-device",
-                            checked = historyEnabled,
-                            onCheckedChange = viewModel::setHistoryEnabled,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TextButton(
-                                onClick = { currentSubScreen = SettingsSubScreen.HISTORY },
-                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    text = "View dictation history (${dictationHistory.records.size} items)",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
+                    SettingsToggleRow(
+                        title = "Save dictation history",
+                        subtitle = "Keep recent transcripts stored securely on-device",
+                        checked = historyEnabled,
+                        onCheckedChange = viewModel::setHistoryEnabled,
+                    )
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    SettingsItemRow(
+                        title = "Dictation history",
+                        subtitle = if (dictationHistory.records.isEmpty()) {
+                            "No transcripts stored"
+                        } else {
+                            "${dictationHistory.records.size} items stored on-device"
+                        },
+                        badge = {
+                            SettingsIconBadge(
+                                icon = Icons.Default.History,
+                                badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        },
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = { viewModel.clearHistory() },
+                                    enabled = dictationHistory.records.isNotEmpty(),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = "Clear",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (dictationHistory.records.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    )
+                                }
                                 Icon(
                                     imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp),
+                                    contentDescription = "Open dictation history",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            TextButton(
-                                onClick = { viewModel.clearHistory() },
-                                enabled = dictationHistory.records.isNotEmpty(),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    text = "Clear",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (dictationHistory.records.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                )
-                            }
-                        }
-                    }
+                        },
+                        onClick = { currentSubScreen = SettingsSubScreen.HISTORY },
+                    )
 
                     SettingsDivider(startIndent = 0.dp)
 
@@ -788,7 +791,7 @@ fun SettingsScreen(
                         subtitle = "Export or restore your vocabulary, profiles, and settings",
                         badge = {
                             SettingsIconBadge(
-                                icon = Icons.Default.Refresh,
+                                icon = Icons.Default.Backup,
                                 badgeColor = MaterialTheme.colorScheme.primaryContainer,
                                 iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
