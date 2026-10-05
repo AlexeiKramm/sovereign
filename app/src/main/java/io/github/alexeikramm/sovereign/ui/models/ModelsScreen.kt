@@ -76,19 +76,19 @@ import java.util.Locale
 
 /**
  * Tab 2: Models Screen matching SPEC.md Section 3.2:
- * - Header with "Models" title, subtitle, and [⚡ Benchmark] pill trigger.
+ * - Header with "Models" title and subtitle.
  * - Storage Summary Card: Segmented bar showing Speech ASR vs LLM Cleanup disk usage.
  * - TRANSCRIPTION MODELS: 3 practical tiers (Fast & Streaming, Lightweight, Highest Accuracy)
  *   with standardized Latency · Quality · RAM attribute pills, active indicators, and [ⓘ] specs.
  * - LLM CLEANUP MODELS: LiteRT-LM tiers (Good Polish / Gemma 4 E2B) with hardware attribution.
  * - Model Technical Specifications dialog for detailed technical architectures and trade-offs.
+ *
+ * The benchmark harnesses live in Settings → Developer & legacy controls, not here.
  */
 @Composable
 fun ModelsScreen(
     viewModel: DictationViewModel,
     modifier: Modifier = Modifier,
-    onOpenBenchmark: () -> Unit = {},
-    onOpenStreamingBenchmark: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val loadProbe by viewModel.loadProbe.collectAsStateWithLifecycle()
@@ -456,7 +456,7 @@ fun ModelsScreen(
     ) {
         Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
 
-        // --- SCREEN HEADER WITH TITLE & BENCHMARK TRIGGER ---
+        // --- SCREEN HEADER WITH TITLE ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -477,47 +477,6 @@ fun ModelsScreen(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(
-                    onClick = onOpenBenchmark,
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(text = "⚡", fontSize = 12.sp)
-                        Text(
-                            text = "Benchmark",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                }
-                Surface(
-                    onClick = onOpenStreamingBenchmark,
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(text = "🎙", fontSize = 12.sp)
-                        Text(
-                            text = "Streaming",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
             }
         }
 

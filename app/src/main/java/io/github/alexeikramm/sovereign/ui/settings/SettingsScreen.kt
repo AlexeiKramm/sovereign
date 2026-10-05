@@ -118,6 +118,7 @@ import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.ServerStatus
 import io.github.alexeikramm.sovereign.ui.backup.BackupScreen
 import io.github.alexeikramm.sovereign.ui.benchmark.BenchmarkScreen
+import io.github.alexeikramm.sovereign.ui.benchmark.StreamingBenchmarkScreen
 import io.github.alexeikramm.sovereign.ui.cleanuplab.CleanupLabScreen
 import io.github.alexeikramm.sovereign.ui.components.PermissionItem
 import io.github.alexeikramm.sovereign.ui.components.SettingsDivider
@@ -145,6 +146,7 @@ enum class SettingsSubScreen {
     HISTORY,
     STATS,
     BENCHMARK,
+    STREAMING_BENCHMARK,
     CLEANUP_LAB,
     MODELS,
     TRANSCRIBE,
@@ -181,6 +183,13 @@ fun SettingsScreen(
         }
         SettingsSubScreen.BENCHMARK -> {
             BenchmarkScreen(
+                modifier = modifier,
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+            )
+            return
+        }
+        SettingsSubScreen.STREAMING_BENCHMARK -> {
+            StreamingBenchmarkScreen(
                 modifier = modifier,
                 onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
             )
@@ -963,6 +972,28 @@ fun SettingsScreen(
                                         )
                                     },
                                     onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
+                                SettingsItemRow(
+                                    title = "Streaming benchmark",
+                                    subtitle = "Real-time commit lag, dead air and cadence across the model matrix",
+                                    badge = {
+                                        SettingsIconBadge(
+                                            icon = Icons.Default.Mic,
+                                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    },
+                                    trailing = {
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Open streaming benchmark",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = { currentSubScreen = SettingsSubScreen.STREAMING_BENCHMARK },
                                 )
 
                                 SettingsDivider(startIndent = 0.dp)
