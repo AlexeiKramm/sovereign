@@ -473,7 +473,7 @@ fun ModelsScreen(
                     letterSpacing = (-0.5).sp,
                 )
                 Text(
-                    text = "On-device neural models for speech & cleanup",
+                    text = "On-device ML models for speech & cleanup",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -765,7 +765,7 @@ private fun AsrTierCard(
             badge = null,
             badgeBg = MaterialTheme.colorScheme.primaryContainer,
             badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            description = "Transcribes speech in audio chunks after you pause. Medium latency · Medium quality · Lowest RAM requirement.",
+            description = "Transcribes speech in audio chunks after you pause. High latency · Medium quality · Lowest RAM requirement.",
             latency = "Chunked",
             quality = "Standard",
             ram = "Low (${model.totalBytes / 1_000_000} MB)",
@@ -776,7 +776,7 @@ private fun AsrTierCard(
             badge = null,
             badgeBg = MaterialTheme.colorScheme.primaryContainer,
             badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            description = "Transcribes speech in audio chunks after you pause. Highest latency · Best quality · High RAM requirement.",
+            description = "Transcribes speech in audio chunks after you pause. Medium latency · Best quality · High RAM requirement.",
             latency = "Chunked",
             quality = "Highest",
             ram = "Medium (${model.totalBytes / 1_000_000} MB)",
@@ -1359,6 +1359,7 @@ private fun getModelTechnicalSpec(key: String): ModelTechnicalSpec? = when (key)
             "Solid baseline punctuation and accuracy for everyday English.",
         ),
         tradeoffs = listOf(
+            "Highest perceived latency out of the available transcription models.",
             "Chunked processing: speech is only decoded after you pause, adding a slight post-speech processing delay.",
         ),
     )
