@@ -402,7 +402,7 @@ fun SettingsScreen(
 
                     SettingsToggleRow(
                         title = "Auto-insert on silence",
-                        subtitle = "Automatically inserts cleaned text when you stop speaking",
+                        subtitle = "Automatically inserts cleaned text when you stop speaking (expanded pill only)",
                         checked = floatingPillAutoCommit,
                         onCheckedChange = viewModel::setFloatingPillAutoCommit,
                     )
@@ -601,7 +601,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = "Hardware acceleration, speculative decoding, and context window",
+                                text = "Hardware acceleration and context window",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -855,6 +855,17 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(top = 4.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    SettingsToggleRow(
+                                        title = "Material You wallpaper colors",
+                                        subtitle = "Derive colors from Android system wallpaper (legacy; scheduled for removal)",
+                                        checked = themeUseSystemDynamic,
+                                        onCheckedChange = viewModel::setThemeUseSystemDynamic,
+                                    )
+
+                                    SettingsDivider(startIndent = 0.dp)
+                                }
+
                                 SettingsToggleRow(
                                     title = "Hold the pill to dictate",
                                     subtitle = "Press and hold the pill to speak, then release to immediately insert text",
@@ -1237,16 +1248,6 @@ private fun AppearanceCard(
                         }
                     }
                 }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                SettingsDivider(startIndent = 0.dp)
-                SettingsToggleRow(
-                    title = "Material You wallpaper colors",
-                    subtitle = "Derive colors from Android system wallpaper instead of seed",
-                    checked = useSystemDynamic,
-                    onCheckedChange = onUseSystemDynamicChange,
-                )
             }
 
             SettingsDivider(startIndent = 0.dp)
