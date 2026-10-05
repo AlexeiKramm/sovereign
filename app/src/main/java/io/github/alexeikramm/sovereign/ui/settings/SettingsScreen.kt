@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
@@ -117,6 +118,7 @@ import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.ServerStatus
 import io.github.alexeikramm.sovereign.ui.backup.BackupScreen
 import io.github.alexeikramm.sovereign.ui.benchmark.BenchmarkScreen
+import io.github.alexeikramm.sovereign.ui.cleanuplab.CleanupLabScreen
 import io.github.alexeikramm.sovereign.ui.components.PermissionItem
 import io.github.alexeikramm.sovereign.ui.components.SettingsDivider
 import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
@@ -143,6 +145,7 @@ enum class SettingsSubScreen {
     HISTORY,
     STATS,
     BENCHMARK,
+    CLEANUP_LAB,
     MODELS,
     TRANSCRIBE,
     BACKUP,
@@ -178,6 +181,13 @@ fun SettingsScreen(
         }
         SettingsSubScreen.BENCHMARK -> {
             BenchmarkScreen(
+                modifier = modifier,
+                onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
+            )
+            return
+        }
+        SettingsSubScreen.CLEANUP_LAB -> {
+            CleanupLabScreen(
                 modifier = modifier,
                 onNavigateUp = { currentSubScreen = SettingsSubScreen.MAIN },
             )
@@ -939,6 +949,28 @@ fun SettingsScreen(
                                         )
                                     },
                                     onClick = { currentSubScreen = SettingsSubScreen.BENCHMARK },
+                                )
+
+                                SettingsDivider(startIndent = 0.dp)
+
+                                SettingsItemRow(
+                                    title = "Cleanup lab",
+                                    subtitle = "Tune the LLM cleanup per model and profile; quality vs context position",
+                                    badge = {
+                                        SettingsIconBadge(
+                                            icon = Icons.Default.Science,
+                                            badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                                            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    },
+                                    trailing = {
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Open cleanup lab",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    onClick = { currentSubScreen = SettingsSubScreen.CLEANUP_LAB },
                                 )
 
                                 SettingsDivider(startIndent = 0.dp)
