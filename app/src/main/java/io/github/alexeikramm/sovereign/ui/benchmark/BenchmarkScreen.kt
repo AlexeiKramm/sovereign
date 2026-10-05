@@ -1,6 +1,5 @@
 package io.github.alexeikramm.sovereign.ui.benchmark
 
-import android.media.MediaPlayer
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -22,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
@@ -32,7 +30,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -50,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -83,95 +79,11 @@ import io.github.alexeikramm.sovereign.ui.components.asrModelTierTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.Locale
 
 /** The user-facing cleanup tier name, matching the Models screen. */
 private val LiteRtLmModelSpec.tierTitle: String
     get() = if (id == LiteRtLmModels.GEMMA_4_E2B.id) "Good Polish" else label
-
-private class SampleAudioPlayer(private val context: android.content.Context) {
-    private var mediaPlayer: MediaPlayer? = null
-    var isPlaying by mutableStateOf(false)
-        private set
-    var isPaused by mutableStateOf(false)
-        private set
-
-    fun playOrPause(assetPath: String) {
-        val player = mediaPlayer
-        if (player != null && isPlaying) {
-            try {
-                player.pause()
-            } catch (_: Exception) {}
-            isPlaying = false
-            isPaused = true
-            return
-        }
-        if (player != null && isPaused) {
-            try {
-                player.start()
-                isPlaying = true
-                isPaused = false
-            } catch (_: Exception) {
-                startFresh(assetPath)
-            }
-            return
-        }
-        startFresh(assetPath)
-    }
-
-    private fun startFresh(assetPath: String) {
-        release()
-        try {
-            val newPlayer = MediaPlayer()
-            var openedWithAfd = false
-            try {
-                val afd = context.assets.openFd(assetPath)
-                newPlayer.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                afd.close()
-                openedWithAfd = true
-            } catch (_: Exception) {}
-
-            if (!openedWithAfd) {
-                val cacheFile = File(context.cacheDir, "benchmark_audio_preview.wav")
-                context.assets.open(assetPath).use { input ->
-                    cacheFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                newPlayer.setDataSource(cacheFile.absolutePath)
-            }
-
-            newPlayer.prepare()
-            newPlayer.setOnCompletionListener {
-                isPlaying = false
-                isPaused = false
-            }
-            newPlayer.start()
-            mediaPlayer = newPlayer
-            isPlaying = true
-            isPaused = false
-        } catch (_: Exception) {
-            release()
-        }
-    }
-
-    fun stop() {
-        try {
-            mediaPlayer?.stop()
-        } catch (_: Exception) {}
-        release()
-    }
-
-    fun release() {
-        try {
-            mediaPlayer?.release()
-        } catch (_: Exception) {}
-        mediaPlayer = null
-        isPlaying = false
-        isPaused = false
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -185,11 +97,6 @@ fun BenchmarkScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appSettings = remember { AppSettings(context) }
-    val audioPlayer = remember { SampleAudioPlayer(context) }
-
-    DisposableEffect(Unit) {
-        onDispose { audioPlayer.release() }
-    }
 
     // Benchmark Modes
     var selectedMode by remember { mutableStateOf(BenchmarkMode.FULL_PIPELINE) }
@@ -200,12 +107,10 @@ fun BenchmarkScreen(
     var installedLlmModels by remember { mutableStateOf<List<LiteRtLmModelSpec>>(emptyList()) }
     var selectedLlmModel by remember { mutableStateOf<LiteRtLmModelSpec?>(null) }
 
-    // Audio Fixtures & Prompt
-    var selectedAudioSample by remember { mutableStateOf(BenchmarkAudioSample.FIXTURES[0]) }
+    // The benchmark always runs the streaming set's pausing long take; the fixture is resolved by
+    // BenchmarkEngine so the runner and the CSV cannot drift from it.
     var samplePromptText by remember {
-        mutableStateOf(
-            "Basically I was just thinking that we could maybe like test the model rewrite capability and see how it performs."
-        )
+        mutableStateOf(BenchmarkEngine.fixture.script)
     }
 
     // Execution Settings
@@ -250,7 +155,6 @@ fun BenchmarkScreen(
             return
         }
 
-        audioPlayer.stop()
         isRunning = true
         errorMessage = null
         summaryResult = null
@@ -261,7 +165,6 @@ fun BenchmarkScreen(
             mode = selectedMode,
             asrModel = selectedAsrModel,
             llmModel = selectedLlmModel,
-            audioSample = selectedAudioSample,
             textPrompt = samplePromptText,
             computeTarget = selectedComputeUnit,
             speculativeDecoding = speculativeDecoding,
@@ -377,13 +280,26 @@ fun BenchmarkScreen(
                             thickness = 0.5.dp,
                         )
 
-                        // DYNAMIC CONTROLS: AUDIO FIXTURE (for Pipeline & ASR)
+                        // The audio fixture is fixed (the streaming set's d08_pausing take); show what
+                        // will be transcribed rather than offering a selector.
                         if (selectedMode != BenchmarkMode.LLM_ONLY) {
-                            AudioFixtureDropdownSelector(
-                                selectedFixture = selectedAudioSample,
-                                onFixtureSelected = { selectedAudioSample = it },
-                                audioPlayer = audioPlayer,
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "Benchmark audio:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = String.format(
+                                        Locale.US,
+                                        "%s · %.1f s",
+                                        BenchmarkEngine.fixture.name,
+                                        BenchmarkEngine.fixture.durationSeconds,
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                             AsrModelDropdownSelector(
                                 label = "Select ASR Model:",
                                 installedModels = installedAsrModels,
@@ -467,28 +383,8 @@ fun BenchmarkScreen(
                             }
                         }
 
-                        // LLM ONLY PROMPT SELECTOR
+                        // LLM ONLY PROMPT (pre-filled with the fixture's script; freely editable)
                         if (selectedMode == BenchmarkMode.LLM_ONLY) {
-                            Text(
-                                text = "Sample Text Source:",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                BenchmarkAudioSample.FIXTURES.forEach { fixture ->
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = {
-                                            samplePromptText = BenchmarkAudioSample.readTranscript(context, fixture)
-                                        },
-                                        label = { Text(fixture.name.substringBefore(" ")) },
-                                    )
-                                }
-                            }
-
                             OutlinedTextField(
                                 value = samplePromptText,
                                 onValueChange = { samplePromptText = it },
@@ -764,108 +660,6 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
     )
-}
-
-@Composable
-private fun AudioFixtureDropdownSelector(
-    selectedFixture: BenchmarkAudioSample,
-    onFixtureSelected: (BenchmarkAudioSample) -> Unit,
-    audioPlayer: SampleAudioPlayer,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var cardWidthDp by remember { mutableStateOf(0.dp) }
-    val density = LocalDensity.current
-
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Benchmark Audio Sample:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedCard(
-                onClick = { expanded = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onGloballyPositioned { coordinates ->
-                        cardWidthDp = with(density) { coordinates.size.width.toDp() }
-                    },
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    FilledTonalIconButton(
-                        onClick = { audioPlayer.playOrPause(selectedFixture.assetWavPath) },
-                        modifier = Modifier
-                            .height(36.dp)
-                            .width(36.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (audioPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (audioPlayer.isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            selectedFixture.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            selectedFixture.durationDesc,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Select Audio Fixture",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier
-                    .width(if (cardWidthDp > 0.dp) cardWidthDp else 280.dp)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            ) {
-                BenchmarkAudioSample.FIXTURES.forEach { sample ->
-                    val isSelected = sample.id == selectedFixture.id
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(
-                                    sample.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    sample.durationDesc,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        onClick = {
-                            onFixtureSelected(sample)
-                            expanded = false
-                        },
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable

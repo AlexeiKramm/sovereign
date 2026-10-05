@@ -27,63 +27,10 @@ enum class BenchmarkMode(val label: String) {
     LLM_ONLY("LLM Only (Text Cleanup Speed)"),
 }
 
-data class BenchmarkAudioSample(
-    val id: String,
-    val name: String,
-    val assetWavPath: String,
-    val assetTxtPath: String,
-    val durationDesc: String,
-    val durationSeconds: Float,
-    val language: String,
-) {
-    companion object {
-        val FIXTURES = listOf(
-            BenchmarkAudioSample(
-                id = "en_short",
-                name = "Short (4.8s • 11 words)",
-                assetWavPath = "en/short.wav",
-                assetTxtPath = "en/short.txt",
-                durationDesc = "4.83s audio • 16kHz mono WAV",
-                durationSeconds = 4.83f,
-                language = "en",
-            ),
-            BenchmarkAudioSample(
-                id = "en_medium",
-                name = "Medium (11.4s • 29 words)",
-                assetWavPath = "en/medium.wav",
-                assetTxtPath = "en/medium.txt",
-                durationDesc = "11.42s audio • 16kHz mono WAV",
-                durationSeconds = 11.42f,
-                language = "en",
-            ),
-            BenchmarkAudioSample(
-                id = "en_long",
-                name = "Long (21.4s • 55 words)",
-                assetWavPath = "en/long.wav",
-                assetTxtPath = "en/long.txt",
-                durationDesc = "21.35s audio • 16kHz mono WAV",
-                durationSeconds = 21.35f,
-                language = "en",
-            ),
-        )
-
-        /** The fixture's own transcript, used to seed the LLM-only prompt. */
-        fun readTranscript(context: Context, sample: BenchmarkAudioSample): String {
-            return try {
-                context.assets.open(sample.assetTxtPath).bufferedReader().use { it.readText() }.trim()
-            } catch (e: Exception) {
-                Log.w("BenchmarkEngine", "Failed to read transcript from ${sample.assetTxtPath}: ${e.message}")
-                ""
-            }
-        }
-    }
-}
-
 data class BenchmarkConfig(
     val mode: BenchmarkMode,
     val asrModel: AsrModelSpec? = null,
     val llmModel: LiteRtLmModelSpec? = null,
-    val audioSample: BenchmarkAudioSample = BenchmarkAudioSample.FIXTURES[0],
     val textPrompt: String = "",
     val computeTarget: String = "gpu", // "gpu" or "cpu"
     val speculativeDecoding: Boolean = true,
@@ -218,6 +165,14 @@ object BenchmarkCsvLogger {
 
 class BenchmarkEngine(private val context: Context) {
 
+    companion object {
+        /** The one recorded take every unified benchmark runs: the streaming set's pausing long take. */
+        const val FIXTURE_ID = "d08_pausing"
+
+        /** Resolved once so the runner and its tests cannot disagree on the fixture. */
+        val fixture: DictationFixture = DictationFixtures.FIXTURES.first { it.id == FIXTURE_ID }
+    }
+
     suspend fun run(
         config: BenchmarkConfig,
         onProgress: (progress: Float, status: String) -> Unit,
@@ -237,7 +192,7 @@ class BenchmarkEngine(private val context: Context) {
         val llmSpec = checkNotNull(config.llmModel) { "LLM model is required for Full Pipeline" }
 
         onProgress(0.05f, "Loading audio fixture...")
-        val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
+        val wavAudio = WavReader.read(context.assets.open(fixture.assetWavPath))
 
         val profileStore = ProfileStore(context)
         val dictionaryStore = DictionaryStore(context)
@@ -304,7 +259,7 @@ class BenchmarkEngine(private val context: Context) {
             // Warmup pass if running warm steady-state
             if (!config.coldReloadEachRep) {
                 onProgress(0.15f, "Warming up pipeline...")
-                persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
+                persistentAsr!!.transcribeBuffer(wavAudio.samples, fixture.language)
                 persistentLlm?.clean(unit = "warmup pass", rules = rules)
             } else {
                 // If coldReloadEachRep, unload now so rep 1 does a cold reload
@@ -330,7 +285,7 @@ class BenchmarkEngine(private val context: Context) {
                 val e2eStart = SystemClock.elapsedRealtime()
                 val asrResult = persistentAsr!!.transcribeBufferTimed(
                     wavAudio.samples,
-                    config.audioSample.language,
+                    fixture.language,
                 )
                 val rawAsr = asrResult.text
                 val asrWallMs = asrResult.activeMs
@@ -397,7 +352,7 @@ class BenchmarkEngine(private val context: Context) {
         val asrSpec = checkNotNull(config.asrModel) { "ASR model is required for ASR Only mode" }
 
         onProgress(0.05f, "Loading audio fixture...")
-        val wavAudio = WavReader.read(context.assets.open(config.audioSample.assetWavPath))
+        val wavAudio = WavReader.read(context.assets.open(fixture.assetWavPath))
 
         var persistentAsr: LocalAsrEngine? = null
         var initialAsrColdLoadMs = 0L
@@ -430,7 +385,7 @@ class BenchmarkEngine(private val context: Context) {
 
             if (!config.coldReloadEachRep) {
                 onProgress(0.15f, "Warming up ASR...")
-                persistentAsr!!.transcribeBuffer(wavAudio.samples, config.audioSample.language)
+                persistentAsr!!.transcribeBuffer(wavAudio.samples, fixture.language)
             } else {
                 unloadAsr()
             }
@@ -450,7 +405,7 @@ class BenchmarkEngine(private val context: Context) {
                 onProgress(repFraction, "Rep $rep/$totalReps: Running ASR recognition...")
                 val asrResult = persistentAsr!!.transcribeBufferTimed(
                     wavAudio.samples,
-                    config.audioSample.language,
+                    fixture.language,
                 )
                 val rawAsr = asrResult.text
                 val asrWallMs = asrResult.activeMs
@@ -631,7 +586,7 @@ class BenchmarkEngine(private val context: Context) {
             llmModelLabel = config.llmModel?.label ?: "N/A",
             computeTarget = if (config.llmModel != null) config.computeTarget else "N/A",
             speculativeUsed = config.speculativeDecoding && (config.llmModel?.supportsSpeculativeDecoding == true),
-            sampleName = if (config.mode != BenchmarkMode.LLM_ONLY) config.audioSample.name else "Custom Text",
+            sampleName = if (config.mode != BenchmarkMode.LLM_ONLY) fixture.name else "Custom Text",
             audioDurationSec = audioDurationSec,
             repsCount = repetitions.size,
             coldReloadEachRep = config.coldReloadEachRep,

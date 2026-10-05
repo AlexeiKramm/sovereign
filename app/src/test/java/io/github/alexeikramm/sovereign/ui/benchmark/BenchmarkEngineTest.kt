@@ -46,24 +46,11 @@ class BenchmarkEngineTest {
     }
 
     @Test
-    fun `fixtures list contains short, medium, and long standard tiers`() {
-        val fixtures = BenchmarkAudioSample.FIXTURES
-        assertEquals(3, fixtures.size)
-
-        val shortSample = fixtures.first { it.id == "en_short" }
-        assertEquals("en/short.wav", shortSample.assetWavPath)
-        assertEquals("en/short.txt", shortSample.assetTxtPath)
-        assertTrue("Short duration should be ~4.8s", shortSample.durationSeconds in 4.0f..6.0f)
-
-        val mediumSample = fixtures.first { it.id == "en_medium" }
-        assertEquals("en/medium.wav", mediumSample.assetWavPath)
-        assertEquals("en/medium.txt", mediumSample.assetTxtPath)
-        assertTrue("Medium duration should be ~11.4s", mediumSample.durationSeconds in 10.0f..13.0f)
-
-        val longSample = fixtures.first { it.id == "en_long" }
-        assertEquals("en/long.wav", longSample.assetWavPath)
-        assertEquals("en/long.txt", longSample.assetTxtPath)
-        assertTrue("Long duration should be ~21.4s", longSample.durationSeconds in 20.0f..25.0f)
+    fun `benchmark runs the streaming d08 pausing fixture`() {
+        val fixture = DictationFixtures.FIXTURES.first { it.id == BenchmarkEngine.FIXTURE_ID }
+        assertEquals("d08_pausing", fixture.id)
+        assertEquals("en/dictation/d08_pausing.wav", fixture.assetWavPath)
+        assertTrue("d08 duration should be ~32.2s", fixture.durationSeconds in 31.0f..33.0f)
     }
 
     @Test

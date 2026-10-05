@@ -2,6 +2,7 @@ package io.github.alexeikramm.sovereign.ui.benchmark
 
 import io.github.alexeikramm.sovereign.audio.WavReader
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -21,10 +22,15 @@ class DictationFixturesTest {
             ?: error("fixtures/en/dictation not found in candidate paths: ${candidates.map { it.absolutePath }}")
     }
 
-    private val metadataFixtures by lazy {
-        val root = Json.parseToJsonElement(File(fixturesDir, "metadata.json").readText(Charsets.UTF_8)).jsonObject
-        root["fixtures"]?.jsonObject ?: error("metadata.json has no fixtures object")
+    private val metadataRoot by lazy {
+        Json.parseToJsonElement(File(fixturesDir, "metadata.json").readText(Charsets.UTF_8)).jsonObject
     }
+
+    private val metadataFixtures: JsonObject
+        get() = metadataRoot["fixtures"]?.jsonObject ?: error("metadata.json has no fixtures object")
+
+    private val metadataLanguage: String
+        get() = metadataRoot["language"]?.jsonPrimitive?.content ?: error("metadata.json has no language")
 
     @Test
     fun `every listed fixture is a 16 kHz mono wav`() {
@@ -53,6 +59,12 @@ class DictationFixturesTest {
                 fixture.pauseDensity,
                 entry["pause_density"]?.jsonPrimitive?.content,
             )
+            assertEquals(
+                "${fixture.id} script",
+                entry["script"]?.jsonPrimitive?.content,
+                fixture.script,
+            )
+            assertEquals("${fixture.id} language", metadataLanguage, fixture.language)
         }
     }
 
