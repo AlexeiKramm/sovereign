@@ -240,6 +240,23 @@ class LocalAsrSession(
         scope.launch(dispatcher) { engine.abort() }
     }
 
+    /**
+     * [abort], but waits for the feed worker to actually stop before returning. The Cleanup Lab
+     * unloads the recogniser immediately after a cancelled run; releasing it while a decode is still
+     * in flight on [dispatcher] races the native release.
+     */
+    suspend fun abortAndJoin() {
+        queue?.close()
+        queue = null
+        val job = feedJob
+        feedJob = null
+        if (job != null) {
+            job.cancel()
+            job.join()
+        }
+        withContext(dispatcher) { engine.abort() }
+    }
+
     companion object {
         /**
          * Buffering capacity for incoming frames (~51.2 seconds @ 100ms frames) to prevent microphone dropouts

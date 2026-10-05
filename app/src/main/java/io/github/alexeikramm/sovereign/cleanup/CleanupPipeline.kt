@@ -252,4 +252,29 @@ class CleanupPipeline(
         }
         state.reset()
     }
+
+    /**
+     * [abort], but waits for the cleanup worker to actually stop before returning. The Cleanup Lab
+     * unloads its engine immediately after a cancelled run; calling `Engine.close()` while a native
+     * pass is still in flight races the decode, and a swallowed close failure leaks the model. The
+     * queued units are discarded ([Channel.cancel]) rather than drained, because abort never commits.
+     */
+    suspend fun abortAndJoin() {
+        val job = worker
+        val channel = queue
+        val wasActive = job != null || channel != null
+        queue = null
+        worker = null
+        channel?.cancel()
+        if (job != null) {
+            job.cancel()
+            job.join()
+        }
+        submitted = 0
+        lastPass = null
+        if (wasActive) {
+            engine.closeSession()
+        }
+        state.reset()
+    }
 }

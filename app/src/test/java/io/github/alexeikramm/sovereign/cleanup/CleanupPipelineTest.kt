@@ -1,12 +1,21 @@
 package io.github.alexeikramm.sovereign.cleanup
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.Executors
 
 class CleanupPipelineTest {
 
@@ -363,6 +372,57 @@ class CleanupPipelineTest {
         assertEquals("the pre-pass cache size is what the quality curve is plotted against", listOf(0, 100), telemetry.map { it.tokensBefore })
         assertEquals(listOf(100, 200), telemetry.map { it.tokensAfter })
         assertEquals(listOf("first", "second"), telemetry.map { it.cleanedText })
+    }
+
+    @Test
+    fun `abortAndJoin waits for the in-flight pass, drops the queue, and closes the session`() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        var cleans = 0
+        val engine = object : CleanupEngine {
+            override val isLoaded: Boolean = true
+            override val lastLoadMs: Long = 0L
+            var sessionCloses = 0
+            override val tokenCount: Int get() = 0
+            override val contextTokens: Int get() = 0
+            override suspend fun load(): Result<Unit> = Result.success(Unit)
+            override fun closeSession() { sessionCloses++ }
+            override suspend fun clean(unit: String, rules: String): CleanupPass {
+                cleans++
+                entered.complete(Unit)
+                // Models a native decode: coroutine cancellation does not interrupt it mid-flight.
+                withContext(NonCancellable) { gate.await() }
+                return CleanupPass.failed(unit, "gated")
+            }
+            override fun unload() {}
+        }
+        val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = dispatcher,
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
+            onCommitted = {},
+        )
+
+        pipeline.begin()
+        pipeline.submit("one")
+        pipeline.submit("two")
+        pipeline.submit("three")
+        entered.await()
+
+        val abortJob = launch { pipeline.abortAndJoin() }
+        delay(50)
+        assertFalse("abort must wait for the in-flight pass to finish", abortJob.isCompleted)
+
+        gate.complete(Unit)
+        abortJob.join()
+
+        assertEquals("buffered units are dropped, not cleaned", 1, cleans)
+        assertEquals("abort closes the session once", 1, engine.sessionCloses)
+        scope.cancel()
+        dispatcher.close()
     }
 }
 

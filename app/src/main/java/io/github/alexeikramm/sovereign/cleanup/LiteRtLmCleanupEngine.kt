@@ -128,7 +128,15 @@ class LiteRtLmCleanupEngine(
                 maxNumTokens = CONTEXT_TOKENS,
             )
             val created = Engine(config)
-            created.initialize()
+            try {
+                created.initialize()
+            } catch (t: Throwable) {
+                // A failed init can still hold native resources; release them before rethrowing so a
+                // failed load does not pin the model in RAM.
+                runCatching { created.close() }
+                    .onFailure { Log.w(TAG, "close() after failed initialize() failed: ${it.message}") }
+                throw t
+            }
             engine = created
             lastLoadMs = SystemClock.elapsedRealtime() - started
             Log.i(TAG, "Cleanup engine ready: ${modelSpec.label} · maxNumTokens=$CONTEXT_TOKENS · load=${lastLoadMs}ms")
@@ -350,8 +358,14 @@ class LiteRtLmCleanupEngine(
 
     override fun unload() {
         closeSession()
-        runCatching { engine?.close() }
+        val current = engine
         engine = null
+        if (current != null) {
+            runCatching { current.close() }.onFailure {
+                // Not silent: a thrown close is exactly how a native engine leaks past this call.
+                Log.w(TAG, "engine.close() failed: ${it.message}")
+            }
+        }
         System.gc()
     }
 }

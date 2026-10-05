@@ -100,9 +100,13 @@ class CleanupLabEngine(private val context: Context) {
                     "audio=${String.format(java.util.Locale.US, "%.1f", totalSec)}s",
             )
         } finally {
-            pipeline.abort()
+            // Join the ASR worker before unloading, so the native release never races a decode.
+            withContext(NonCancellable) { pipeline.abortAndJoin() }
             // NonCancellable: a cancelled run must still release the model and the executor threads.
-            withContext(NonCancellable + Dispatchers.IO) { runCatching { asr.unload() } }
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { asr.unload() }
+                Log.i(TAG, "Phase A torn down: model unloaded")
+            }
             probes.close()
         }
 
@@ -139,33 +143,36 @@ class CleanupLabEngine(private val context: Context) {
             healingSentencesCount = { config.healingSentences },
             maxTurns = { config.maxTurns },
             onCommitted = {},
-            onPass = { telemetry.add(it) },
+            onPass = { pass ->
+                telemetry.add(pass)
+                // Progress reflects *completed* passes, not submissions. `submit` is a non-blocking
+                // `trySend`, so the submit loop below returns instantly; without this, the bar raced
+                // to "N / N" and then sat at ~100% for the whole `drain()`.
+                val total = unitSet.units.size.coerceAtLeast(1)
+                onProgress(LabProgress("Cleaning", pass.index.toFloat() / total, "${pass.index} / $total units"))
+            },
         )
 
         val startedAt = MonotonicClock.nowMs()
         try {
             onProgress(LabProgress("Cleaning", 0f, "Loading ${spec.label}…"))
             llm.load().getOrThrow()
+            Log.i(TAG, "Phase B loaded ${spec.label} in ${llm.lastLoadMs}ms")
             pipeline.begin()
-            unitSet.units.forEachIndexed { i, unit ->
-                pipeline.submit(unit.text)
-                if (i % 5 == 0) {
-                    onProgress(
-                        LabProgress(
-                            "Cleaning",
-                            i.toFloat() / unitSet.units.size.coerceAtLeast(1),
-                            "${i + 1} / ${unitSet.units.size} units",
-                        ),
-                    )
-                }
-            }
+            unitSet.units.forEach { pipeline.submit(it.text) }
             pipeline.drain()
         } finally {
-            probes.close()
+            // Stop the cleanup worker before releasing the model: `Engine.close()` must not race a
+            // native pass that is still in flight (a swallowed close failure leaks the model).
+            withContext(NonCancellable) { pipeline.abortAndJoin() }
             scope.cancel()
-            cleanupDispatcher.close()
             // NonCancellable so a cancelled run still releases the LLM.
-            withContext(NonCancellable + Dispatchers.IO) { runCatching { llm.unload() } }
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { llm.unload() }
+                Log.i(TAG, "Phase B torn down: ${spec.label} unloaded")
+            }
+            probes.close()
+            cleanupDispatcher.close()
         }
         val wallMs = MonotonicClock.nowMs() - startedAt
 
@@ -237,6 +244,7 @@ class CleanupLabEngine(private val context: Context) {
             onProgress(LabProgress("Preparing", 0f, "Loading ${asrModel.label} + ${spec.label}…"))
             asr.load()
             llm.load().getOrThrow()
+            Log.i(TAG, "Full replay loaded ${asrModel.label} + ${spec.label}")
             pipeline.begin(fresh = true, cleanupEnabled = true)
             pipeline.beginSession()
             pipeline.open(asrModel.defaultLanguage)
@@ -258,10 +266,12 @@ class CleanupLabEngine(private val context: Context) {
                     "telemetry=${telemetry.size} audio=${String.format(java.util.Locale.US, "%.1f", totalSec)}s",
             )
         } finally {
-            pipeline.abort()
+            // Join both workers before unloading, so the native releases never race a pass.
+            withContext(NonCancellable) { pipeline.abortAndJoin() }
             withContext(NonCancellable + Dispatchers.IO) {
                 runCatching { asr.unload() }
                 runCatching { llm.unload() }
+                Log.i(TAG, "Full replay torn down: ${asrModel.label} + ${spec.label} unloaded")
             }
             probes.close()
         }

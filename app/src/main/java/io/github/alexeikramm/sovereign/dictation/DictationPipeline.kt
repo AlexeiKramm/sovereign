@@ -202,6 +202,19 @@ class DictationPipeline(
         }
     }
 
+    /**
+     * [abort], but waits for the ASR and cleanup workers to stop before returning. For callers that
+     * release the engines next (the Cleanup Lab), where an in-flight decode must not race the unload.
+     */
+    suspend fun abortAndJoin() {
+        session.abortAndJoin()
+        clearProvisional()
+        if (cleanupEngaged) {
+            cleanup.abortAndJoin()
+            cleanupEngaged = false
+        }
+    }
+
     /** Replaces the settled text wholesale (the pill's "reprocess full text" action). */
     fun replaceCommitted(text: String) {
         committed.clear()
