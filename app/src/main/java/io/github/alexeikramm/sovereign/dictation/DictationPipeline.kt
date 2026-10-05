@@ -7,7 +7,9 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.cleanup.CleanupCommit
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
+import io.github.alexeikramm.sovereign.cleanup.CleanupPassTelemetry
 import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
+import io.github.alexeikramm.sovereign.cleanup.ConversationRebuildPolicy
 import io.github.alexeikramm.sovereign.text.MarkdownLists
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineDispatcher
@@ -47,6 +49,11 @@ class DictationPipeline(
     cleanupRules: () -> String,
     healingSentencesCount: () -> Int,
     /**
+     * Rebuild the cleanup conversation after this many segments, even when the cache is not full
+     * (0 = no turn limit). Read per unit; the pill leaves it at 0, the Cleanup Lab varies it.
+     */
+    maxTurns: () -> Int = { ConversationRebuildPolicy.NO_TURN_LIMIT },
+    /**
      * Called on [mainDispatcher] whenever the utterance's text changes — committed, raw, **or
      * provisional**. Provisional is part of the same contract on purpose: the service mirrors these
      * three strings into its Compose state, so a unit committing has to clear the provisional tail
@@ -61,6 +68,8 @@ class DictationPipeline(
     private val onUnitCut: (String) -> Unit = {},
     /** A unit's settled text became visible. Measurement hook for the harness. */
     private val onUnitCommitted: (String) -> Unit = {},
+    /** Per-pass conversation telemetry, in order. Measurement hook for the Cleanup Lab. */
+    private val onCleanupPass: (CleanupPassTelemetry) -> Unit = {},
 ) {
 
     private val raw = StringBuilder()
@@ -89,7 +98,9 @@ class DictationPipeline(
         dispatcher = cleanupDispatcher,
         rules = cleanupRules,
         healingSentencesCount = healingSentencesCount,
+        maxTurns = maxTurns,
         onCommitted = { commit -> onCleanupCommit(commit) },
+        onPass = onCleanupPass,
     )
 
     /** The settled text — what cleanup has produced, or the raw words when cleanup is off. */

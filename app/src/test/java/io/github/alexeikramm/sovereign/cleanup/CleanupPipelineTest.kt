@@ -308,5 +308,62 @@ class CleanupPipelineTest {
         assertEquals("only begin() opens a session; no rebuilds without token reporting", 1, engine.sessionStarts)
         pipeline.drain()
     }
+
+    @Test
+    fun `maxTurns rebuilds the conversation after the configured number of passes`() = runBlocking {
+        val engine = FakeEngine().apply { tokensPerPass = 1 }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val telemetry = mutableListOf<CleanupPassTelemetry>()
+
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
+            maxTurns = { 2 },
+            onCommitted = {},
+            onPass = { telemetry.add(it) },
+        )
+
+        pipeline.begin()
+        repeat(4) { pipeline.submit("unit $it") }
+        pipeline.drain()
+
+        // begin() + one rebuild after pass 2 + one after pass 4 = 3 sessions; never a capacity rebuild.
+        assertEquals(3, engine.sessionStarts)
+        assertEquals("rebuild fires on passes 2 and 4 only", listOf(false, true, false, true), telemetry.map { it.rebuiltAfter })
+        assertEquals("the turn counter restarts after each rebuild", listOf(0, 1, 0, 1), telemetry.map { it.turnsInConversation })
+        assertTrue(
+            "a turn-limit rebuild, never a capacity one",
+            telemetry.filter { it.rebuiltAfter }.all { it.rebuildReason == ConversationRebuildPolicy.RebuildReason.TURNS },
+        )
+        assertEquals("passes are numbered across the whole utterance", listOf(1, 2, 3, 4), telemetry.map { it.index })
+    }
+
+    @Test
+    fun `telemetry reports the pre-pass token position and the cleaned output`() = runBlocking {
+        val engine = FakeEngine().apply { tokensPerPass = 100 }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val telemetry = mutableListOf<CleanupPassTelemetry>()
+
+        val pipeline = CleanupPipeline(
+            engine = engine,
+            scope = scope,
+            dispatcher = Dispatchers.Unconfined,
+            rules = { CleanupPrompt.SMART_CLEAN_RULES },
+            onCommitted = {},
+            onPass = { telemetry.add(it) },
+        )
+
+        pipeline.begin()
+        pipeline.submit("first")
+        pipeline.submit("second")
+        pipeline.drain()
+
+        assertEquals("the pre-pass cache size is what the quality curve is plotted against", listOf(0, 100), telemetry.map { it.tokensBefore })
+        assertEquals(listOf(100, 200), telemetry.map { it.tokensAfter })
+        assertEquals(listOf("first", "second"), telemetry.map { it.cleanedText })
+    }
 }
+
 

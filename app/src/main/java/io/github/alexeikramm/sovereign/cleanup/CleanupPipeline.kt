@@ -25,6 +25,33 @@ data class CleanupUnit(
     val text: String,
 )
 
+/**
+ * What one pass did, in the terms the conversation-policy work is about: how full the cache was when it
+ * ran, how many segments the conversation was already carrying, and whether the pass triggered a
+ * rebuild. [index] is 1-based within the utterance. [unit] is the text handed to the engine, which for
+ * a healed seam includes the overlap.
+ *
+ * Deliberately free of Android types so it can be recorded and analysed on the host.
+ */
+data class CleanupPassTelemetry(
+    val index: Int,
+    val unit: String,
+    val cleanedText: String,
+    val cleaned: Boolean,
+    val tokensBefore: Int,
+    val tokensAfter: Int,
+    /** Segments already in the conversation when this pass ran (0 = the first of a fresh one). */
+    val turnsInConversation: Int,
+    val rebuiltAfter: Boolean,
+    val rebuildReason: ConversationRebuildPolicy.RebuildReason?,
+    val activeMs: Long,
+    val ttftMs: Double,
+    val decodeTimeMs: Double,
+    val promptTokens: Long,
+    val generatedTokens: Long,
+    val note: String,
+)
+
 class CleanupPipeline(
     private val engine: CleanupEngine,
     private val scope: CoroutineScope,
@@ -33,12 +60,25 @@ class CleanupPipeline(
     private val rules: () -> String,
     /** Number of sentences to rewrite across pause boundaries for seam healing. */
     private val healingSentencesCount: () -> Int = { 0 },
+    /**
+     * Rebuild the conversation after this many segments even when the cache is not near full
+     * (0 = no turn limit). Read per pass, like [rules], so the Cleanup Lab can vary it per run.
+     */
+    private val maxTurns: () -> Int = { ConversationRebuildPolicy.NO_TURN_LIMIT },
     /** Called on [dispatcher], in order, once per unit. */
     private val onCommitted: suspend (CleanupCommit) -> Unit,
+    /** Measurement hook, in pass order: the conversation position and outcome of each pass. */
+    private val onPass: (CleanupPassTelemetry) -> Unit = {},
 ) {
 
     private var queue: Channel<CleanupUnit>? = null
     private var worker: Job? = null
+
+    /** Segments cleaned since the current conversation was opened; drives the [maxTurns] trigger. */
+    private var turnsSinceRebuild: Int = 0
+
+    /** Passes run this utterance; the 1-based index carried in [CleanupPassTelemetry]. */
+    private var passIndex: Int = 0
 
     /** The carried context and counters for the utterance in progress. */
     val state = UtteranceCleanupState()
@@ -71,6 +111,8 @@ class CleanupPipeline(
         state.seed(initialTail)
         lastPass = null
         submitted = 0
+        turnsSinceRebuild = 0
+        passIndex = 0
         engine.startSession(rules())
         val channel = Channel<CleanupUnit>(Channel.UNLIMITED)
         queue = channel
@@ -83,6 +125,7 @@ class CleanupPipeline(
                 } else null
                 val hasOverlap = seam != null && seam.strippedOverlap.isNotBlank()
                 val textToClean = if (hasOverlap) "${seam.strippedOverlap} ${unit.trim()}" else unit
+                val tokensBefore = engine.tokenCount
                 val passStart = MonotonicClock.nowMs()
                 val pass = runCatching { engine.clean(textToClean, rules()) }
                     .getOrElse { error ->
@@ -106,19 +149,54 @@ class CleanupPipeline(
                 val effectiveSeam = if (finalPass.cleaned) seam else null
                 onCommitted(state.onPass(finalPass, effectiveSeam))
 
-                // Proactive: rebuild the conversation once the cache is nearly full, here on the
-                // cleanup worker while the ASR keeps producing the next segment. `startSession`
-                // closes the old conversation first (never two caches at once) and prefills the new
-                // system preface, so the next pass finds a warm, empty conversation — the rebuild
-                // cost is paid off the critical path, not when a segment is waiting.
-                val used = engine.tokenCount
-                val cap = engine.contextTokens
-                if (ConversationRebuildPolicy.shouldRebuild(used, cap)) {
+                // Conversation policy. `turnsInConversation` is the count *before* this pass's rebuild
+                // decision, which is what a quality-vs-position plot wants on the x-axis. The turn rule
+                // does not depend on token reporting; the capacity rule does.
+                val tokensAfter = engine.tokenCount
+                val reason = ConversationRebuildPolicy.reasonFor(
+                    tokenCount = tokensAfter,
+                    contextTokens = engine.contextTokens,
+                    turns = turnsSinceRebuild + 1,
+                    maxTurns = maxTurns(),
+                )
+
+                onPass(
+                    CleanupPassTelemetry(
+                        index = ++passIndex,
+                        unit = textToClean,
+                        cleanedText = finalPass.text,
+                        cleaned = finalPass.cleaned,
+                        tokensBefore = tokensBefore,
+                        tokensAfter = tokensAfter,
+                        turnsInConversation = turnsSinceRebuild,
+                        rebuiltAfter = reason != null,
+                        rebuildReason = reason,
+                        activeMs = finalPass.activeMs,
+                        ttftMs = finalPass.ttftMs,
+                        decodeTimeMs = finalPass.decodeTimeMs,
+                        promptTokens = finalPass.promptTokens,
+                        generatedTokens = finalPass.generatedTokens,
+                        note = finalPass.note,
+                    ),
+                )
+
+                // Proactive: rebuild the conversation once the trigger fires, here on the cleanup worker
+                // while the ASR keeps producing the next segment. `startSession` closes the old
+                // conversation first (never two caches at once) and prefills the new system preface, so
+                // the next pass finds a warm, empty conversation — the rebuild cost is paid off the
+                // critical path, not when a segment is waiting.
+                if (reason != null) {
                     // The engine reports it — this class stays free of Android APIs so it is
                     // host-testable. The figures are the only ground truth for the effective KV
                     // ceiling, which the SDK does not expose.
-                    engine.onConversationRebuilt(used, cap)
+                    engine.onConversationRebuilt(tokensAfter, engine.contextTokens)
                     engine.startSession(rules())
+                    turnsSinceRebuild = 0
+                } else {
+                    // tokensAfter == 0 means no live conversation (a failed session was closed by the
+                    // engine, or the engine is not loaded); the next pass starts fresh, so the turn
+                    // budget restarts too.
+                    turnsSinceRebuild = if (tokensAfter > 0) turnsSinceRebuild + 1 else 0
                 }
             }
         }

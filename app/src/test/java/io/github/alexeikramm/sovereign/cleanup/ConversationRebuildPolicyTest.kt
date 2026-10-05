@@ -1,6 +1,8 @@
 package io.github.alexeikramm.sovereign.cleanup
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,6 +39,40 @@ class ConversationRebuildPolicyTest {
         assertTrue(
             "the trigger must leave room above it before the native 2048-token wall",
             (2048 * ConversationRebuildPolicy.REBUILD_AT).toInt() < 2000,
+        )
+    }
+
+    @Test
+    fun `maxTurns rebuilds on the turn budget regardless of the cache`() {
+        val cap = 4096
+        assertNull(ConversationRebuildPolicy.reasonFor(10, cap, turns = 2, maxTurns = 3))
+        assertEquals(
+            ConversationRebuildPolicy.RebuildReason.TURNS,
+            ConversationRebuildPolicy.reasonFor(10, cap, turns = 3, maxTurns = 3),
+        )
+        assertEquals(
+            "a zero cache must not disable the turn rule",
+            ConversationRebuildPolicy.RebuildReason.TURNS,
+            ConversationRebuildPolicy.reasonFor(0, 0, turns = 1, maxTurns = 1),
+        )
+        assertNull(
+            "maxTurns = 0 keeps today's shipped behaviour exactly",
+            ConversationRebuildPolicy.reasonFor(0, cap, turns = 99, maxTurns = 0),
+        )
+    }
+
+    @Test
+    fun `capacity only fires when the turn budget has not already run out`() {
+        val cap = 4096
+        val over = (cap * ConversationRebuildPolicy.REBUILD_AT).toInt()
+        assertEquals(
+            ConversationRebuildPolicy.RebuildReason.CAPACITY,
+            ConversationRebuildPolicy.reasonFor(over, cap, turns = 1, maxTurns = 5),
+        )
+        assertEquals(
+            "when both fire, the turn budget is the more specific reason",
+            ConversationRebuildPolicy.RebuildReason.TURNS,
+            ConversationRebuildPolicy.reasonFor(over, cap, turns = 5, maxTurns = 5),
         )
     }
 }
