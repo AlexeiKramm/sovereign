@@ -606,25 +606,28 @@ private fun ProfileDetailScreen(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md),
                 ) {
-                    DetailField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = "Name",
-                        enabled = !profile.isBuiltin,
-                    )
-                    DetailField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = "Short description",
-                        enabled = !profile.isBuiltin,
-                    )
-                    DetailField(
-                        value = rules,
-                        onValueChange = { rules = it },
-                        label = "Cleanup instructions",
-                        enabled = !profile.isBuiltin,
-                        minLines = 5,
-                    )
+                    if (profile.isBuiltin) {
+                        ReadOnlyDetailField(label = "Name", value = name)
+                        ReadOnlyDetailField(label = "Short description", value = description)
+                        ReadOnlyDetailField(label = "Cleanup instructions", value = rules)
+                    } else {
+                        DetailField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = "Name",
+                        )
+                        DetailField(
+                            value = description,
+                            onValueChange = { description = it },
+                            label = "Short description",
+                        )
+                        DetailField(
+                            value = rules,
+                            onValueChange = { rules = it },
+                            label = "Cleanup instructions",
+                            minLines = 5,
+                        )
+                    }
                 }
             }
 
@@ -699,14 +702,12 @@ private fun DetailField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
-    enabled: Boolean,
     minLines: Int = 1,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        enabled = enabled,
         singleLine = minLines == 1,
         minLines = minLines,
         maxLines = if (minLines == 1) 1 else 10,
@@ -714,12 +715,38 @@ private fun DetailField(
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
         ),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun ReadOnlyDetailField(
+    label: String,
+    value: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = value.ifBlank { "—" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+    }
 }
 
 @Composable
