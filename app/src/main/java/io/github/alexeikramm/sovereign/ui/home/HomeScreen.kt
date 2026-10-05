@@ -19,9 +19,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -112,7 +114,7 @@ import kotlin.math.roundToInt
  * - Centered brand hero with 4-bar waveform mark
  * - Card 1: Status & Active Configuration (green checkmark, LLM polish toggle, Profile/Model tiles, permission alerts)
  * - Card 2: Try Dictation (header with transcribe file pill, animated mic action, raw vs cleaned comparison box)
- * - Card 3: Usage Statistics (header with today's words, understated net time saved banner, 2x2 metric tiles)
+ * - Card 3: Usage Statistics (header with today's words, 2x2 metric tiles)
  * - Card 4: Last Dictation (header with word count and history link, last transcript snippet)
  */
 @Composable
@@ -591,84 +593,53 @@ private fun UsageStatisticsCard(
                 )
             }
 
-            // Net Time Saved Tile (Understated Banner)
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Net time saved",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .clickable(onClick = onOpenTimeSaved),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Time saved explanation",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    Text(
-                        text = timeSavedStr,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-
             // 4-Grid Metric Tiles (2x2 Grid)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     MetricTile(
                         label = "Words dictated",
                         value = formatCount(totalWords),
-                        subtext = "${stats.totalUtterances} sessions",
-                        modifier = Modifier.weight(1f),
+                        subtext = "${formatCount(fixesApplied)} fixes applied",
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                     )
                     MetricTile(
                         label = "Speaking speed",
                         value = "$avgWpm WPM",
                         subtext = if (avgWpm == 0) "Ready to measure" else "Average pace",
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                     )
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     MetricTile(
-                        label = "Fixes applied",
-                        value = formatCount(fixesApplied),
-                        subtext = "${stats.totalWordsRemoved} fillers stripped",
-                        modifier = Modifier.weight(1f),
+                        label = "Dictation has saved you",
+                        value = timeSavedStr,
+                        subtext = "vs. typing",
+                        onInfoClick = onOpenTimeSaved,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                     )
                     MetricTile(
                         label = "Audio spoken",
                         value = "${audioMins}m",
-                        subtext = "$audioMins mins recorded",
-                        modifier = Modifier.weight(1f),
+                        subtext = "${stats.totalUtterances} sessions",
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                     )
                 }
             }
@@ -724,6 +695,7 @@ private fun MetricTile(
     value: String,
     subtext: String,
     modifier: Modifier = Modifier,
+    onInfoClick: (() -> Unit)? = null,
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -734,11 +706,34 @@ private fun MetricTile(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onInfoClick != null) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onInfoClick),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Time saved explanation",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+            }
             Text(
                 text = value,
                 fontSize = 20.sp,
@@ -888,7 +883,7 @@ private fun TimeSavedExplanationDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Net time saved",
+                text = "Time saved",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -907,7 +902,7 @@ private fun TimeSavedExplanationDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = "Net Time Saved =\n(Words Dictated ÷ 40 WPM) − Audio Spoken",
+                        text = "Time saved =\n(Words Dictated ÷ 40 WPM) − Audio Spoken",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
