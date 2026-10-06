@@ -45,6 +45,10 @@ android {
     packaging {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // BouncyCastle ships the same LICENSE/NOTICE text in all three jars; the app already
+        // excludes other bundled licence texts and does not rely on them at runtime.
+        excludes += "/META-INF/LICENSE.md"
+        excludes += "/META-INF/NOTICE.md"
       }
     }
 
@@ -130,6 +134,13 @@ dependencies {
   // normal Android Studio can open it. The multipart body is ours (net/MultipartForm.kt), which
   // also makes the wire format unit-testable.
   implementation(libs.kotlinx.serialization.json)
+
+  // Phone-as-desktop-server transport (Chunk 1b, D-111): Java-WebSocket hosts the pinned wss://
+  // endpoint and bcpkix signs the persisted self-signed server certificate. See
+  // docs/work/phone-server-desktop/PROTOCOL.md.
+  implementation(libs.java.websocket)
+  implementation(libs.bouncycastle.prov)
+  implementation(libs.bouncycastle.pkix)
 
   // v2 local tier: the on-device streaming ASR runtime (D-020, D-026). Not a Maven coordinate —
   // see tools/fetch_sherpa_aar.sh, which pins the same version as the catalog entry above.

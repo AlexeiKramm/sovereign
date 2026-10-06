@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- The phone-server holds a foreground service for its whole life; `specialUse` is the idle
+         type (Android 15+ caps `dataSync` at 6h/24h). See docs/work/phone-server-desktop/PLAN.md. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Model downloads run as a foreground dataSync worker so they survive leaving the app. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- The download progress notification is only visible when this is granted; denied is not
@@ -74,6 +77,18 @@
             android:name=".floating.FloatingOverlayService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Phone-as-desktop-server (Chunk 1b). Held `specialUse | microphone` for its whole life:
+             Android 14+ will not grant a while-in-use `microphone` type to a background app, so the
+             type is acquired while an Activity is visible and kept until the server stops. -->
+        <service
+            android:name=".server.SovereignServerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Serves on-device dictation to a paired desktop client over the LAN" />
+        </service>
 
         <!-- WorkManager's foreground service carries the download notification. WorkManager does
              not declare a foregroundServiceType of its own, and a targetSdk 34+ app must, or the

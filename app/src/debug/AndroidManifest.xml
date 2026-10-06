@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only overlay: the server service is not exported in the shipped app, so `adb shell am
+  start-foreground-service` cannot reach it (the shell UID is refused). Debug builds export it so the
+  Chunk 1b device walkthrough can start it without a toggle UI (Chunk 2 adds the UI). Release keeps
+  the non-exported declaration from the main manifest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <service
+            android:name=".server.SovereignServerService"
+            android:exported="true"
+            tools:ignore="ExportedService"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

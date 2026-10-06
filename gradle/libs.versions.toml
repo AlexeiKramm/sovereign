@@ -19,6 +19,14 @@ lifecycleViewmodelNav3 = "2.10.0"
 # v1 networking + response parsing (see PLAN §14)
 kotlinxSerializationJson = "1.11.0"
 
+# Phone-as-desktop-server transport (D-111): Java-WebSocket serves wss:// natively from an SSLContext
+# (~110 KB, no proxy), which ktor-server-cio could not (it rejects every HTTPS connector).
+javaWebsocket = "1.6.0"
+# Self-signed certificate generation for the pinned-TLS identity (Chunk 1b). bcpkix's
+# JcaX509v3CertificateBuilder is the only supported way to sign an X.509 cert on Android; the
+# platform exposes no public API for it.
+bouncycastle = "1.86"
+
 # On-device ASR runtime (D-020 streaming transducer, v2 scope D-026). The AAR itself is not a
 # Maven coordinate: it is fetched and sha256-verified by tools/fetch_sherpa_aar.sh, which pins
 # the same version. Keep the two in step.
@@ -48,6 +56,9 @@ androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runt
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
 androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+java-websocket = { module = "org.java-websocket:Java-WebSocket", version.ref = "javaWebsocket" }
+bouncycastle-prov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-pkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }
