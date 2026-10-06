@@ -29,8 +29,32 @@ object ModelResidency {
      * trigger — screen off, idle timeout, keyboard close, memory pressure — consults it. A capture
      * is in flight while the recorder is running **or** the utterance is still being finalised
      * (cleanup `drain()` and punctuation run after the recorder stops), so both count.
+     *
+     * [serverUtterance] is the third claimant (D-105/D-106): an in-flight desktop-server utterance
+     * is "processing" too, even though it owns neither the phone's pill state nor a phone capture.
+     * It is a plain flag so this file stays free of the arbiter type.
      */
-    fun canUnload(recording: Boolean, processing: Boolean): Boolean = !recording && !processing
+    fun canUnload(
+        recording: Boolean,
+        processing: Boolean,
+        serverUtterance: Boolean = false,
+    ): Boolean = !recording && !processing && !serverUtterance
+
+    /** The four unload triggers (D-045). Server mode suppresses the two pill-only ones (D-105). */
+    enum class Trigger { SCREEN_OFF, KEYBOARD_CLOSE, IDLE, MEMORY_PRESSURE }
+
+    /**
+     * Whether [trigger] may release the engines under the current mode.
+     *
+     * While a desktop server is serving (D-105), **screen-off and keyboard-close are suppressed**: a
+     * docked phone's screen is expected to be off, and the phone's IME is not the desktop's input.
+     * The idle timeout remains the one unload whose meaning ("no dictation for N minutes") maps onto
+     * server use, and memory pressure still applies because an OOM helps nobody.
+     */
+    fun triggerAllowed(trigger: Trigger, serverMode: Boolean): Boolean = when {
+        !serverMode -> true
+        else -> trigger != Trigger.SCREEN_OFF && trigger != Trigger.KEYBOARD_CLOSE
+    }
 
     /**
      * Whether the idle window has elapsed since the last capture ended. [timeoutMinutes] `<= 0`

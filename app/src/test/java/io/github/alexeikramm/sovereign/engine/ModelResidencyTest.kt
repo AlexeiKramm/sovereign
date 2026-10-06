@@ -46,9 +46,32 @@ class ModelResidencyTest {
     }
 
     @Test
+    fun `unload is blocked while a server utterance is in flight`() {
+        assertFalse(
+            "a desktop utterance is processing too, even with no phone capture (D-105)",
+            ModelResidency.canUnload(recording = false, processing = false, serverUtterance = true),
+        )
+    }
+
+    @Test
     fun `unload is allowed only when fully idle`() {
         assertTrue(ModelResidency.canUnload(recording = false, processing = false))
         assertFalse("recording and processing cannot both be false here", ModelResidency.canUnload(true, true))
+    }
+
+    @Test
+    fun `server mode suppresses only the screen-off and keyboard-close triggers`() {
+        assertFalse(ModelResidency.triggerAllowed(ModelResidency.Trigger.SCREEN_OFF, serverMode = true))
+        assertFalse(ModelResidency.triggerAllowed(ModelResidency.Trigger.KEYBOARD_CLOSE, serverMode = true))
+        assertTrue(ModelResidency.triggerAllowed(ModelResidency.Trigger.IDLE, serverMode = true))
+        assertTrue(ModelResidency.triggerAllowed(ModelResidency.Trigger.MEMORY_PRESSURE, serverMode = true))
+    }
+
+    @Test
+    fun `without server mode every unload trigger is allowed`() {
+        ModelResidency.Trigger.entries.forEach { trigger ->
+            assertTrue(trigger.name, ModelResidency.triggerAllowed(trigger, serverMode = false))
+        }
     }
 
     @Test
