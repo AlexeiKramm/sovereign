@@ -55,7 +55,9 @@ import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.ProfileStore
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
+import io.github.alexeikramm.sovereign.dictation.DictationListener
 import io.github.alexeikramm.sovereign.dictation.DictationSession
+import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
 import io.github.alexeikramm.sovereign.dictation.SessionArbiter
 import io.github.alexeikramm.sovereign.engine.Engine
 import io.github.alexeikramm.sovereign.engine.ModelResidency
@@ -612,7 +614,11 @@ class FloatingOverlayService : Service() {
         abandonCapture()
         removeOverlayView()
         scope.cancel()
-        session.shutdown()
+        // The session is process-wide (D-106): drop the pill's callbacks and release its engines, but
+        // never shut the shared session down — a desktop server may still be using it. Its scope is
+        // process-lifetime and its dispatchers close when the process dies.
+        DictationSessionHolder.clearListener(SessionArbiter.Owner.PILL)
+        session.unloadEngines("pill stopped")
         releasePillLease()
         Log.i(TAG, "FloatingOverlayService destroyed")
     }
@@ -659,31 +665,30 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * Builds the one headless [DictationSession] — the engines, recorder, dispatchers and residency
-     * that used to live here (D-106). The pill is now an adapter: it mirrors the session's text into
-     * Compose state and drives capture through it. UI state that has no place in a headless engine
-     * (audio level, error text, warmth indicators) is mirrored back via the callbacks.
+     * Borrows the one process-wide [DictationSession] (D-106) and registers the pill as its `PILL`
+     * consumer. The session is no longer created here: the desktop server is a second consumer of the
+     * same engines, and two ~1.5 GB sets would OOM the phone (D-045). The pill still only mirrors the
+     * session's text/level/warmth into Compose state — UI state that has no place in a headless engine.
      */
     private fun setupSession() {
-        session = DictationSession(
-            context = this,
-            settings = settings,
-            profileStore = profileStore,
-            dictionaryStore = dictionaryStore,
-            scope = scope,
-            // All three strings arrive together, so a commit clears the provisional tail in the same
-            // update that shows the committed text — no separate partial channel to fall out of sync.
-            onText = { committed, raw, provisional ->
-                previewText = committed
-                rawText = raw
-                provisionalText = if (settings.streamingPreviewEnabled) provisional else ""
-            },
-            onCleanupUnavailable = { errorMessage = CLEANUP_UNAVAILABLE },
-            onAudioLevel = { level -> audioLevel = level },
-            onModelResidencyChanged = { asrLoaded, cleanupLoaded ->
-                asrModelLoaded = asrLoaded
-                cleanupModelLoaded = cleanupLoaded
-            },
+        session = DictationSessionHolder.shared(this)
+        DictationSessionHolder.setListener(
+            SessionArbiter.Owner.PILL,
+            DictationListener(
+                // All three strings arrive together, so a commit clears the provisional tail in the
+                // same update that shows the committed text — no separate partial channel to desync.
+                onText = { committed, raw, provisional ->
+                    previewText = committed
+                    rawText = raw
+                    provisionalText = if (settings.streamingPreviewEnabled) provisional else ""
+                },
+                onCleanupUnavailable = { errorMessage = CLEANUP_UNAVAILABLE },
+                onAudioLevel = { level -> audioLevel = level },
+                onModelResidencyChanged = { asrLoaded, cleanupLoaded ->
+                    asrModelLoaded = asrLoaded
+                    cleanupModelLoaded = cleanupLoaded
+                },
+            ),
         )
     }
 
