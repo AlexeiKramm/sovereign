@@ -1,6 +1,7 @@
 package io.github.alexeikramm.sovereign
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,6 +21,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.theme.SovereignTheme
 import io.github.alexeikramm.sovereign.theme.appThemeIsDark
+import io.github.alexeikramm.sovereign.server.SovereignServerService
 import io.github.alexeikramm.sovereign.ui.DictationViewModel
 import io.github.alexeikramm.sovereign.ui.MainScreen
 import android.os.Build
@@ -29,8 +31,12 @@ import io.github.alexeikramm.sovereign.ui.onboarding.OnboardingScreen
 class MainActivity : ComponentActivity() {
     private val viewModel: DictationViewModel by viewModels()
 
+    /** Set by the server notification; the Server screen opens once and clears it. */
+    private var openServerRequested by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        openServerRequested = intent?.action == SovereignServerService.ACTION_OPEN_SERVER
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
                 android.graphics.Color.TRANSPARENT,
@@ -103,10 +109,22 @@ class MainActivity : ComponentActivity() {
                             },
                         )
                     } else {
-                        MainScreen(viewModel = viewModel)
+                        MainScreen(
+                            viewModel = viewModel,
+                            openServerRequest = openServerRequested,
+                            onServerRequestConsumed = { openServerRequested = false },
+                        )
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == SovereignServerService.ACTION_OPEN_SERVER) {
+            openServerRequested = true
         }
     }
 

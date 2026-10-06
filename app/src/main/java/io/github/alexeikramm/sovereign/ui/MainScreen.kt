@@ -27,6 +27,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,7 @@ import io.github.alexeikramm.sovereign.ui.models.ModelsScreen
 import io.github.alexeikramm.sovereign.ui.onboarding.OnboardingScreen
 import io.github.alexeikramm.sovereign.ui.onboarding.OnboardingStep
 import io.github.alexeikramm.sovereign.ui.profile.ProfilesScreen
+import io.github.alexeikramm.sovereign.ui.server.ServerScreen
 import io.github.alexeikramm.sovereign.ui.settings.SettingsScreen
 import io.github.alexeikramm.sovereign.ui.transcribe.TranscribeHubScreen
 
@@ -85,6 +87,8 @@ enum class NavTab(
 @Composable
 fun MainScreen(
     viewModel: DictationViewModel = viewModel(),
+    openServerRequest: Boolean = false,
+    onServerRequestConsumed: () -> Unit = {},
 ) {
     var tabHistory by rememberSaveable { mutableStateOf(listOf(0)) }
     val currentTabIndex = tabHistory.lastOrNull() ?: 0
@@ -106,11 +110,21 @@ fun MainScreen(
     var onboardingStart by rememberSaveable { mutableStateOf(OnboardingStep.MICROPHONE) }
     var showHistory by rememberSaveable { mutableStateOf(false) }
     var showTranscribe by rememberSaveable { mutableStateOf(false) }
+    var showServer by rememberSaveable { mutableStateOf(false) }
+
+    // A tap on the server's ongoing notification asks for the dashboard; open it once, then clear.
+    LaunchedEffect(openServerRequest) {
+        if (openServerRequest) {
+            showServer = true
+            onServerRequestConsumed()
+        }
+    }
 
     val selectTab: (Int) -> Unit = { index ->
         focusManager.clearFocus(force = true)
         showHistory = false
         showTranscribe = false
+        showServer = false
         if (tabHistory.lastOrNull() != index) {
             tabHistory = tabHistory + index
         }
@@ -123,7 +137,10 @@ fun MainScreen(
     BackHandler(enabled = !showHistory && showTranscribe) {
         showTranscribe = false
     }
-    BackHandler(enabled = !showHistory && !showTranscribe && tabHistory.size > 1) {
+    BackHandler(enabled = !showHistory && !showTranscribe && showServer) {
+        showServer = false
+    }
+    BackHandler(enabled = !showHistory && !showTranscribe && !showServer && tabHistory.size > 1) {
         tabHistory = tabHistory.dropLast(1)
     }
 
@@ -183,7 +200,7 @@ fun MainScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         tabs.forEachIndexed { index, tab ->
-                            val isSelected = !showHistory && !showTranscribe && (currentTabIndex == index)
+                            val isSelected = !showHistory && !showTranscribe && !showServer && (currentTabIndex == index)
                             val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
                             NavigationBarItem(
                                 selected = isSelected,
@@ -223,6 +240,11 @@ fun MainScreen(
                             onNavigateUp = { showTranscribe = false },
                         )
 
+                        showServer -> ServerScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            onNavigateUp = { showServer = false },
+                        )
+
                         else -> {
                             when (tabs[currentTabIndex]) {
                                 NavTab.HOME -> HomeScreen(
@@ -236,6 +258,7 @@ fun MainScreen(
                                     },
                                     onOpenHistory = { showHistory = true },
                                     onOpenTranscribe = { showTranscribe = true },
+                                    onOpenServer = { showServer = true },
                                     onSetUpModels = {
                                         onboardingStart = OnboardingStep.MODELS
                                         showOnboarding = true

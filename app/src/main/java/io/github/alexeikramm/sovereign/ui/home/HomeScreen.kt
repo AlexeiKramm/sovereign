@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
@@ -97,6 +98,8 @@ import io.github.alexeikramm.sovereign.asr.AsrModels
 import io.github.alexeikramm.sovereign.data.DictationRecord
 import io.github.alexeikramm.sovereign.data.UsageStatsData
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
+import io.github.alexeikramm.sovereign.server.ServerLifecycle
+import io.github.alexeikramm.sovereign.server.ServerRuntime
 import io.github.alexeikramm.sovereign.theme.Spacing
 import io.github.alexeikramm.sovereign.ui.DictationUiState
 import io.github.alexeikramm.sovereign.ui.DictationViewModel
@@ -116,6 +119,7 @@ import kotlin.math.roundToInt
  * - Card 2: Try Dictation (header with transcribe file pill, animated mic action, raw vs cleaned comparison box)
  * - Card 3: Usage Statistics (header with today's words, 2x2 metric tiles)
  * - Card 4: Last Dictation (header with word count and history link, last transcript snippet)
+ * - Card 5: Desktop Server (status chip; opens the Server dashboard)
  */
 @Composable
 fun HomeScreen(
@@ -125,6 +129,7 @@ fun HomeScreen(
     onNavigateToProfiles: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenTranscribe: () -> Unit = {},
+    onOpenServer: () -> Unit = {},
     onSetUpModels: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -219,6 +224,9 @@ fun HomeScreen(
             selectedAsrModel = selectedAsrModel,
             cleanupEnabled = cleanupEnabled,
         )
+
+        // Card 5: Desktop Server
+        DesktopServerCard(onOpenServer = onOpenServer)
 
         Spacer(modifier = Modifier.height(Spacing.xl))
     }
@@ -839,6 +847,107 @@ private fun LastDictationCard(
                         asrModelName = lastRecord.asrModel,
                         llmEnabled = lastRecord.llmModel != null && lastRecord.llmModel.isNotBlank(),
                     ),
+                )
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// F. Card 5: Desktop Server
+// ----------------------------------------------------------------------------
+
+@Composable
+private fun DesktopServerCard(onOpenServer: () -> Unit) {
+    val snapshot by ServerRuntime.shared.state.collectAsStateWithLifecycle()
+
+    val statusLabel: String
+    val statusColor: Color
+    when {
+        snapshot.lifecycle == ServerLifecycle.STARTING -> {
+            statusLabel = "Starting"
+            statusColor = MaterialTheme.colorScheme.tertiary
+        }
+        snapshot.lifecycle == ServerLifecycle.RUNNING && snapshot.clients.isNotEmpty() -> {
+            statusLabel = "Connected"
+            statusColor = MaterialTheme.colorScheme.primary
+        }
+        snapshot.lifecycle == ServerLifecycle.RUNNING -> {
+            statusLabel = "Ready"
+            statusColor = MaterialTheme.colorScheme.primary
+        }
+        else -> {
+            statusLabel = "Off"
+            statusColor = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    }
+
+    val subtitle = when {
+        !snapshot.error.isNullOrBlank() -> snapshot.error ?: ""
+        snapshot.lifecycle == ServerLifecycle.STARTING -> "Starting the server…"
+        snapshot.lifecycle == ServerLifecycle.RUNNING ->
+            snapshot.endpoint ?: "Serving on your local network"
+        else -> "Dictate on your PC using this phone's mic and models"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenServer),
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Computer,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Desktop server",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 11.5.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            ) {
+                Text(
+                    text = statusLabel,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = statusColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }

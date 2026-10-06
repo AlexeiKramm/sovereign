@@ -315,6 +315,16 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putInt(KEY_IDLE_TIMEOUT_MIN, value) }
 
     /**
+     * How long the desktop server keeps serving before it stops itself (the dashboard's 1 h / 2 h /
+     * manual selector). Minutes; 0 means it never auto-stops. Deliberately **not** part of
+     * `SettingsBackup`: a server session is device-local and a stale timer restored from a backup
+     * would silently cap a session elsewhere.
+     */
+    var serverTimeoutMinutes: Int
+        get() = prefs.getInt(KEY_SERVER_TIMEOUT_MIN, DEFAULT_SERVER_TIMEOUT_MIN)
+        set(value) = prefs.edit { putInt(KEY_SERVER_TIMEOUT_MIN, value) }
+
+    /**
      * Number of sentences from the tail of the previous segment to rewrite and heal across pause cuts.
      * 0 disables rewriting (pure append-only mode). Default is 2.
      */
@@ -516,6 +526,7 @@ class AppSettings(context: Context) {
         private const val KEY_KEEP_SCREEN_ON_WHILE_RECORDING = "keep_screen_on_while_recording"
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
+        private const val KEY_SERVER_TIMEOUT_MIN = "server_timeout_min"
         private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
         private const val KEY_MAX_TURNS = "cleanup_max_turns"
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
@@ -585,6 +596,10 @@ class AppSettings(context: Context) {
         const val DEFAULT_UNLOAD_KEYBOARD_CLOSE = true
         const val DEFAULT_IDLE_TIMEOUT_MIN = 2
         val IDLE_TIMEOUT_OPTIONS = listOf(0, 1, 2, 5, 10, 15)
+
+        /** The desktop server's default session cap (2 h) and the dashboard's option list. */
+        const val DEFAULT_SERVER_TIMEOUT_MIN = 120
+        val SERVER_TIMEOUT_OPTIONS = listOf(60, 120, 0)
 
         /**
          * Boundary timings. D-037 raised the first tuned values (1.2 s / 1.8 s / 3.0 s) because a

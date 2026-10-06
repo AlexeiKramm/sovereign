@@ -1,5 +1,6 @@
 package io.github.alexeikramm.sovereign.server
 
+import android.os.SystemClock
 import android.util.Log
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
@@ -32,6 +33,8 @@ class SovereignWebSocketServer(
     private val capture: CaptureHost,
     private val dispatcher: CoroutineDispatcher,
     private val onConnectionCountChanged: (Int) -> Unit = {},
+    /** Where the dashboard's connected-device list and heartbeat readout come from (Chunk 2a). */
+    private val runtime: ServerRuntime = ServerRuntime.shared,
 ) : WebSocketServer(InetSocketAddress(boundPort)) {
 
     private class Connection(val engine: SovereignServerEngine, val scope: CoroutineScope)
@@ -57,6 +60,10 @@ class SovereignWebSocketServer(
             capture = capture,
             scope = connectionScope,
             sink = { message -> send(conn, message) },
+            onAuthenticated = { device ->
+                runtime.onClientConnected(device.deviceId, device.name, remoteAddress(conn))
+            },
+            onHeartbeat = { runtime.onHeartbeat(SystemClock.elapsedRealtime()) },
         )
         connections[conn] = Connection(engine, connectionScope)
         Log.i(TAG, "Connection opened (${connections.size} active)")
@@ -88,6 +95,7 @@ class SovereignWebSocketServer(
         val connection = connections.remove(conn) ?: return
         Log.i(TAG, "Connection closed: code=$code reason=$reason remote=$remote (${connections.size} active)")
         onConnectionCountChanged(connections.size)
+        runtime.onClientDisconnected(connection.engine.authenticatedDevice?.deviceId)
         scope.launch {
             connection.engine.onTransportClosed()
             connection.scope.cancel()
@@ -108,6 +116,10 @@ class SovereignWebSocketServer(
         runCatching { conn.send(ServerProtocol.encode(message)) }
             .onFailure { Log.w(TAG, "Failed to send ${message.type.wire}", it) }
     }
+
+    /** `ip:port` of the peer, for the dashboard's connected-device row. */
+    private fun remoteAddress(conn: WebSocket): String? =
+        conn.remoteSocketAddress?.let { "${it.address?.hostAddress ?: it.hostString}:${it.port}" }
 
     private companion object {
         const val TAG = "SovereignServer"

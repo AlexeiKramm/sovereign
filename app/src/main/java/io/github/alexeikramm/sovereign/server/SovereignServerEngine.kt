@@ -34,6 +34,10 @@ class SovereignServerEngine(
     private val random: SecureRandom = SecureRandom(),
     private val newId: () -> String = { UUID.randomUUID().toString() },
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** A desktop finished authenticating (`WELCOME`); the dashboard shows it as connected. */
+    private val onAuthenticated: (PairedDevice) -> Unit = {},
+    /** A `PING` arrived; feeds the dashboard's heartbeat-age readout. */
+    private val onHeartbeat: () -> Unit = {},
 ) {
 
     /** Connection phase. `READY` means authenticated; session messages are refused before it. */
@@ -171,6 +175,7 @@ class SovereignServerEngine(
         }
         authenticatedDevice = device
         phase = Phase.READY
+        onAuthenticated(device)
         emit(
             MessageType.WELCOME,
             WelcomePayload(
@@ -272,6 +277,7 @@ class SovereignServerEngine(
     // --- Ops ----------------------------------------------------------------------------------
 
     private fun onPing(p: PingPayload) {
+        onHeartbeat()
         emit(MessageType.PONG, PongPayload(p.clientTs, now()))
     }
 

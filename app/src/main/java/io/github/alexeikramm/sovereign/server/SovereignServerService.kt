@@ -13,6 +13,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -59,6 +60,9 @@ class SovereignServerService : Service() {
     private var nsdListener: NsdManager.RegistrationListener? = null
     private var timeoutJob: Job? = null
 
+    /** The auto-stop the current session was started with; surfaced in the dashboard snapshot. */
+    private var timeoutMinutes = AppSettings.DEFAULT_SERVER_TIMEOUT_MIN
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,13 +71,17 @@ class SovereignServerService : Service() {
             return START_NOT_STICKY
         }
         running = true
+        ServerRuntime.shared.onStarting()
 
         createNotificationChannel()
         if (!startInForeground()) {
             running = false
+            ServerRuntime.shared.onFailed("Could not start the foreground service")
             return START_NOT_STICKY
         }
-        startTimeout(intent)
+        timeoutMinutes = intent?.getIntExtra(EXTRA_TIMEOUT_MINUTES, AppSettings(this).serverTimeoutMinutes)
+            ?: AppSettings(this).serverTimeoutMinutes
+        startTimeout(timeoutMinutes)
         startServer()
         return START_NOT_STICKY
     }
@@ -93,6 +101,7 @@ class SovereignServerService : Service() {
         session = null
         scope.cancel()
         tls = null
+        ServerRuntime.shared.onStopped()
         Log.i(TAG, "SovereignServerService destroyed")
         super.onDestroy()
     }
@@ -134,17 +143,22 @@ class SovereignServerService : Service() {
                 server = ws
                 ws.start()
                 advertise(serverIdentity, identity.spkiSha256)
-                Log.i(TAG, "Server started: id=$deviceId name=${serverIdentity.serverName} spki=${identity.spkiSha256}")
+                val endpoint = ServerEndpoint.localIpv4()?.let { ServerEndpoint.url(it) }
+                ServerRuntime.shared.onRunning(
+                    endpoint = endpoint,
+                    startedAtRealtimeMs = SystemClock.elapsedRealtime(),
+                    timeoutMinutes = timeoutMinutes,
+                )
+                Log.i(TAG, "Server started: id=$deviceId name=${serverIdentity.serverName} spki=${identity.spkiSha256} endpoint=$endpoint")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start the server", e)
+                ServerRuntime.shared.onFailed(e.message ?: "The server failed to start")
                 stopSelf()
             }
         }
     }
 
-    private fun startTimeout(intent: Intent?) {
-        val minutes = intent?.getIntExtra(EXTRA_TIMEOUT_MINUTES, DEFAULT_TIMEOUT_MINUTES)
-            ?: DEFAULT_TIMEOUT_MINUTES
+    private fun startTimeout(minutes: Int) {
         if (minutes <= 0) {
             Log.i(TAG, "Session timeout disabled (manual stop)")
             return
@@ -243,9 +257,11 @@ class SovereignServerService : Service() {
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
-    /** The ongoing notification; tapping it returns to the app (Chunk 2 routes it to the dashboard). */
+    /** The ongoing notification; tapping it returns to the Server screen (Chunk 2a deep-link). */
     private fun buildNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(ACTION_OPEN_SERVER)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pending = PendingIntent.getActivity(
             this,
             0,
@@ -287,10 +303,10 @@ class SovereignServerService : Service() {
         private const val PREFS_NAME = "sovereign_server"
         private const val KEY_DEVICE_ID = "device_id"
 
-        /** Auto-stop default; Chunk 2 replaces it with the 1 h / 2 h / manual selector. */
-        private const val DEFAULT_TIMEOUT_MINUTES = 120
+        /** Set on the notification's `Intent` so `MainActivity` can open the Server screen. */
+        const val ACTION_OPEN_SERVER = "io.github.alexeikramm.sovereign.action.OPEN_SERVER"
 
-        /** Optional override for the device walkthrough (`--ei timeout_minutes 0` disables it). */
+        /** Optional override for the device walkthrough / the dashboard's timeout selector. */
         const val EXTRA_TIMEOUT_MINUTES = "timeout_minutes"
     }
 }

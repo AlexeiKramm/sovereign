@@ -29,6 +29,8 @@ class SessionCaptureHost(
     private val settings: AppSettings,
     private val session: DictationSession,
     private val scope: CoroutineScope,
+    /** The dashboard's observable view of the running server (Chunk 2a). */
+    private val runtime: ServerRuntime = ServerRuntime.shared,
 ) : CaptureHost {
 
     private var listener: CaptureListener? = null
@@ -39,6 +41,23 @@ class SessionCaptureHost(
     private var lastAsrMs = 0L
     private var lastCleanupMs = 0L
 
+    /** The exclusive capture phase; [cleaning] overlaps it (D-115). */
+    private var phase: ServerPipeline = ServerPipeline.IDLE
+
+    /** An LLM pass is in flight; may be true at the same time as `TRANSCRIBING`. */
+    private var cleaning = false
+
+    /** Last values published, so the stage log records transitions rather than every emission. */
+    private var publishedPhase: ServerPipeline? = null
+    private var publishedCleaning: Boolean? = null
+
+    /**
+     * True from the moment the utterance stops until the next one begins. During the final drain the
+     * pipeline emits a last `onText` with a blank provisional; without this guard that would overwrite
+     * the terminal `CLEANING` stage with `LISTENING`.
+     */
+    private var finalizing = false
+
     init {
         // The router delivers these only while `SERVER` holds the arbiter, so a pill capture can
         // never stream into a desktop session (D-112). onText carries committed + raw + provisional
@@ -46,7 +65,13 @@ class SessionCaptureHost(
         // which fires on the ASR worker thread.
         DictationSessionHolder.setListener(
             SessionArbiter.Owner.SERVER,
-            DictationListener(onText = { committed, _, provisional -> onSessionText(committed, provisional) }),
+            DictationListener(
+                onText = { committed, _, provisional -> onSessionText(committed, provisional) },
+                // The only signal for the LLM phase: the pipeline keeps the provisional tail visible
+                // while cleanup runs, so "cleaning" is not otherwise distinguishable from
+                // "transcribing" (Chunk 2a device bug).
+                onUnitCut = { onUnitCut() },
+            ),
         )
     }
 
@@ -71,6 +96,11 @@ class SessionCaptureHost(
         this.listener = listener
         lastCommitted = ""
         lastProvisional = ""
+        finalizing = false
+        runtime.onCaptureStarted()
+        phase = ServerPipeline.WARMING
+        cleaning = false
+        publishStage()
         // Baseline the per-utterance compute totals, so each COMMIT_TEXT carries this unit's share.
         lastAsrMs = session.totalActiveAsrMs
         lastCleanupMs = session.totalActiveLlmMs
@@ -89,11 +119,17 @@ class SessionCaptureHost(
             scope.launch(Dispatchers.Main) {
                 listener.onState(PipelineState.WARMING)
                 when (val availability = session.open(settings.language)) {
-                    is LocalAsrEngine.Availability.Loaded -> listener.onState(PipelineState.LISTENING)
+                    is LocalAsrEngine.Availability.Loaded -> {
+                        phase = ServerPipeline.LISTENING
+                        publishStage()
+                        listener.onState(PipelineState.LISTENING)
+                    }
                     else -> {
                         val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason
                             ?: "recogniser unavailable: $availability"
                         Log.w(TAG, "Server capture could not open the recogniser: $reason")
+                        phase = ServerPipeline.ERROR
+                        publishStage()
                         listener.onState(PipelineState.ERROR)
                         session.abort()
                         session.onCaptureFinished()
@@ -111,15 +147,26 @@ class SessionCaptureHost(
 
     override suspend fun finish(): CaptureResult {
         // `finish` stops the recorder, flushes the ASR tail and drains cleanup; it brackets the whole
-        // window as "processing" so no residency trigger can release the engines mid-finalise.
+        // window as "processing" so no residency trigger can release the engines mid-finalise. There
+        // is no ASR left, so the row lights only `Cleaning` for the drain.
+        finalizing = true
+        phase = ServerPipeline.IDLE
+        cleaning = settings.cleanupEnabled
+        publishStage()
         session.finish()
         session.onCaptureFinished()
         val result = CaptureResult(session.deliveryText, session.rawText)
         release()
+        cleaning = false
+        publishStage()
         return result
     }
 
     override fun cancel() {
+        finalizing = true
+        phase = ServerPipeline.IDLE
+        cleaning = false
+        publishStage()
         session.abort()
         session.onCaptureFinished()
         release()
@@ -141,15 +188,54 @@ class SessionCaptureHost(
         if (committed != lastCommitted) {
             val asrMs = session.totalActiveAsrMs
             val cleanupMs = session.totalActiveLlmMs
+            runtime.onTelemetry(asrMs - lastAsrMs, cleanupMs - lastCleanupMs, committed)
             target.onCommit(committed, CommitPerf(asrMs - lastAsrMs, cleanupMs - lastCleanupMs))
             lastAsrMs = asrMs
             lastCleanupMs = cleanupMs
             lastCommitted = committed
+            // The commit ends this unit's LLM pass. During the final drain it must stay lit until
+            // `finish` clears it, so the terminal Cleaning is not cut short here.
+            if (!finalizing && cleaning) {
+                cleaning = false
+                publishStage()
+            }
         }
         if (provisional != lastProvisional) {
             lastProvisional = provisional
+            // While finalising, the drain's last blank provisional must not clobber the Cleaning row.
+            if (!finalizing) {
+                phase = if (provisional.isBlank()) ServerPipeline.LISTENING else ServerPipeline.TRANSCRIBING
+                publishStage()
+            }
             target.onProvisional(provisional)
         }
+    }
+
+    /**
+     * A unit was cut on the ASR worker, so (with cleanup engaged) an LLM pass is about to run. The
+     * pipeline keeps the provisional tail visible during that pass, so this is the only signal that
+     * cleaning is happening — and it runs *alongside* transcribing, hence a flag rather than a phase.
+     */
+    private fun onUnitCut() {
+        if (settings.cleanupEnabled && !finalizing) {
+            cleaning = true
+            publishStage()
+        }
+    }
+
+    /**
+     * Publishes the current stage to the dashboard and logs each transition — the dashboard's own
+     * measurement, in place of the unusable device video. Synchronised because [onUnitCut] fires on
+     * the ASR worker while the rest fire on main.
+     */
+    @Synchronized
+    private fun publishStage() {
+        if (phase == publishedPhase && cleaning == publishedCleaning) return
+        publishedPhase = phase
+        publishedCleaning = cleaning
+        Log.i(TAG, "Dashboard stage: phase=$phase cleaning=$cleaning")
+        runtime.setPhase(phase)
+        runtime.setCleaning(cleaning)
     }
 
     private companion object {
