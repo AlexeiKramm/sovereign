@@ -1,5 +1,6 @@
 package io.github.alexeikramm.sovereign.server
 
+import io.github.alexeikramm.sovereign.data.PairedDevice
 import io.github.alexeikramm.sovereign.dictation.SessionArbiter
 import java.security.SecureRandom
 import java.util.Base64
@@ -53,7 +54,6 @@ class SovereignServerEngine(
     private var pendingDeviceId: String? = null
     private var pendingToken: String? = null
     private var serverNonce: String? = null
-    private var pairAttemptsLeft = PAIR_ATTEMPTS
 
     private var sessionId: String? = null
     private var sessionRequestId: String? = null
@@ -120,12 +120,13 @@ class SovereignServerEngine(
 
     private fun onPairHello(p: PairHelloPayload) {
         if (phase == Phase.READY) return
-        if (pairAttemptsLeft <= 0) {
+        // The lockout is the authority's (Chunk 2b); the engine only asks whether it is in force.
+        if (pairing.lockoutRemainingMs() > 0) {
             emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.LOCKED, 0))
             return
         }
         if (p.protover != ServerProtocol.VERSION) {
-            emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.VERSION, pairAttemptsLeft))
+            emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.VERSION, pairing.attemptsRemaining()))
             return
         }
 
@@ -135,16 +136,19 @@ class SovereignServerEngine(
         emit(MessageType.PAIR_CHALLENGE, PairChallengePayload(nonce, pairing.serverSpki))
 
         scope.launch {
-            if (pairing.approve(p.deviceId, p.name)) {
-                val device = pairing.issue(p.deviceId, p.name)
-                pendingToken = device.token
-                emit(
-                    MessageType.PAIR_RESPONSE,
-                    PairResponsePayload(device.deviceId, identity.serverName, device.token),
-                )
-            } else {
-                pairAttemptsLeft -= 1
-                emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.DENIED, pairAttemptsLeft.coerceAtLeast(0)))
+            when (pairing.approve(p.deviceId, p.name)) {
+                PairingDecision.APPROVED -> {
+                    val device = pairing.issue(p.deviceId, p.name)
+                    pendingToken = device.token
+                    emit(
+                        MessageType.PAIR_RESPONSE,
+                        PairResponsePayload(device.deviceId, identity.serverName, device.token),
+                    )
+                }
+                PairingDecision.DENIED ->
+                    emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.DENIED, pairing.attemptsRemaining()))
+                PairingDecision.LOCKED ->
+                    emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.LOCKED, 0))
             }
         }
     }
@@ -153,8 +157,8 @@ class SovereignServerEngine(
         val token = pendingToken
         val nonce = serverNonce
         if (token == null || nonce == null || !PairingProof.matches(token, nonce, p.proof)) {
-            pairAttemptsLeft -= 1
-            emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.DENIED, pairAttemptsLeft.coerceAtLeast(0)))
+            pairing.recordFailedProof()
+            emit(MessageType.PAIR_FAIL, PairFailPayload(PairFailReason.DENIED, pairing.attemptsRemaining()))
             return
         }
         // Pairing alone opens nothing (PROTOCOL.md §4): pinned TLS + HELLO still have to complete.
@@ -310,8 +314,5 @@ class SovereignServerEngine(
 
     private companion object {
         const val NONCE_BYTES = 16
-
-        /** PROTOCOL.md §4: 5 attempts before lockout. The timed lockout itself is Chunk 2. */
-        const val PAIR_ATTEMPTS = 5
     }
 }

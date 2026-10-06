@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.ServiceInfo
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
@@ -21,6 +20,7 @@ import androidx.core.content.edit
 import io.github.alexeikramm.sovereign.MainActivity
 import io.github.alexeikramm.sovereign.R
 import io.github.alexeikramm.sovereign.data.AppSettings
+import io.github.alexeikramm.sovereign.data.PairedDeviceStore
 import io.github.alexeikramm.sovereign.dictation.DictationSession
 import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
 import java.util.UUID
@@ -43,9 +43,9 @@ import kotlinx.coroutines.withContext
  * start while an Activity is visible and keep it until the server stops. `specialUse` (not
  * `dataSync`) is the idle type because Android 15+ caps `dataSync` at 6 h / 24 h.
  *
- * Pairing: a debuggable build auto-accepts (release builds deny), standing in for Chunk 2's
- * mutual-accept dialog + Keystore registry. There is no toggle UI yet; start it with
- * `adb shell am start-foreground-service -n io.github.alexeikramm.sovereign/.server.SovereignServerService`.
+ * Pairing: the mutual-accept dialog (Chunk 2b) backed by the persisted, Keystore-wrapped registry;
+ * the desktop's request surfaces on the Server screen and as a notification. The service is still
+ * started from the app's toggle (Chunk 2a) or, in a debug build, over adb for a walkthrough.
  */
 class SovereignServerService : Service() {
 
@@ -96,6 +96,8 @@ class SovereignServerService : Service() {
         // Aborts a live capture and releases the arbiter, then stops our callbacks.
         captureHost?.dispose()
         captureHost = null
+        // A pairing dialog cannot outlive the server that asked for it.
+        AppPairingPrompter.dismiss()
         // D-105: leaving server mode restores the pill's screen-off / keyboard-close unloads.
         session?.setServerMode(false)
         session = null
@@ -116,9 +118,14 @@ class SovereignServerService : Service() {
 
                 val deviceId = installDeviceId()
                 val serverIdentity = ServerIdentity(deviceId, Build.MODEL ?: "Sovereign phone")
-                val pairing = InMemoryPairingAuthority(
+                // The mutual-accept dialog (Chunk 2b): one persisted, Keystore-wrapped registry, with
+                // the request surfaced by AppPairingPrompter. Replaces 1b's debug auto-accept.
+                AppPairingPrompter.attach(this@SovereignServerService)
+                val pairedStore = PairedDeviceStore(this@SovereignServerService)
+                val pairing = RegistryPairingAuthority(
                     serverSpki = identity.spkiSha256,
-                    approveResult = isDebuggable(),
+                    store = pairedStore,
+                    prompter = AppPairingPrompter,
                 )
 
                 // The one shared session (D-106/D-112): never construct a second engine set.
@@ -142,7 +149,7 @@ class SovereignServerService : Service() {
                 )
                 server = ws
                 ws.start()
-                advertise(serverIdentity, identity.spkiSha256)
+                advertise(serverIdentity, identity.spkiSha256, paired = pairedStore.hasAnyEnabled())
                 val endpoint = ServerEndpoint.localIpv4()?.let { ServerEndpoint.url(it) }
                 ServerRuntime.shared.onRunning(
                     endpoint = endpoint,
@@ -173,7 +180,7 @@ class SovereignServerService : Service() {
 
     // --- mDNS (PROTOCOL.md §2) ---------------------------------------------------------------------
 
-    private fun advertise(identity: ServerIdentity, spkiSha256: String) {
+    private fun advertise(identity: ServerIdentity, spkiSha256: String, paired: Boolean) {
         val manager = getSystemService(NsdManager::class.java)
         if (manager == null) {
             Log.w(TAG, "No NsdManager; mDNS discovery unavailable")
@@ -184,7 +191,7 @@ class SovereignServerService : Service() {
             serviceType = ServerDiscovery.NSD_SERVICE_TYPE
             port = ServerProtocol.DEFAULT_PORT
             ServerDiscovery
-                .txtAttributes(identity.deviceId, identity.serverName, spkiSha256, paired = false)
+                .txtAttributes(identity.deviceId, identity.serverName, spkiSha256, paired = paired)
                 .forEach { (key, value) -> setAttribute(key, value) }
         }
         val listener = object : NsdManager.RegistrationListener {
@@ -288,13 +295,6 @@ class SovereignServerService : Service() {
         prefs.edit { putString(KEY_DEVICE_ID, id) }
         return id
     }
-
-    /**
-     * The 1b pairing stand-in is auto-accept **only in a debuggable build**; a release build denies
-     * every pairing request until Chunk 2's approval dialog exists. This must never ship as-is.
-     */
-    private fun isDebuggable(): Boolean =
-        (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     companion object {
         private const val TAG = "SovereignServer"

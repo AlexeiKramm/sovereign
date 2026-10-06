@@ -1,5 +1,6 @@
 package io.github.alexeikramm.sovereign.server
 
+import io.github.alexeikramm.sovereign.data.PairedDevice
 import io.github.alexeikramm.sovereign.dictation.SessionArbiter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
@@ -200,13 +201,26 @@ class SovereignServerEngineTest {
     @Test
     fun `denied pairing fails and never issues a token`() = runTest {
         val h = Harness(this)
-        h.pairing.approveResult = false
+        h.pairing.decision = PairingDecision.DENIED
 
         h.send(MessageType.PAIR_HELLO, PairHelloPayload(DEVICE_ID, "desk", ServerProtocol.VERSION))
         advanceUntilIdle()
 
         assertEquals(PairFailReason.DENIED, h.lastPayload<PairFailPayload>(MessageType.PAIR_FAIL).reason)
         assertTrue(h.ofType(MessageType.PAIR_RESPONSE).isEmpty())
+    }
+
+    @Test
+    fun `a locked-out authority refuses pairing before the dialog`() = runTest {
+        val h = Harness(this)
+        h.pairing.lockoutMs = 60_000L
+
+        h.send(MessageType.PAIR_HELLO, PairHelloPayload(DEVICE_ID, "desk", ServerProtocol.VERSION))
+
+        val fail = h.lastPayload<PairFailPayload>(MessageType.PAIR_FAIL)
+        assertEquals(PairFailReason.LOCKED, fail.reason)
+        assertEquals(0, fail.attemptsLeft)
+        assertTrue(h.ofType(MessageType.PAIR_CHALLENGE).isEmpty())
     }
 
     @Test
@@ -268,11 +282,14 @@ class SovereignServerEngineTest {
     private class FakePairingAuthority(
         override val serverSpki: String = "spki",
     ) : PairingAuthority {
-        var approveResult = true
+        var decision: PairingDecision = PairingDecision.APPROVED
+        var lockoutMs: Long = 0L
         private val devices = LinkedHashMap<String, PairedDevice>()
+        private var failures = 0
         private var counter = 0
 
-        override suspend fun approve(deviceId: String, name: String): Boolean = approveResult
+        override suspend fun approve(deviceId: String, name: String): PairingDecision =
+            if (lockoutMs > 0) PairingDecision.LOCKED else decision
 
         override fun issue(deviceId: String, name: String): PairedDevice {
             val device = PairedDevice(deviceId, name, "token-${counter++}")
@@ -282,5 +299,14 @@ class SovereignServerEngineTest {
 
         override fun authenticate(deviceId: String, token: String): PairedDevice? =
             devices[deviceId]?.takeIf { it.enabled && it.token == token }
+
+        override fun lockoutRemainingMs(): Long = lockoutMs
+
+        override fun attemptsRemaining(): Int = (5 - failures).coerceAtLeast(0)
+
+        override fun recordFailedProof() {
+            failures += 1
+            if (failures >= 5) lockoutMs = 60_000L
+        }
     }
 }

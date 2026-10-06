@@ -157,6 +157,35 @@ class BackupManagerTest {
     }
 
     @Test
+    fun `a paired-device token cannot appear in an exported backup`() {
+        // The pairing token (Chunk 2b) lives only in the Keystore-wrapped registry; a backup is built
+        // from settings, dictionary and profiles (D-107, REVIEW M4). This pins that separation.
+        val device = PairedDevice(
+            deviceId = "desk-1",
+            name = "Desktop",
+            token = "SENTINEL-TOKEN-0f8a1c27",
+        )
+        val backup = BackupManager.createBackup(
+            dictionaryEntries = emptyList(),
+            profileData = ProfileStore(temp.root).load(),
+            settingsBackup = SettingsBackup(),
+            appVersion = "test",
+            timestampMs = 1L,
+        )
+
+        val json = BackupManager.serialize(backup)
+        assertFalse("the pairing token must never be exported", json.contains(device.token))
+
+        // Structural guard: no exported model may grow a token/pairing field.
+        val exportedFields = (SettingsBackup::class.java.declaredFields + AppBackup::class.java.declaredFields)
+            .map { it.name.lowercase() }
+        assertTrue(
+            "exported models must not carry pairing secrets: $exportedFields",
+            exportedFields.none { it.contains("token") || it.contains("pair") },
+        )
+    }
+
+    @Test
     fun `restore accurately updates DictionaryStore and ProfileStore`() {
         val dictStore = DictionaryStore(temp.root)
         val profileStore = ProfileStore(temp.root)

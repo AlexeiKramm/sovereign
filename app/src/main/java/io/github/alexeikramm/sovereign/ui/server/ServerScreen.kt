@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,6 +61,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.data.AppSettings
+import io.github.alexeikramm.sovereign.data.PairedDevice
+import io.github.alexeikramm.sovereign.data.PairedDeviceStore
+import io.github.alexeikramm.sovereign.server.AppPairingPrompter
 import io.github.alexeikramm.sovereign.server.ServerClient
 import io.github.alexeikramm.sovereign.server.ServerController
 import io.github.alexeikramm.sovereign.server.ServerLifecycle
@@ -74,8 +79,8 @@ import java.util.Locale
 
 /**
  * The phone-side control surface for the desktop server (Chunk 2a): a start/stop toggle, the live
- * diagnostics dashboard, and the session-timeout selector. The paired-devices registry and the
- * mutual-accept approval dialog are Chunk 2b.
+ * diagnostics dashboard, and the session-timeout selector. Chunk 2b adds the paired-desktop
+ * registry (view, enable/disable, unpair) and hosts the mutual-accept [PairingApprovalDialog].
  *
  * All live values come from [ServerRuntime], which the foreground service publishes into; nothing
  * here invents state. Reached from the Home card or the server notification.
@@ -90,6 +95,16 @@ fun ServerScreen(
     val snapshot by ServerRuntime.shared.state.collectAsStateWithLifecycle()
     val settings = remember { AppSettings(context) }
     var timeoutMinutes by remember { mutableIntStateOf(settings.serverTimeoutMinutes) }
+
+    // The paired-desktop registry (Chunk 2b) is phone-local config: readable whether or not the
+    // server is up, and edited here. A pairing completed elsewhere shows up once a desktop connects.
+    val pairedStore = remember { PairedDeviceStore(context) }
+    var pairedDevices by remember { mutableStateOf(pairedStore.load()) }
+    val pairingRequest by AppPairingPrompter.pending.collectAsStateWithLifecycle()
+    fun reloadPairedDevices() {
+        pairedDevices = pairedStore.load()
+    }
+    LaunchedEffect(snapshot.clients) { reloadPairedDevices() }
 
     if (onNavigateUp != null) {
         BackHandler { onNavigateUp() }
@@ -162,12 +177,33 @@ fun ServerScreen(
             }
 
             item {
+                PairedDevicesCard(
+                    devices = pairedDevices,
+                    onToggle = { device, enabled ->
+                        pairedStore.setEnabled(device.deviceId, enabled)
+                        reloadPairedDevices()
+                    },
+                    onUnpair = { device ->
+                        pairedStore.remove(device.deviceId)
+                        reloadPairedDevices()
+                    },
+                )
+            }
+
+            item {
                 ConnectedDevicesCard(clients = snapshot.clients)
             }
 
             item {
                 DiagnosticsCard(snapshot = snapshot)
             }
+        }
+    }
+
+    pairingRequest?.let { request ->
+        PairingApprovalDialog(request = request) { approved ->
+            AppPairingPrompter.resolve(request.id, approved)
+            reloadPairedDevices()
         }
     }
 }
@@ -367,6 +403,72 @@ private fun ConnectedDevicesCard(clients: List<ServerClient>) {
                                     fontSize = 11.sp,
                                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- Paired devices (registry) ----------------------------------------------------------------
+
+@Composable
+private fun PairedDevicesCard(
+    devices: List<PairedDevice>,
+    onToggle: (PairedDevice, Boolean) -> Unit,
+    onUnpair: (PairedDevice) -> Unit,
+) {
+    Column {
+        SettingsSectionHeader(title = "PAIRED DESKTOPS")
+        SettingsGroupCard {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (devices.isEmpty()) {
+                    Text(
+                        text = "No desktops paired. Start the server, then pair from the desktop app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    devices.forEach { device ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = device.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = device.deviceId,
+                                    fontSize = 11.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = device.enabled,
+                                onCheckedChange = { onToggle(device, it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                ),
+                            )
+                            IconButton(onClick = { onUnpair(device) }) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "Unpair ${device.name}",
+                                    tint = MaterialTheme.colorScheme.error,
                                 )
                             }
                         }
