@@ -70,6 +70,12 @@ class DictationPipeline(
     private val onUnitCommitted: (String) -> Unit = {},
     /** Per-pass conversation telemetry, in order. Measurement hook for the Cleanup Lab. */
     private val onCleanupPass: (CleanupPassTelemetry) -> Unit = {},
+    /**
+     * Grace before the cleanup session's preface is prefilled, so a caller's start-of-utterance UI
+     * motion is not competing with the GPU-heavy prefill. The production session sets this; the
+     * offline replay harnesses leave it at 0 (see `CleanupPipeline`).
+     */
+    private val cleanupSessionStartGraceMs: Long = 0L,
 ) {
 
     private val raw = StringBuilder()
@@ -101,6 +107,7 @@ class DictationPipeline(
         maxTurns = maxTurns,
         onCommitted = { commit -> onCleanupCommit(commit) },
         onPass = onCleanupPass,
+        sessionStartGraceMs = cleanupSessionStartGraceMs,
     )
 
     /** The settled text — what cleanup has produced, or the raw words when cleanup is off. */

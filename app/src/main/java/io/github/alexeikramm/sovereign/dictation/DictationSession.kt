@@ -123,6 +123,7 @@ class DictationSession(
         onUnitCut = onUnitCut,
         onUnitCommitted = onUnitCommitted,
         onCleanupPass = onCleanupPass,
+        cleanupSessionStartGraceMs = CLEANUP_WARMUP_GRACE_MS,
     )
 
     init {
@@ -485,5 +486,13 @@ class DictationSession(
          * setting: long enough to survive moving between two fields, short enough to matter.
          */
         private const val KEYBOARD_CLOSE_GRACE_MS = 8_000L
+
+        /**
+         * Grace before the cleanup conversation prefills its system preface. The prefill is GPU work
+         * (default processor) and the pill's card-open animation (~180–260 ms) wants the GPU first;
+         * deferring the prefill keeps the motion smooth. It costs no perceived latency because the
+         * first ASR unit cannot arrive before the ~1.5 s engine warm.
+         */
+        private const val CLEANUP_WARMUP_GRACE_MS = 350L
     }
 }

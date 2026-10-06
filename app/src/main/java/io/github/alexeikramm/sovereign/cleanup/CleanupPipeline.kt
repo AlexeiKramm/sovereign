@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -69,6 +70,15 @@ class CleanupPipeline(
     private val onCommitted: suspend (CleanupCommit) -> Unit,
     /** Measurement hook, in pass order: the conversation position and outcome of each pass. */
     private val onPass: (CleanupPassTelemetry) -> Unit = {},
+    /**
+     * Grace before the engine's session is opened on the worker. Opening the session creates the
+     * conversation and **prefills its system preface into the KV cache** — GPU work on the default
+     * processor — while the caller's start-of-utterance UI motion (the floating pill's card, ~250 ms)
+     * wants the GPU first. Deferring the prefill keeps the two from fighting for it. `0` disables the
+     * grace, which is what the offline replay harnesses use: they have no UI to protect and measure
+     * wall-clock time.
+     */
+    private val sessionStartGraceMs: Long = 0L,
 ) {
 
     private var queue: Channel<CleanupUnit>? = null
@@ -113,10 +123,17 @@ class CleanupPipeline(
         submitted = 0
         turnsSinceRebuild = 0
         passIndex = 0
-        engine.startSession(rules())
         val channel = Channel<CleanupUnit>(Channel.UNLIMITED)
         queue = channel
         worker = scope.launch(dispatcher) {
+            // Open the engine's session **on the cleanup worker**. Creating the conversation prefills
+            // the system preface + rules into the KV cache — hundreds of milliseconds of LLM work —
+            // and `begin` is called from the caller's (main) thread, where that would stall the UI
+            // (the pill's card is shown on that same pass; measured ~294 ms for a 2.1 kB preface).
+            // Units only ever `trySend` onto `channel`, and the drain below runs after this returns,
+            // so submission order is unchanged.
+            if (sessionStartGraceMs > 0) delay(sessionStartGraceMs)
+            engine.startSession(rules())
             for (request in channel) {
                 val unit = request.text
                 val healingCount = healingSentencesCount()
