@@ -3,6 +3,8 @@ package io.github.alexeikramm.sovereign.server
 import android.util.Log
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.data.AppSettings
+import io.github.alexeikramm.sovereign.data.DictationHistoryRecorder
+import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.dictation.DictationListener
 import io.github.alexeikramm.sovereign.dictation.DictationSession
 import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
@@ -29,6 +31,8 @@ class SessionCaptureHost(
     private val settings: AppSettings,
     private val session: DictationSession,
     private val scope: CoroutineScope,
+    /** Where a finished desktop utterance is written, so it lands in the same history as the pill. */
+    private val historyStore: DictationHistoryStore,
     /** The dashboard's observable view of the running server (Chunk 2a). */
     private val runtime: ServerRuntime = ServerRuntime.shared,
 ) : CaptureHost {
@@ -159,6 +163,7 @@ class SessionCaptureHost(
         session.finish()
         session.onCaptureFinished()
         val result = CaptureResult(session.deliveryText, session.rawText)
+        recordHistory(result)
         release()
         cleaning = false
         publishStage()
@@ -173,6 +178,28 @@ class SessionCaptureHost(
         session.abort()
         session.onCaptureFinished()
         release()
+    }
+
+    /**
+     * Writes the finished utterance to history through the shared recorder, so a desktop dictation
+     * is stored exactly like a pill or transcribe one. Called only from [finish], never [cancel] —
+     * a cancelled capture is not a dictation. The phone cannot observe whether the desktop inserted
+     * the text, so `insertedSuccessfully` is reported as true.
+     */
+    private fun recordHistory(result: CaptureResult) {
+        val llmRan = session.totalActiveLlmMs > 0L || session.isCleanupEngaged
+        DictationHistoryRecorder.record(
+            store = historyStore,
+            enabled = settings.historyEnabled,
+            capacity = settings.historyCapacity,
+            rawText = result.rawText,
+            cleanedText = result.deliveryText,
+            durationSeconds = session.capturedSeconds,
+            asrModel = settings.asrModel.label,
+            llmModel = if (llmRan) settings.litertModel.label else null,
+            wordsCleaned = DictationHistoryRecorder.wordsCleaned(result.rawText, result.deliveryText, cleanedByLlm = llmRan),
+            insertedSuccessfully = true,
+        )
     }
 
     /** Releases the arbiter lease and stops forwarding text. Idempotent. */

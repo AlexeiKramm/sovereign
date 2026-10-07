@@ -20,6 +20,7 @@ import androidx.core.content.edit
 import io.github.alexeikramm.sovereign.MainActivity
 import io.github.alexeikramm.sovereign.R
 import io.github.alexeikramm.sovereign.data.AppSettings
+import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.PairedDeviceStore
 import io.github.alexeikramm.sovereign.dictation.DictationSession
 import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
@@ -137,6 +138,7 @@ class SovereignServerService : Service() {
                     settings = AppSettings(this@SovereignServerService),
                     session = shared,
                     scope = scope,
+                    historyStore = DictationHistoryStore(this@SovereignServerService),
                 )
                 captureHost = host
 

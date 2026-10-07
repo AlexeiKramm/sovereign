@@ -22,8 +22,8 @@ import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.CleaningProfile
 import io.github.alexeikramm.sovereign.data.DictationHistoryData
+import io.github.alexeikramm.sovereign.data.DictationHistoryRecorder
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
-import io.github.alexeikramm.sovereign.data.DictationRecord
 import io.github.alexeikramm.sovereign.data.LiteRtProcessor
 import io.github.alexeikramm.sovereign.data.DictionaryEntry
 import io.github.alexeikramm.sovereign.data.DictionaryStore
@@ -36,7 +36,6 @@ import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
 import java.io.InputStream
 import java.io.OutputStream
-import java.util.UUID
 import io.github.alexeikramm.sovereign.download.DownloadProgress
 import io.github.alexeikramm.sovereign.download.DownloadRequest
 import io.github.alexeikramm.sovereign.download.DownloadRunState
@@ -1344,23 +1343,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 latencyMs = totalElapsedMs,
             )
 
-            if (settings.historyEnabled && cleanedText.isNotBlank()) {
-                dictationHistoryStore.record(
-                    record = DictationRecord(
-                        id = UUID.randomUUID().toString(),
-                        timestampMs = System.currentTimeMillis(),
-                        durationSeconds = audioSeconds,
-                        rawText = rawText,
-                        cleanedText = cleanedText,
-                        asrModel = settings.asrModel.label,
-                        llmModel = llmModelLabel,
-                        wordsCleaned = wordsCleaned,
-                        insertedSuccessfully = false,
-                    ),
-                    maxCapacity = settings.historyCapacity,
-                )
-                refreshHistory()
-            }
+            val recorded = DictationHistoryRecorder.record(
+                store = dictationHistoryStore,
+                enabled = settings.historyEnabled,
+                capacity = settings.historyCapacity,
+                rawText = rawText,
+                cleanedText = cleanedText,
+                durationSeconds = audioSeconds,
+                asrModel = settings.asrModel.label,
+                llmModel = llmModelLabel,
+                wordsCleaned = wordsCleaned,
+                insertedSuccessfully = false,
+            )
+            if (recorded != null) refreshHistory()
 
             _state.value = DictationUiState.Done(
                 outcome = DictationOutcome(
@@ -1419,23 +1414,19 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     wordsAdded = 0,
                 )
 
-                if (settings.historyEnabled && response.text.isNotBlank()) {
-                    dictationHistoryStore.record(
-                        record = DictationRecord(
-                            id = UUID.randomUUID().toString(),
-                            timestampMs = System.currentTimeMillis(),
-                            durationSeconds = audioSeconds,
-                            rawText = response.text,
-                            cleanedText = response.text,
-                            asrModel = "Server",
-                            llmModel = null,
-                            wordsCleaned = correctionsCount,
-                            insertedSuccessfully = false,
-                        ),
-                        maxCapacity = settings.historyCapacity,
-                    )
-                    refreshHistory()
-                }
+                val recorded = DictationHistoryRecorder.record(
+                    store = dictationHistoryStore,
+                    enabled = settings.historyEnabled,
+                    capacity = settings.historyCapacity,
+                    rawText = response.text,
+                    cleanedText = response.text,
+                    durationSeconds = audioSeconds,
+                    asrModel = "Server",
+                    llmModel = null,
+                    wordsCleaned = correctionsCount,
+                    insertedSuccessfully = false,
+                )
+                if (recorded != null) refreshHistory()
 
                 _state.value = DictationUiState.Done(
                     DictationOutcome(

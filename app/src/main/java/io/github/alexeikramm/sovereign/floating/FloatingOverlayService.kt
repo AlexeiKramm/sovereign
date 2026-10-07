@@ -49,8 +49,8 @@ import io.github.alexeikramm.sovereign.cleanup.SeamHealer
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.CleaningProfile
+import io.github.alexeikramm.sovereign.data.DictationHistoryRecorder
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
-import io.github.alexeikramm.sovereign.data.DictationRecord
 import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.ProfileStore
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
@@ -62,7 +62,6 @@ import io.github.alexeikramm.sovereign.dictation.SessionArbiter
 import io.github.alexeikramm.sovereign.engine.Engine
 import io.github.alexeikramm.sovereign.engine.ModelResidency
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
-import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -2169,32 +2168,18 @@ class FloatingOverlayService : Service() {
     }
 
     private fun recordHistory(deliveredText: String, insertedSuccessfully: Boolean) {
-        if (!settings.historyEnabled) return
-        val raw = session.rawText.trim()
-        val cleaned = deliveredText.trim()
-        if (raw.isEmpty() && cleaned.isEmpty()) return
-
         val llmMs = reprocessActiveLlmMs ?: if (session.isCleanupEngaged || settings.cleanupEnabled) session.totalActiveLlmMs else 0L
-
-        val diff = if (raw.isNotEmpty() && (llmMs > 0L || cleaned != raw)) {
-            WordDiffCalculator.calculate(rawText = raw, cleanedText = cleaned)
-        } else {
-            WordDiffCalculator.verbatim(raw.ifEmpty { cleaned })
-        }
-
-        historyStore.record(
-            record = DictationRecord(
-                id = UUID.randomUUID().toString(),
-                timestampMs = System.currentTimeMillis(),
-                durationSeconds = currentSessionSeconds(),
-                rawText = raw.ifEmpty { cleaned },
-                cleanedText = cleaned.ifEmpty { raw },
-                asrModel = settings.asrModel.label,
-                llmModel = if (session.isCleanupEngaged || llmMs > 0L) settings.litertModel.label else null,
-                wordsCleaned = diff.wordsCleaned,
-                insertedSuccessfully = insertedSuccessfully,
-            ),
-            maxCapacity = settings.historyCapacity,
+        DictationHistoryRecorder.record(
+            store = historyStore,
+            enabled = settings.historyEnabled,
+            capacity = settings.historyCapacity,
+            rawText = session.rawText,
+            cleanedText = deliveredText,
+            durationSeconds = currentSessionSeconds(),
+            asrModel = settings.asrModel.label,
+            llmModel = if (session.isCleanupEngaged || llmMs > 0L) settings.litertModel.label else null,
+            wordsCleaned = DictationHistoryRecorder.wordsCleaned(session.rawText, deliveredText, cleanedByLlm = llmMs > 0L),
+            insertedSuccessfully = insertedSuccessfully,
         )
     }
 
