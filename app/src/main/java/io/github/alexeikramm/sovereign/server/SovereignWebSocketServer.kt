@@ -44,13 +44,24 @@ class SovereignWebSocketServer(
     /** Own scope for frame handling, so it survives individual connection teardown. */
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
+    /** Whether the port actually bound; the service waits on it before reporting RUNNING. */
+    private val bindGate = BindGate()
+
     init {
+        // SO_REUSEADDR so a restart can rebind the port while connections from the previous run are
+        // still lingering (Java-WebSocket defaults it to false; a stop/start with a client attached
+        // otherwise fails with BindException: Address already in use).
+        setReuseAddr(true)
         setWebSocketFactory(DefaultSSLWebSocketServerFactory(tls.sslContext))
     }
 
     override fun onStart() {
+        bindGate.bound()
         Log.i(TAG, "WebSocket server listening on wss://0.0.0.0:$boundPort${ServerProtocol.PATH}")
     }
+
+    /** Suspends until the port is bound, or throws the bind failure. */
+    suspend fun awaitBound() = bindGate.await()
 
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
         val connectionScope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -103,6 +114,10 @@ class SovereignWebSocketServer(
     }
 
     override fun onError(conn: WebSocket?, ex: Exception) {
+        // A null connection means a server-level fault; before onStart it is the bind failing.
+        if (conn == null) {
+            bindGate.failed(ex)
+        }
         Log.w(TAG, "WebSocket error${conn?.remoteSocketAddress?.let { " ($it)" } ?: ""}", ex)
     }
 

@@ -32,6 +32,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * Hosts the phone-as-desktop-server (Chunk 1b): the pinned `wss://` endpoint, the mDNS announcement
@@ -149,6 +150,20 @@ class SovereignServerService : Service() {
                 )
                 server = ws
                 ws.start()
+                // Java-WebSocket binds asynchronously: `start()` returning says nothing about the
+                // bind, so wait for the real outcome before claiming to be up. Reporting RUNNING and
+                // advertising over mDNS after a failed bind left every client refused while the
+                // dashboard still read "running" (found on device).
+                try {
+                    withTimeout(SERVER_START_TIMEOUT_MS) { ws.awaitBound() }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Server failed to bind port ${ServerProtocol.DEFAULT_PORT}", e)
+                    ServerRuntime.shared.onFailed(e.message ?: "The server could not bind its port")
+                    ws.shutdown()
+                    server = null
+                    stopSelf()
+                    return@launch
+                }
                 advertise(serverIdentity, identity.spkiSha256, paired = pairedStore.hasAnyEnabled())
                 val endpoint = ServerEndpoint.localIpv4()?.let { ServerEndpoint.url(it) }
                 ServerRuntime.shared.onRunning(
@@ -302,6 +317,13 @@ class SovereignServerService : Service() {
         private const val NOTIFICATION_ID = 41
         private const val PREFS_NAME = "sovereign_server"
         private const val KEY_DEVICE_ID = "device_id"
+
+        /**
+         * How long to wait for the socket to bind before declaring the start failed. Java-WebSocket
+         * reports the bind result asynchronously; without this bound a stuck bind would hang the
+         * start coroutine instead of surfacing an error.
+         */
+        private const val SERVER_START_TIMEOUT_MS = 5_000L
 
         /** Set on the notification's `Intent` so `MainActivity` can open the Server screen. */
         const val ACTION_OPEN_SERVER = "io.github.alexeikramm.sovereign.action.OPEN_SERVER"
