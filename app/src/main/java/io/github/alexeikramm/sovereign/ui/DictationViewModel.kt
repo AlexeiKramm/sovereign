@@ -1617,6 +1617,20 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                     refreshUsageStats()
 
+                    DictationHistoryRecorder.record(
+                        store = dictationHistoryStore,
+                        enabled = settings.historyEnabled,
+                        capacity = settings.historyCapacity,
+                        rawText = rawText,
+                        cleanedText = cleanedText,
+                        durationSeconds = audioDurationSec.toDouble(),
+                        asrModel = settings.asrModel.label,
+                        llmModel = settings.litertModel.label,
+                        wordsCleaned = diff.wordsCleaned,
+                        insertedSuccessfully = false,
+                    )
+                    refreshHistory()
+
                     _state.value = DictationUiState.Done(
                         outcome = DictationOutcome(
                             text = cleanedText,
@@ -1648,6 +1662,20 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                         wallClockMs = timings.wallClockMs,
                     )
                     refreshUsageStats()
+
+                    DictationHistoryRecorder.record(
+                        store = dictationHistoryStore,
+                        enabled = settings.historyEnabled,
+                        capacity = settings.historyCapacity,
+                        rawText = rawText,
+                        cleanedText = rawText,
+                        durationSeconds = audioDurationSec.toDouble(),
+                        asrModel = settings.asrModel.label,
+                        llmModel = null,
+                        wordsCleaned = 0,
+                        insertedSuccessfully = false,
+                    )
+                    refreshHistory()
 
                     _state.value = DictationUiState.Done(
                         outcome = DictationOutcome(
