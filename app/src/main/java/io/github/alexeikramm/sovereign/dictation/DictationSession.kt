@@ -142,6 +142,9 @@ class DictationSession(
     /** Elapsed audio so far, derived from the captured bytes; the silence monitor reads it. */
     val capturedSeconds: Double get() = recorder.capturedSeconds
 
+    /** The audio length of the last capture, valid after [finish]/[abort] (the PCM buffer is freed). */
+    val lastCapturedSeconds: Double get() = recorder.lastCapturedSeconds
+
     /** True while an utterance is finalising or the transcript is being reprocessed. */
     val isProcessing: Boolean get() = processing
 

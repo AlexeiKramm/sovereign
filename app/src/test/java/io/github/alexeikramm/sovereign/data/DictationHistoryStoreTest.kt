@@ -31,7 +31,7 @@ class DictationHistoryStoreTest {
             cleanedText = "Hello, world.",
             asrModel = "Nemotron 3.5 (560ms)",
             llmModel = "Gemma 4 E2B",
-            wordsCleaned = 1,
+            wordsEdited = 1,
             insertedSuccessfully = true,
         )
         val record2 = DictationRecord(
@@ -42,7 +42,7 @@ class DictationHistoryStoreTest {
             cleanedText = "Testing 1, 2.",
             asrModel = "Nemotron 3.5 (560ms)",
             llmModel = "Gemma 4 E2B",
-            wordsCleaned = 2,
+            wordsEdited = 2,
             insertedSuccessfully = true,
         )
 
@@ -117,6 +117,19 @@ class DictationHistoryStoreTest {
         assertTrue(store.load().records.isEmpty())
         val file = File(temp.root, "dictation_history.json")
         assertTrue(!file.exists())
+    }
+
+    @Test
+    fun `history written before the wordsEdited rename still loads`() {
+        // The pre-rename key ("wordsCleaned") must keep working so existing history is not lost.
+        File(temp.root, "dictation_history.json").writeText(
+            """
+            {"records":[{"id":"1","timestampMs":1,"durationSeconds":1.0,"rawText":"a","cleanedText":"A","asrModel":"m","wordsCleaned":7}]}
+            """.trimIndent(),
+            Charsets.UTF_8,
+        )
+        val record = DictationHistoryStore(temp.root).load().records.single()
+        assertEquals(7, record.wordsEdited)
     }
 
     @Test

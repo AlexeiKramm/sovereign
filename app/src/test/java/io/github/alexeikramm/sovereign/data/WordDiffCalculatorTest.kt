@@ -19,11 +19,11 @@ class WordDiffCalculatorTest {
         assertEquals(0, result.wordsRemoved)
         assertEquals(0, result.wordsChanged)
         assertEquals(0, result.wordsAdded)
-        assertEquals(0, result.wordsCleaned)
+        assertEquals(0, result.wordsEdited)
     }
 
     @Test
-    fun `pure filler removal increments wordsRemoved and wordsCleaned`() {
+    fun `pure filler removal increments wordsRemoved and wordsEdited`() {
         val raw = "So um uh I went to the store"
         val clean = "I went to the store."
         val result = WordDiffCalculator.calculate(raw, clean)
@@ -33,11 +33,11 @@ class WordDiffCalculatorTest {
         assertEquals(3, result.wordsRemoved) // "so", "um", "uh"
         assertEquals(0, result.wordsChanged)
         assertEquals(0, result.wordsAdded)
-        assertEquals(3, result.wordsCleaned)
+        assertEquals(3, result.wordsEdited)
     }
 
     @Test
-    fun `pure grammar substitution increments wordsChanged and wordsCleaned`() {
+    fun `pure grammar substitution increments wordsChanged and wordsEdited`() {
         val raw = "She dont know nothing"
         val clean = "She doesn't know anything."
         val result = WordDiffCalculator.calculate(raw, clean)
@@ -47,7 +47,7 @@ class WordDiffCalculatorTest {
         assertEquals(0, result.wordsRemoved)
         assertEquals(2, result.wordsChanged) // "dont" -> "doesn't", "nothing" -> "anything"
         assertEquals(0, result.wordsAdded)
-        assertEquals(2, result.wordsCleaned)
+        assertEquals(2, result.wordsEdited)
     }
 
     @Test
@@ -61,7 +61,7 @@ class WordDiffCalculatorTest {
         assertEquals(2, result.wordsRemoved) // "well", "um"
         assertEquals(1, result.wordsChanged) // "dont" -> "doesn't"
         assertEquals(0, result.wordsAdded)
-        assertEquals(3, result.wordsCleaned)
+        assertEquals(3, result.wordsEdited)
     }
 
     @Test
@@ -75,7 +75,7 @@ class WordDiffCalculatorTest {
         assertEquals(0, result.wordsRemoved)
         assertEquals(0, result.wordsChanged)
         assertEquals(2, result.wordsAdded) // "it", "all"
-        assertEquals(0, result.wordsCleaned)
+        assertEquals(2, result.wordsEdited) // removed + changed + added (D-124)
     }
 
     @Test
@@ -83,7 +83,7 @@ class WordDiffCalculatorTest {
         val result = WordDiffCalculator.calculate("", "")
         assertEquals(0, result.rawWords)
         assertEquals(0, result.deliveredWords)
-        assertEquals(0, result.wordsCleaned)
+        assertEquals(0, result.wordsEdited)
     }
 
     @Test
@@ -97,7 +97,7 @@ class WordDiffCalculatorTest {
         assertEquals(0, result.wordsRemoved)
         assertEquals(0, result.wordsChanged)
         assertEquals(0, result.wordsAdded)
-        assertEquals(0, result.wordsCleaned)
+        assertEquals(0, result.wordsEdited)
     }
 
     @Test
@@ -192,5 +192,16 @@ class WordDiffCalculatorTest {
         val insertions = diff.tokens.filterIsInstance<InlineDiffToken.Insertion>()
         assertEquals(1, insertions.size)
         assertEquals("to the", insertions[0].text)
+    }
+
+    @Test
+    fun `remote maps the server corrections count onto wordsEdited`() {
+        val result = WordDiffCalculator.remote("hello there friend", 3)
+        assertEquals(3, result.rawWords)
+        assertEquals(3, result.deliveredWords)
+        assertEquals(0, result.wordsRemoved)
+        assertEquals(3, result.wordsChanged)
+        assertEquals(0, result.wordsAdded)
+        assertEquals(3, result.wordsEdited)
     }
 }

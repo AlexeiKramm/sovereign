@@ -563,7 +563,7 @@ private fun UsageStatisticsCard(
         .filter { it.timestampMs >= todayMidnight }
         .sumOf { it.deliveredWords }
 
-    val totalWords = if (stats.totalDeliveredWords > 0) stats.totalDeliveredWords else stats.totalCleanedWords
+    val totalWords = if (stats.totalDeliveredWords > 0) stats.totalDeliveredWords else stats.totalWordsEdited
     val audioMinutes = stats.totalAudioSeconds / 60.0
     val avgWpm = if (audioMinutes > 0.05 && totalWords > 0) (totalWords / audioMinutes).roundToInt() else 0
     val fixesApplied = stats.totalWordsRemoved + stats.totalWordsChanged

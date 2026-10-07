@@ -1,20 +1,25 @@
 package io.github.alexeikramm.sovereign.data
 
 import android.content.Context
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNames
 import java.io.File
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class UtteranceRecord(
     val id: String,
     val timestampMs: Long,
     val durationSeconds: Double,
     val rawWords: Int,
-    val cleanedWords: Int,
+    /** Total word-level edits (removed + changed + added); the canonical count (D-124). */
+    @JsonNames("cleanedWords")
+    val wordsEdited: Int,
     val engine: String,
-    val deliveredWords: Int = cleanedWords,
+    val deliveredWords: Int = wordsEdited,
     val wordsRemoved: Int = 0,
     val wordsChanged: Int = 0,
     val wordsAdded: Int = 0,
@@ -23,8 +28,6 @@ data class UtteranceRecord(
     val wallClockMs: Long = 0L,
     val latencyMs: Long = 0L,
 ) {
-    val wordsCleaned: Int
-        get() = if (cleanedWords > 0) cleanedWords else (wordsRemoved + wordsChanged)
 
     /** Real-time processing speed multiplier for ASR: audio duration / ASR active time */
     val asrRealTimeSpeed: Double
@@ -55,11 +58,13 @@ data class UtteranceRecord(
         } else 0.0
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class UsageStatsData(
     val totalAudioSeconds: Double = 0.0,
     val totalRawWords: Int = 0,
-    val totalCleanedWords: Int = 0,
+    @JsonNames("totalCleanedWords")
+    val totalWordsEdited: Int = 0,
     val totalUtterances: Int = 0,
     val recentRecords: List<UtteranceRecord> = emptyList(),
     val totalDeliveredWords: Int = 0,
@@ -74,13 +79,11 @@ data class UsageStatsData(
     val totalLatencyMs: Long = 0L,
     val totalLatencyCount: Int = 0,
 ) {
-    val totalWordsCleaned: Int
-        get() = totalCleanedWords
 
     /** Approximate minutes saved typing assuming 40 WPM average typing speed. */
     val typingMinutesSaved: Double
         get() {
-            val words = if (totalDeliveredWords > 0) totalDeliveredWords else totalCleanedWords
+            val words = if (totalDeliveredWords > 0) totalDeliveredWords else totalWordsEdited
             return (words.toDouble() / 40.0)
         }
 
@@ -154,9 +157,9 @@ class UsageStatsStore(private val filesDir: File) {
     fun record(
         durationSeconds: Double,
         rawWords: Int,
-        cleanedWords: Int,
+        wordsEdited: Int,
         engine: String,
-        deliveredWords: Int = cleanedWords,
+        deliveredWords: Int = wordsEdited,
         wordsRemoved: Int = 0,
         wordsChanged: Int = 0,
         wordsAdded: Int = 0,
@@ -171,7 +174,7 @@ class UsageStatsStore(private val filesDir: File) {
             timestampMs = System.currentTimeMillis(),
             durationSeconds = durationSeconds,
             rawWords = rawWords,
-            cleanedWords = cleanedWords,
+            wordsEdited = wordsEdited,
             engine = engine,
             deliveredWords = deliveredWords,
             wordsRemoved = wordsRemoved,
@@ -185,7 +188,7 @@ class UsageStatsStore(private val filesDir: File) {
         val updated = current.copy(
             totalAudioSeconds = current.totalAudioSeconds + durationSeconds,
             totalRawWords = current.totalRawWords + rawWords,
-            totalCleanedWords = current.totalCleanedWords + cleanedWords,
+            totalWordsEdited = current.totalWordsEdited + wordsEdited,
             totalUtterances = current.totalUtterances + 1,
             recentRecords = (listOf(newRecord) + current.recentRecords).take(50),
             totalDeliveredWords = current.totalDeliveredWords + deliveredWords,

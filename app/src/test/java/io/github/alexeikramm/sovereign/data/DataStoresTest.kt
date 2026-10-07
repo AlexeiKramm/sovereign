@@ -108,7 +108,7 @@ class DataStoresTest {
         store.record(
             durationSeconds = 12.5,
             rawWords = 25,
-            cleanedWords = 3,
+            wordsEdited = 3,
             engine = "local",
             deliveredWords = 23,
             wordsRemoved = 2,
@@ -121,7 +121,7 @@ class DataStoresTest {
         store.record(
             durationSeconds = 8.0,
             rawWords = 15,
-            cleanedWords = 2,
+            wordsEdited = 2,
             engine = "server",
             deliveredWords = 17,
             wordsRemoved = 0,
@@ -136,8 +136,8 @@ class DataStoresTest {
         assertEquals(2, updated.totalUtterances)
         assertEquals(20.5, updated.totalAudioSeconds, 0.001)
         assertEquals(40, updated.totalRawWords)
-        assertEquals(5, updated.totalCleanedWords)
-        assertEquals(5, updated.totalWordsCleaned)
+        assertEquals(5, updated.totalWordsEdited)
+        assertEquals(5, updated.recentRecords.sumOf { it.wordsEdited })
         assertEquals(40, updated.totalDeliveredWords)
         assertEquals(2, updated.totalWordsRemoved)
         assertEquals(3, updated.totalWordsChanged)
@@ -169,7 +169,7 @@ class DataStoresTest {
         store.record(
             durationSeconds = 10.0,
             rawWords = 20,
-            cleanedWords = 0,
+            wordsEdited = 0,
             engine = "local",
             deliveredWords = 20,
             asrDurationMs = 1000L,
@@ -184,6 +184,31 @@ class DataStoresTest {
         assertEquals(5.0, withNonLlm.llmRealTimeSpeed, 0.01)
         // ASR speed: 30.5s / 3.05s = 10.0x
         assertEquals(10.0, withNonLlm.asrRealTimeSpeed, 0.01)
+    }
+
+    @Test
+    fun `usage stats written before the wordsEdited rename still load`() {
+        // The pre-rename keys ("cleanedWords"/"totalCleanedWords") must keep working (D-124).
+        java.io.File(temp.root, "usage_stats.json").writeText(
+            """
+            {
+              "totalAudioSeconds": 12.5,
+              "totalRawWords": 25,
+              "totalCleanedWords": 5,
+              "totalUtterances": 1,
+              "recentRecords": [
+                {
+                  "id": "1", "timestampMs": 1, "durationSeconds": 12.5,
+                  "rawWords": 25, "cleanedWords": 5, "engine": "local"
+                }
+              ]
+            }
+            """.trimIndent(),
+            Charsets.UTF_8,
+        )
+        val stats = UsageStatsStore(temp.root).load()
+        assertEquals(5, stats.totalWordsEdited)
+        assertEquals(5, stats.recentRecords.single().wordsEdited)
     }
 
     @Test

@@ -214,9 +214,9 @@ fun StatsScreen(
                         )
                         StatMetricCard(
                             modifier = Modifier.weight(1f),
-                            title = "Words Cleaned",
-                            value = "${stats.totalCleanedWords}",
-                            subtitle = "via AI rewriting",
+                            title = "Words Edited",
+                            value = "${stats.totalWordsEdited}",
+                            subtitle = "by AI polish",
                             accentColor = BadgeViolet,
                         )
                     }
@@ -300,7 +300,7 @@ fun StatsScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 val ratioText = if (stats.totalRawWords > 0) {
-                                    val pct = ((stats.totalWordsCleaned.toDouble() / stats.totalRawWords) * 100).toInt()
+                                    val pct = ((stats.totalWordsEdited.toDouble() / stats.totalRawWords) * 100).toInt()
                                     "$pct% of spoken words improved (${stats.totalWordsRemoved} fillers removed, ${stats.totalWordsChanged} grammar fixes, ${stats.totalWordsAdded} words added)."
                                 } else {
                                     "Start dictating to see cleanup metrics."
@@ -476,7 +476,7 @@ private fun UtteranceRecordRow(record: UtteranceRecord) {
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            val detailsText = if (record.wordsCleaned > 0) {
+            val detailsText = if (record.wordsEdited > 0) {
                 val breakdown = buildList {
                     if (record.wordsRemoved > 0) add("${record.wordsRemoved} removed")
                     if (record.wordsChanged > 0) add("${record.wordsChanged} fixed")
@@ -485,7 +485,7 @@ private fun UtteranceRecordRow(record: UtteranceRecord) {
                 if (breakdown.isNotEmpty()) {
                     "${record.rawWords} words spoken  •  $breakdown"
                 } else {
-                    "${record.rawWords} words spoken  •  ${record.wordsCleaned} cleaned"
+                    "${record.rawWords} words spoken  •  ${record.wordsEdited} edited"
                 }
             } else if (record.llmDurationMs > 0L) {
                 "${record.rawWords} words spoken  •  No edits needed"

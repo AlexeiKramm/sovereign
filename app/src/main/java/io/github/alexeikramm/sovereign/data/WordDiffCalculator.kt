@@ -8,7 +8,9 @@ package io.github.alexeikramm.sovereign.data
  * @param wordsRemoved Number of words removed from raw speech (e.g. fillers like "um", "uh", stutters).
  * @param wordsChanged Number of words altered for grammar, agreement, vocabulary, or formatting.
  * @param wordsAdded Number of words inserted by the cleanup model.
- * @param wordsCleaned Total count of words modified during cleanup (wordsRemoved + wordsChanged).
+ * @param wordsEdited Total word-level edits — the canonical "words edited" count (D-124):
+ *   `wordsRemoved + wordsChanged + wordsAdded`. Computed, so no caller can invent a different
+ *   definition of the number the Stats and History screens show.
  */
 data class WordDiffResult(
     val rawWords: Int,
@@ -16,8 +18,9 @@ data class WordDiffResult(
     val wordsRemoved: Int,
     val wordsChanged: Int,
     val wordsAdded: Int,
-    val wordsCleaned: Int = wordsRemoved + wordsChanged,
-)
+) {
+    val wordsEdited: Int get() = wordsRemoved + wordsChanged + wordsAdded
+}
 
 object WordDiffCalculator {
 
@@ -45,7 +48,22 @@ object WordDiffCalculator {
             wordsRemoved = 0,
             wordsChanged = 0,
             wordsAdded = 0,
-            wordsCleaned = 0,
+        )
+    }
+
+    /**
+     * The server tier's analogue of [calculate]: the home PC returns cleaned text plus a list of
+     * corrections, and the phone never sees the pre-cleanup words. The corrections count is the
+     * `wordsEdited` number (D-124 decision 4), carried on `wordsChanged` so the total is the same.
+     */
+    fun remote(deliveredText: String, corrections: Int): WordDiffResult {
+        val words = tokenizeWords(deliveredText).size
+        return WordDiffResult(
+            rawWords = words,
+            deliveredWords = words,
+            wordsRemoved = 0,
+            wordsChanged = corrections.coerceAtLeast(0),
+            wordsAdded = 0,
         )
     }
 
@@ -61,7 +79,7 @@ object WordDiffCalculator {
         val n = cleanTokens.size
 
         if (m == 0 && n == 0) {
-            return WordDiffResult(0, 0, 0, 0, 0, 0)
+            return WordDiffResult(0, 0, 0, 0, 0)
         }
         if (m == 0) {
             return WordDiffResult(
@@ -70,7 +88,6 @@ object WordDiffCalculator {
                 wordsRemoved = 0,
                 wordsChanged = 0,
                 wordsAdded = n,
-                wordsCleaned = 0,
             )
         }
         if (n == 0) {
@@ -80,7 +97,6 @@ object WordDiffCalculator {
                 wordsRemoved = m,
                 wordsChanged = 0,
                 wordsAdded = 0,
-                wordsCleaned = m,
             )
         }
 
@@ -139,7 +155,6 @@ object WordDiffCalculator {
             wordsRemoved = removed,
             wordsChanged = changed,
             wordsAdded = added,
-            wordsCleaned = removed + changed,
         )
     }
 

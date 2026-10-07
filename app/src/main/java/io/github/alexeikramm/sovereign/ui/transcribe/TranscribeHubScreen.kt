@@ -379,7 +379,7 @@ fun TranscribeHubScreen(
                 title = "Transcription Result",
                 textStyle = MaterialTheme.typography.bodyLarge,
                 textLineHeight = 24.sp,
-                editStatsContent = if (diff != null && diff.wordsCleaned > 0) {
+                editStatsContent = if (diff != null && diff.wordsEdited > 0) {
                     {
                         Card(
                             colors = CardDefaults.cardColors(

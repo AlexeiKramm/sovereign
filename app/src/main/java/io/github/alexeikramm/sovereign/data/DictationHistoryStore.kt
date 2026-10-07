@@ -1,11 +1,14 @@
 package io.github.alexeikramm.sovereign.data
 
 import android.content.Context
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNames
 import java.io.File
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class DictationRecord(
     val id: String,
@@ -15,7 +18,9 @@ data class DictationRecord(
     val cleanedText: String,
     val asrModel: String,
     val llmModel: String? = null,
-    val wordsCleaned: Int = 0,
+    /** Total word-level edits (removed + changed + added); the canonical count (D-124). */
+    @JsonNames("wordsCleaned")
+    val wordsEdited: Int = 0,
     val insertedSuccessfully: Boolean = true,
 )
 

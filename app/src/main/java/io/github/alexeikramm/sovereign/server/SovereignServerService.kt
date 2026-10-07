@@ -22,6 +22,7 @@ import io.github.alexeikramm.sovereign.R
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.PairedDeviceStore
+import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.dictation.DictationSession
 import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
 import java.util.UUID
@@ -139,6 +140,7 @@ class SovereignServerService : Service() {
                     session = shared,
                     scope = scope,
                     historyStore = DictationHistoryStore(this@SovereignServerService),
+                    usageStatsStore = UsageStatsStore(this@SovereignServerService),
                 )
                 captureHost = host
 

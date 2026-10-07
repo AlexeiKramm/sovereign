@@ -22,8 +22,9 @@ import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.CleaningProfile
 import io.github.alexeikramm.sovereign.data.DictationHistoryData
-import io.github.alexeikramm.sovereign.data.DictationHistoryRecorder
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
+import io.github.alexeikramm.sovereign.data.FinalizedUtterance
+import io.github.alexeikramm.sovereign.data.FinalizedUtteranceRecorder
 import io.github.alexeikramm.sovereign.data.LiteRtProcessor
 import io.github.alexeikramm.sovereign.data.DictionaryEntry
 import io.github.alexeikramm.sovereign.data.DictionaryStore
@@ -1297,7 +1298,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             var cleanedText = rawText
             var diff = WordDiffCalculator.verbatim(rawText)
             var llmModelLabel: String? = null
-            var wordsCleaned = 0
             var llmMs = 0L
 
             if (settings.cleanupEnabled) {
@@ -1310,7 +1310,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                     cleanedText = pass.text
                     diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = pass.text)
-                    wordsCleaned = diff.wordsChanged + diff.wordsRemoved + diff.wordsAdded
                     llmModelLabel = settings.litertModel.label
                     llmMs = pass.activeMs
                 } catch (t: Throwable) {
@@ -1328,32 +1327,26 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 wallClockMs = totalElapsedMs,
             )
 
-            UsageStatsStore(app).record(
-                durationSeconds = audioSeconds,
-                rawWords = diff.rawWords,
-                cleanedWords = wordsCleaned,
-                engine = Engine.LOCAL.label,
-                deliveredWords = diff.deliveredWords,
-                wordsRemoved = diff.wordsRemoved,
-                wordsChanged = diff.wordsChanged,
-                wordsAdded = diff.wordsAdded,
-                asrDurationMs = timings.asrActiveMs,
-                llmDurationMs = timings.llmActiveMs,
-                wallClockMs = activeComputeMs,
-                latencyMs = totalElapsedMs,
-            )
-
-            val recorded = DictationHistoryRecorder.record(
-                store = dictationHistoryStore,
-                enabled = settings.historyEnabled,
+            // One recorder for both outputs, so the numbers cannot drift from the pill or the server.
+            val recorded = FinalizedUtteranceRecorder.record(
+                historyStore = dictationHistoryStore,
+                usageStatsStore = usageStatsStore,
+                historyEnabled = settings.historyEnabled,
                 capacity = settings.historyCapacity,
-                rawText = rawText,
-                cleanedText = cleanedText,
-                durationSeconds = audioSeconds,
-                asrModel = settings.asrModel.label,
-                llmModel = llmModelLabel,
-                wordsCleaned = wordsCleaned,
-                insertedSuccessfully = false,
+                utterance = FinalizedUtterance(
+                    rawText = rawText,
+                    cleanedText = cleanedText,
+                    durationSeconds = audioSeconds,
+                    engine = Engine.LOCAL.label,
+                    asrModel = settings.asrModel.label,
+                    llmModel = llmModelLabel,
+                    cleanedByLlm = llmModelLabel != null,
+                    insertedSuccessfully = false,
+                    asrMs = timings.asrActiveMs,
+                    llmMs = timings.llmActiveMs,
+                    wallClockMs = activeComputeMs,
+                    latencyMs = totalElapsedMs,
+                ),
             )
             if (recorded != null) refreshHistory()
 
@@ -1401,30 +1394,20 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     language = settings.language,
                 )
 
-                val diff = WordDiffCalculator.verbatim(response.text)
-                val correctionsCount = response.corrections.size
-                UsageStatsStore(app).record(
-                    durationSeconds = audioSeconds,
-                    rawWords = diff.rawWords,
-                    cleanedWords = correctionsCount,
-                    engine = Engine.REMOTE.label,
-                    deliveredWords = diff.deliveredWords,
-                    wordsRemoved = 0,
-                    wordsChanged = correctionsCount,
-                    wordsAdded = 0,
-                )
-
-                val recorded = DictationHistoryRecorder.record(
-                    store = dictationHistoryStore,
-                    enabled = settings.historyEnabled,
+                val recorded = FinalizedUtteranceRecorder.record(
+                    historyStore = dictationHistoryStore,
+                    usageStatsStore = usageStatsStore,
+                    historyEnabled = settings.historyEnabled,
                     capacity = settings.historyCapacity,
-                    rawText = response.text,
-                    cleanedText = response.text,
-                    durationSeconds = audioSeconds,
-                    asrModel = "Server",
-                    llmModel = null,
-                    wordsCleaned = correctionsCount,
-                    insertedSuccessfully = false,
+                    utterance = FinalizedUtterance(
+                        rawText = response.text,
+                        cleanedText = response.text,
+                        durationSeconds = audioSeconds,
+                        engine = Engine.REMOTE.label,
+                        asrModel = "Server",
+                        remoteCorrections = response.corrections.size,
+                        insertedSuccessfully = false,
+                    ),
                 )
                 if (recorded != null) refreshHistory()
 
@@ -1600,35 +1583,27 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     val timings = tracker.stop(overrideLlmActiveMs = cleanupPipeline.totalActiveLlmMs)
                     val cleanedText = cleanupPipeline.state.carriedTail.ifBlank { rawText }
                     val diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = cleanedText)
-                    val wordsCleaned = diff.wordsChanged + diff.wordsRemoved + diff.wordsAdded
 
-                    UsageStatsStore(app).record(
-                        durationSeconds = audioDurationSec.toDouble(),
-                        rawWords = diff.rawWords,
-                        cleanedWords = wordsCleaned,
-                        engine = Engine.LOCAL.label,
-                        deliveredWords = diff.deliveredWords,
-                        wordsRemoved = diff.wordsRemoved,
-                        wordsChanged = diff.wordsChanged,
-                        wordsAdded = diff.wordsAdded,
-                        asrDurationMs = timings.asrActiveMs,
-                        llmDurationMs = timings.llmActiveMs,
-                        wallClockMs = timings.wallClockMs,
+                    FinalizedUtteranceRecorder.record(
+                        historyStore = dictationHistoryStore,
+                        usageStatsStore = usageStatsStore,
+                        historyEnabled = settings.historyEnabled,
+                        capacity = settings.historyCapacity,
+                        utterance = FinalizedUtterance(
+                            rawText = rawText,
+                            cleanedText = cleanedText,
+                            durationSeconds = audioDurationSec.toDouble(),
+                            engine = Engine.LOCAL.label,
+                            asrModel = settings.asrModel.label,
+                            llmModel = settings.litertModel.label,
+                            cleanedByLlm = true,
+                            insertedSuccessfully = false,
+                            asrMs = timings.asrActiveMs,
+                            llmMs = timings.llmActiveMs,
+                            wallClockMs = timings.wallClockMs,
+                        ),
                     )
                     refreshUsageStats()
-
-                    DictationHistoryRecorder.record(
-                        store = dictationHistoryStore,
-                        enabled = settings.historyEnabled,
-                        capacity = settings.historyCapacity,
-                        rawText = rawText,
-                        cleanedText = cleanedText,
-                        durationSeconds = audioDurationSec.toDouble(),
-                        asrModel = settings.asrModel.label,
-                        llmModel = settings.litertModel.label,
-                        wordsCleaned = diff.wordsCleaned,
-                        insertedSuccessfully = false,
-                    )
                     refreshHistory()
 
                     _state.value = DictationUiState.Done(
@@ -1648,33 +1623,26 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     val timings = tracker.stop(overrideLlmActiveMs = 0L)
                     val diff = WordDiffCalculator.verbatim(rawText)
 
-                    UsageStatsStore(app).record(
-                        durationSeconds = audioDurationSec.toDouble(),
-                        rawWords = diff.rawWords,
-                        cleanedWords = 0,
-                        engine = Engine.LOCAL.label,
-                        deliveredWords = diff.deliveredWords,
-                        wordsRemoved = 0,
-                        wordsChanged = 0,
-                        wordsAdded = 0,
-                        asrDurationMs = timings.asrActiveMs,
-                        llmDurationMs = 0L,
-                        wallClockMs = timings.wallClockMs,
+                    FinalizedUtteranceRecorder.record(
+                        historyStore = dictationHistoryStore,
+                        usageStatsStore = usageStatsStore,
+                        historyEnabled = settings.historyEnabled,
+                        capacity = settings.historyCapacity,
+                        utterance = FinalizedUtterance(
+                            rawText = rawText,
+                            cleanedText = rawText,
+                            durationSeconds = audioDurationSec.toDouble(),
+                            engine = Engine.LOCAL.label,
+                            asrModel = settings.asrModel.label,
+                            llmModel = null,
+                            cleanedByLlm = false,
+                            insertedSuccessfully = false,
+                            asrMs = timings.asrActiveMs,
+                            llmMs = 0L,
+                            wallClockMs = timings.wallClockMs,
+                        ),
                     )
                     refreshUsageStats()
-
-                    DictationHistoryRecorder.record(
-                        store = dictationHistoryStore,
-                        enabled = settings.historyEnabled,
-                        capacity = settings.historyCapacity,
-                        rawText = rawText,
-                        cleanedText = rawText,
-                        durationSeconds = audioDurationSec.toDouble(),
-                        asrModel = settings.asrModel.label,
-                        llmModel = null,
-                        wordsCleaned = 0,
-                        insertedSuccessfully = false,
-                    )
                     refreshHistory()
 
                     _state.value = DictationUiState.Done(

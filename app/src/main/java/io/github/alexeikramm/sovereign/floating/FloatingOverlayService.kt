@@ -49,12 +49,12 @@ import io.github.alexeikramm.sovereign.cleanup.SeamHealer
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.CleaningProfile
-import io.github.alexeikramm.sovereign.data.DictationHistoryRecorder
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.DictionaryStore
+import io.github.alexeikramm.sovereign.data.FinalizedUtterance
+import io.github.alexeikramm.sovereign.data.FinalizedUtteranceRecorder
 import io.github.alexeikramm.sovereign.data.ProfileStore
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
-import io.github.alexeikramm.sovereign.data.WordDiffCalculator
 import io.github.alexeikramm.sovereign.dictation.DictationListener
 import io.github.alexeikramm.sovereign.dictation.DictationSession
 import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
@@ -471,9 +471,6 @@ class FloatingOverlayService : Service() {
     private var inFlightJob: Job? = null
     private var silenceMonitoringJob: Job? = null
 
-    /** Wall-clock accounting for the usage stats the dashboard shows. */
-    private var recordStartedAtMs = 0L
-    private var recordedMillis = 0L
     private var captureStoppedAtMs = 0L
     private var turnaroundLatencyMs = 0L
     private var reprocessActiveLlmMs: Long? = null
@@ -1741,7 +1738,6 @@ class FloatingOverlayService : Service() {
         }
 
         quickCaptureActive = quick
-        recordStartedAtMs = SystemClock.elapsedRealtime()
         // The card path is the one transition that expands the window; capture the minimized state
         // first so the growth is started only on the pill -> card edge, never on a resume from REVIEW.
         val wasMinimized = uiState == FloatingUiState.RESTING_PILL ||
@@ -1936,7 +1932,6 @@ class FloatingOverlayService : Service() {
     private fun stopRecording() {
         if (!session.isRecording) return
         captureStoppedAtMs = SystemClock.elapsedRealtime()
-        finishRecordingAccounting()
         stopAudioMetering()
         stopSilenceMonitoring()
 
@@ -1966,7 +1961,6 @@ class FloatingOverlayService : Service() {
         quickCaptureActive = false
         if (!session.isRecording) return
         captureStoppedAtMs = SystemClock.elapsedRealtime()
-        finishRecordingAccounting()
         stopAudioMetering()
         stopSilenceMonitoring()
 
@@ -1990,16 +1984,6 @@ class FloatingOverlayService : Service() {
         session.finish(onRecorderStopped = ::refreshKeepScreenOn)
     }
 
-    /** Folds the running capture into [recordedMillis]; the counterpart to `recordStartedAtMs`. */
-    private fun finishRecordingAccounting() {
-        recordStartedAtMs.let { started ->
-            if (started > 0L) {
-                recordedMillis += SystemClock.elapsedRealtime() - started
-                recordStartedAtMs = 0L
-            }
-        }
-    }
-
     /** Injects the finalized utterance and shows the outcome on the minimized pill. */
     private suspend fun deliverQuickCapture() {
         val latency = if (turnaroundLatencyMs > 0L) turnaroundLatencyMs else (if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L)
@@ -2011,8 +1995,7 @@ class FloatingOverlayService : Service() {
         } else {
             val toType = UtteranceFinalizer.forInsertion(textToInject)
             val injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
-            recordUsageStats(deliveredText = textToInject, latencyMs = latency)
-            recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
+            recordUtterance(deliveredText = textToInject, insertedSuccessfully = injected, latencyMs = latency)
             if (injected) {
                 // A cleanup failure still injects the raw words; say so rather than claim a polish.
                 showQuickResult(if (errorMessage != null) "Inserted as spoken" else "Inserted")
@@ -2095,7 +2078,6 @@ class FloatingOverlayService : Service() {
         scope.launch(Dispatchers.Main.immediate) {
             if (session.isRecording) {
                 captureStoppedAtMs = SystemClock.elapsedRealtime()
-                finishRecordingAccounting()
                 stopAudioMetering()
                 stopSilenceMonitoring()
                 isProcessing = true
@@ -2126,71 +2108,39 @@ class FloatingOverlayService : Service() {
                     Toast.makeText(this@FloatingOverlayService, "Copied — long-press the text field to paste", Toast.LENGTH_LONG).show()
                 }
             }
-            recordUsageStats(deliveredText = textToInject, latencyMs = latency)
-            recordHistory(deliveredText = textToInject, insertedSuccessfully = injected)
+            recordUtterance(deliveredText = textToInject, insertedSuccessfully = injected, latencyMs = latency)
             resetToResting()
         }
     }
 
     /**
-     * The pill is the primary surface, so its dictation has to reach the same
-     * stats store the IME writes to — otherwise the dashboard silently misses
-     * most of what the user actually dictated.
+     * Writes the finished utterance to **both** history and usage stats through the one shared
+     * recorder (CHUNK-5), so a pill dictation is stored exactly like a transcribe or desktop one and
+     * the count, duration and naming cannot drift between surfaces.
      */
-    private fun recordUsageStats(deliveredText: String, latencyMs: Long = 0L) {
-        val raw = session.rawText.trim()
-        if (raw.isEmpty() && deliveredText.isEmpty()) return
-
-        val asrMs = session.totalActiveAsrMs
+    private fun recordUtterance(deliveredText: String, insertedSuccessfully: Boolean, latencyMs: Long = 0L) {
         val llmMs = reprocessActiveLlmMs ?: if (session.isCleanupEngaged || settings.cleanupEnabled) session.totalActiveLlmMs else 0L
-
-        val diff = if (raw.isNotEmpty() && (llmMs > 0L || deliveredText != raw)) {
-            WordDiffCalculator.calculate(rawText = raw, cleanedText = deliveredText)
-        } else {
-            WordDiffCalculator.verbatim(raw.ifEmpty { deliveredText })
-        }
-        val activeComputeMs = asrMs + llmMs
-
-        usageStatsStore.record(
-            durationSeconds = currentSessionSeconds(),
-            rawWords = diff.rawWords,
-            cleanedWords = diff.wordsCleaned,
-            engine = Engine.LOCAL.label,
-            deliveredWords = diff.deliveredWords,
-            wordsRemoved = diff.wordsRemoved,
-            wordsChanged = diff.wordsChanged,
-            wordsAdded = diff.wordsAdded,
-            asrDurationMs = asrMs,
-            llmDurationMs = llmMs,
-            wallClockMs = activeComputeMs,
-            latencyMs = latencyMs,
-        )
-    }
-
-    private fun recordHistory(deliveredText: String, insertedSuccessfully: Boolean) {
-        val llmMs = reprocessActiveLlmMs ?: if (session.isCleanupEngaged || settings.cleanupEnabled) session.totalActiveLlmMs else 0L
-        DictationHistoryRecorder.record(
-            store = historyStore,
-            enabled = settings.historyEnabled,
+        val cleanedByLlm = llmMs > 0L || session.isCleanupEngaged
+        FinalizedUtteranceRecorder.record(
+            historyStore = historyStore,
+            usageStatsStore = usageStatsStore,
+            historyEnabled = settings.historyEnabled,
             capacity = settings.historyCapacity,
-            rawText = session.rawText,
-            cleanedText = deliveredText,
-            durationSeconds = currentSessionSeconds(),
-            asrModel = settings.asrModel.label,
-            llmModel = if (session.isCleanupEngaged || llmMs > 0L) settings.litertModel.label else null,
-            wordsCleaned = DictationHistoryRecorder.wordsCleaned(session.rawText, deliveredText, cleanedByLlm = llmMs > 0L),
-            insertedSuccessfully = insertedSuccessfully,
+            utterance = FinalizedUtterance(
+                rawText = session.rawText,
+                cleanedText = deliveredText,
+                durationSeconds = session.lastCapturedSeconds,
+                engine = Engine.LOCAL.label,
+                asrModel = settings.asrModel.label,
+                llmModel = if (cleanedByLlm) settings.litertModel.label else null,
+                cleanedByLlm = cleanedByLlm,
+                insertedSuccessfully = insertedSuccessfully,
+                asrMs = session.totalActiveAsrMs,
+                llmMs = llmMs,
+                wallClockMs = session.totalActiveAsrMs + llmMs,
+                latencyMs = latencyMs,
+            ),
         )
-    }
-
-    /** Recorded time so far, including a still-running capture. */
-    private fun currentSessionSeconds(): Double {
-        val live = if (recordStartedAtMs > 0L) {
-            SystemClock.elapsedRealtime() - recordStartedAtMs
-        } else {
-            0L
-        }
-        return (recordedMillis + live) / 1000.0
     }
 
     /**
@@ -2262,8 +2212,6 @@ class FloatingOverlayService : Service() {
         dismissWordSelection()
         isProcessing = false
         session.reset()
-        recordStartedAtMs = 0L
-        recordedMillis = 0L
         captureStoppedAtMs = 0L
         turnaroundLatencyMs = 0L
         // A session that was cancelled (rather than finalised) still ends the capture; the engines

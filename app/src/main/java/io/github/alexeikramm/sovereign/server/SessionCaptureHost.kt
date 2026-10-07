@@ -3,12 +3,15 @@ package io.github.alexeikramm.sovereign.server
 import android.util.Log
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.data.AppSettings
-import io.github.alexeikramm.sovereign.data.DictationHistoryRecorder
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
+import io.github.alexeikramm.sovereign.data.FinalizedUtterance
+import io.github.alexeikramm.sovereign.data.FinalizedUtteranceRecorder
+import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.dictation.DictationListener
 import io.github.alexeikramm.sovereign.dictation.DictationSession
 import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
 import io.github.alexeikramm.sovereign.dictation.SessionArbiter
+import io.github.alexeikramm.sovereign.engine.Engine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,6 +36,8 @@ class SessionCaptureHost(
     private val scope: CoroutineScope,
     /** Where a finished desktop utterance is written, so it lands in the same history as the pill. */
     private val historyStore: DictationHistoryStore,
+    /** And the same usage stats (CHUNK-5); before this a desktop dictation never reached the Stats screen. */
+    private val usageStatsStore: UsageStatsStore,
     /** The dashboard's observable view of the running server (Chunk 2a). */
     private val runtime: ServerRuntime = ServerRuntime.shared,
 ) : CaptureHost {
@@ -163,7 +168,7 @@ class SessionCaptureHost(
         session.finish()
         session.onCaptureFinished()
         val result = CaptureResult(session.deliveryText, session.rawText)
-        recordHistory(result)
+        recordUtterance(result)
         release()
         cleaning = false
         publishStage()
@@ -181,24 +186,34 @@ class SessionCaptureHost(
     }
 
     /**
-     * Writes the finished utterance to history through the shared recorder, so a desktop dictation
-     * is stored exactly like a pill or transcribe one. Called only from [finish], never [cancel] —
-     * a cancelled capture is not a dictation. The phone cannot observe whether the desktop inserted
-     * the text, so `insertedSuccessfully` is reported as true.
+     * Writes the finished utterance to history **and** usage stats through the shared recorder, so a
+     * desktop dictation is stored exactly like a pill or transcribe one (CHUNK-5; before this it
+     * reached history but was silently absent from the Stats screen). Called only from [finish],
+     * never [cancel] — a cancelled capture is not a dictation. The phone cannot observe whether the
+     * desktop inserted the text, so `insertedSuccessfully` is reported as true.
      */
-    private fun recordHistory(result: CaptureResult) {
+    private fun recordUtterance(result: CaptureResult) {
         val llmRan = session.totalActiveLlmMs > 0L || session.isCleanupEngaged
-        DictationHistoryRecorder.record(
-            store = historyStore,
-            enabled = settings.historyEnabled,
+        val asrMs = session.totalActiveAsrMs
+        val llmMs = session.totalActiveLlmMs
+        FinalizedUtteranceRecorder.record(
+            historyStore = historyStore,
+            usageStatsStore = usageStatsStore,
+            historyEnabled = settings.historyEnabled,
             capacity = settings.historyCapacity,
-            rawText = result.rawText,
-            cleanedText = result.deliveryText,
-            durationSeconds = session.capturedSeconds,
-            asrModel = settings.asrModel.label,
-            llmModel = if (llmRan) settings.litertModel.label else null,
-            wordsCleaned = DictationHistoryRecorder.wordsCleaned(result.rawText, result.deliveryText, cleanedByLlm = llmRan),
-            insertedSuccessfully = true,
+            utterance = FinalizedUtterance(
+                rawText = result.rawText,
+                cleanedText = result.deliveryText,
+                durationSeconds = session.lastCapturedSeconds,
+                engine = Engine.LOCAL.label,
+                asrModel = settings.asrModel.label,
+                llmModel = if (llmRan) settings.litertModel.label else null,
+                cleanedByLlm = llmRan,
+                insertedSuccessfully = true,
+                asrMs = asrMs,
+                llmMs = llmMs,
+                wallClockMs = asrMs + llmMs,
+            ),
         )
     }
 

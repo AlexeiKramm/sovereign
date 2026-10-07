@@ -41,6 +41,16 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
     val capturedSeconds: Double
         get() = pcm.size().toDouble() / (sampleRate * BYTES_PER_SAMPLE)
 
+    /**
+     * The audio length of the capture that just ended, in seconds. [capturedSeconds] is only valid
+     * while the PCM buffer is held — [stop]/[cancel] free it — so a caller that records an utterance
+     * *after* finalising it (the pill and the desktop server) would otherwise read 0. This is the
+     * canonical live-capture `durationSeconds` (D-124 decision 3).
+     */
+    @Volatile
+    var lastCapturedSeconds: Double = 0.0
+        private set
+
     @SuppressLint("MissingPermission") // caller must hold RECORD_AUDIO; the screen requests it
     fun start() {
         check(!running) { "already recording" }
@@ -61,6 +71,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
         }
 
         pcm.reset()
+        lastCapturedSeconds = 0.0
         record = recorder
         running = true
         recorder.startRecording()
@@ -100,6 +111,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
         record = null
 
         val raw = pcm.toByteArray()
+        lastCapturedSeconds = raw.size.toDouble() / (sampleRate * BYTES_PER_SAMPLE)
         pcm.reset()
         if (raw.isEmpty()) return null
         return WavWriter.build(raw, sampleRate)
@@ -115,6 +127,7 @@ class WavRecorder(private val sampleRate: Int = SAMPLE_RATE) {
             it.release()
         }
         record = null
+        lastCapturedSeconds = capturedSeconds
         pcm.reset()
     }
 
