@@ -101,9 +101,6 @@ class SessionCaptureHost(
         phase = ServerPipeline.WARMING
         cleaning = false
         publishStage()
-        // Baseline the per-utterance compute totals, so each COMMIT_TEXT carries this unit's share.
-        lastAsrMs = session.totalActiveAsrMs
-        lastCleanupMs = session.totalActiveLlmMs
         Log.i(
             TAG,
             "Server capture begin: model=${settings.asrModelId} cleanup=${settings.cleanupEnabled}",
@@ -113,6 +110,12 @@ class SessionCaptureHost(
             session.begin(fresh = true, cleanupEnabled = settings.cleanupEnabled)
             session.beginSession()
             session.startRecording()
+            // Baseline the per-utterance compute totals *after* the session resets them:
+            // beginSession clears totalActiveAsrMs and begin clears the cleanup total. Baselining
+            // before the reset subtracted the previous utterance's totals, so the first COMMIT_TEXT
+            // of every utterance after the first carried a negative delta (seen on the dashboard).
+            lastAsrMs = session.totalActiveAsrMs
+            lastCleanupMs = session.totalActiveLlmMs
             // Report readiness off the call stack: the engine must emit START_ACK before any
             // STATE_CHANGED (CaptureHost.begin contract). Dispatchers.Main always posts, so this
             // cannot run re-entrantly even though `begin` is called on main.
@@ -180,6 +183,12 @@ class SessionCaptureHost(
     }
 
     /**
+     * This unit's share of a cumulative compute total. A counter reset can only make the raw delta
+     * negative, which is meaningless on the dashboard, so the result floors at zero.
+     */
+    private fun deltaMs(current: Long, baseline: Long): Long = (current - baseline).coerceAtLeast(0L)
+
+    /**
      * The session's text changed: `committed` is a full snapshot, so a change is one `COMMIT_TEXT`
      * (never an append — seam healing can rewrite it), and a changed `provisional` is the live tail.
      */
@@ -188,8 +197,10 @@ class SessionCaptureHost(
         if (committed != lastCommitted) {
             val asrMs = session.totalActiveAsrMs
             val cleanupMs = session.totalActiveLlmMs
-            runtime.onTelemetry(asrMs - lastAsrMs, cleanupMs - lastCleanupMs, committed)
-            target.onCommit(committed, CommitPerf(asrMs - lastAsrMs, cleanupMs - lastCleanupMs))
+            val asrDelta = deltaMs(asrMs, lastAsrMs)
+            val cleanupDelta = deltaMs(cleanupMs, lastCleanupMs)
+            runtime.onTelemetry(asrDelta, cleanupDelta, committed)
+            target.onCommit(committed, CommitPerf(asrDelta, cleanupDelta))
             lastAsrMs = asrMs
             lastCleanupMs = cleanupMs
             lastCommitted = committed
