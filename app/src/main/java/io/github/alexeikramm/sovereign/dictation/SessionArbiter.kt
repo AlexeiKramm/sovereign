@@ -28,6 +28,18 @@ class SessionArbiter {
          */
         TRANSCRIBE,
         SERVER,
+        ;
+
+        /**
+         * The user-facing reason a capture could not start because this owner holds the arbiter.
+         * One wording for every surface — the pill (CHUNK-7) and the transcribe screen both show
+         * it — so the two cannot drift.
+         */
+        fun busyReason(): String = when (this) {
+            PILL -> "The floating pill is already dictating"
+            TRANSCRIBE -> "A transcription is already in progress"
+            SERVER -> "The desktop server is using the microphone"
+        }
     }
 
     sealed interface Result {

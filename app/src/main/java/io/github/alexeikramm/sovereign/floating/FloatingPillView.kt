@@ -127,13 +127,15 @@ enum class FloatingUiState {
 }
 
 /**
- * The six visual states of the minimized pill, as locked in the visual design spec (PLAN.md):
+ * The visual states of the minimized pill, as locked in the visual design spec (PLAN.md):
  * - [COLD]: resting mark, static, neutral colour.
  * - [READY]: resting mark, drifting at 2.77 rad/s (0.44 crests/s), neutral colour.
  * - [RECORDING]: travelling wave (3 lobes tapered), height following voice level, 85% accent.
  * - [CLEANING]: three dots cycling at 420ms each, accent colour.
  * - [RESULT]: check mark (9dp half-size, 0.49dp stroke), ok colour, holds ~1.7s.
  * - [ERROR]: cross mark (9dp half-size, 0.49dp stroke), bad colour, holds until next attempt.
+ * - [BUSY]: pause mark, muted colour, holds ~1.7s — the pill is tapped while another surface
+ *   (the transcribe screen or the desktop server) holds the process-wide capture arbiter (CHUNK-7).
  */
 enum class MinimizedPillPhase {
     COLD,
@@ -142,6 +144,7 @@ enum class MinimizedPillPhase {
     CLEANING,
     RESULT,
     ERROR,
+    BUSY,
 }
 
 /**
@@ -286,6 +289,12 @@ fun FloatingDictationOverlay(
      * and a flat waveform, so the same pill changed appearance at the end of the collapse.
      */
     pillBackdrop: Boolean = false,
+    /**
+     * True for a short beat after the pill was tapped while **another** surface (the transcribe
+     * screen or the desktop server) held the process-wide capture arbiter (CHUNK-7). Drives the
+     * transient [MinimizedPillPhase.BUSY] mark; the spoken reason is the caller's toast.
+     */
+    busy: Boolean = false,
 ) {
     // The overlay lives in a service window, so it does not inherit the Activity's theme: the
     // service resolves the app's theme mode (falling back to the system) and passes it in.
@@ -351,16 +360,15 @@ fun FloatingDictationOverlay(
             // blink at the start of a card session — the pill is still drawn while the card's first
             // frame composes, and vanishes only when the card is on screen.
             if (hostsPill) {
-                val effectivePhase = debugPillPhase ?: when {
-                    // A backdrop pill is the resting pill, whatever the session is doing.
-                    pillBackdrop -> if (modelReady) MinimizedPillPhase.READY else MinimizedPillPhase.COLD
-                    uiState == FloatingUiState.RESTING_PILL ->
-                        if (modelReady) MinimizedPillPhase.READY else MinimizedPillPhase.COLD
-                    uiState == FloatingUiState.QUICK_CAPTURE && quickStatus != null ->
-                        if (quickStatusIsError) MinimizedPillPhase.ERROR else MinimizedPillPhase.RESULT
-                    isProcessing -> MinimizedPillPhase.CLEANING
-                    else -> MinimizedPillPhase.RECORDING
-                }
+                val effectivePhase = debugPillPhase ?: minimizedPillPhase(
+                    uiState = uiState,
+                    modelReady = modelReady,
+                    busy = busy,
+                    quickStatus = quickStatus,
+                    quickStatusIsError = quickStatusIsError,
+                    isProcessing = isProcessing,
+                    pillBackdrop = pillBackdrop,
+                )
                 MinimizedPillView(
                     phase = effectivePhase,
                     modelReady = modelReady,
@@ -505,6 +513,16 @@ fun MinimizedPillView(
                 MinimizedPillPhase.ERROR -> {
                     PillCrossMark(
                         color = cs.error,
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = 18.dp,
+                        ),
+                    )
+                }
+
+                MinimizedPillPhase.BUSY -> {
+                    PillBusyMark(
+                        color = cs.onSurfaceVariant,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = 18.dp,
@@ -671,6 +689,39 @@ private fun PillCrossMark(
             color = color,
             start = Offset(cx + s * 0.45f, cy - s * 0.45f),
             end = Offset(cx - s * 0.45f, cy + s * 0.45f),
+            strokeWidth = strokePx,
+            cap = StrokeCap.Round,
+        )
+    }
+}
+
+/**
+ * The BUSY (reserved) mark: a two-bar pause. Shown when the pill is tapped while another surface
+ * holds the capture arbiter (CHUNK-7) — "hold on", deliberately neutral rather than the error red
+ * of [PillCrossMark], because nothing failed.
+ */
+@Composable
+private fun PillBusyMark(
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier) {
+        val strokePx = PillLayout.MARK_STROKE_DP.dp.toPx()
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val halfBarPx = 4.5.dp.toPx()
+        val barGapPx = 5.dp.toPx()
+        drawLine(
+            color = color,
+            start = Offset(cx - barGapPx / 2f, cy - halfBarPx),
+            end = Offset(cx - barGapPx / 2f, cy + halfBarPx),
+            strokeWidth = strokePx,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = color,
+            start = Offset(cx + barGapPx / 2f, cy - halfBarPx),
+            end = Offset(cx + barGapPx / 2f, cy + halfBarPx),
             strokeWidth = strokePx,
             cap = StrokeCap.Round,
         )

@@ -124,7 +124,12 @@ class FloatingOverlayService : Service() {
     private var quickStatus by mutableStateOf<String?>(null)
     /** True when [quickStatus] is a failure. */
     private var quickStatusIsError by mutableStateOf(false)
-    /** Debug override for testing/inspecting the minimized pill's six states. */
+    /**
+     * True for a short beat after the pill was tapped while another surface held the capture
+     * arbiter (CHUNK-7): drives the transient BUSY mark so a refusal is never a silent no-op.
+     */
+    private var pillBusy by mutableStateOf(false)
+    /** Debug override for testing/inspecting the minimized pill's seven states. */
     private var debugPillPhase by mutableStateOf<MinimizedPillPhase?>(null)
 
     private val debugReceiver = object : BroadcastReceiver() {
@@ -137,6 +142,7 @@ class FloatingOverlayService : Service() {
                     "CLEANING" -> MinimizedPillPhase.CLEANING
                     "RESULT" -> MinimizedPillPhase.RESULT
                     "ERROR" -> MinimizedPillPhase.ERROR
+                    "BUSY", "RESERVED" -> MinimizedPillPhase.BUSY
                     "RESET", "CLEAR", "NONE" -> null
                     else -> null
                 }
@@ -470,6 +476,8 @@ class FloatingOverlayService : Service() {
 
     private var inFlightJob: Job? = null
     private var silenceMonitoringJob: Job? = null
+    /** Clears the transient BUSY mark after a refused pill tap (CHUNK-7). */
+    private var busyNoticeJob: Job? = null
 
     private var captureStoppedAtMs = 0L
     private var turnaroundLatencyMs = 0L
@@ -695,6 +703,38 @@ class FloatingOverlayService : Service() {
     }
 
     /**
+     * True while the pill's **own** capture is live. [DictationSession.isRecording] is now true for
+     * *any* surface's capture — the transcribe screen and the desktop server share the recorder
+     * (D-126) — so every pill-side decision keys off the pill's lease instead. Without this a card
+     * press, the silence monitor or the keep-screen hold could act on a capture the pill does not
+     * own (CHUNK-7).
+     */
+    private val pillRecording: Boolean get() = pillLease != null && session.isRecording
+
+    /**
+     * Surfaces a refused pill tap: name the holder in a toast and flash the BUSY mark, so the pill
+     * responds instead of silently ignoring the tap (CHUNK-7). The mark holds for the same beat as
+     * a quick-capture result.
+     */
+    private fun showPillBusy(holder: SessionArbiter.Owner) {
+        Log.i(TAG, "Pill capture refused: arbiter held by $holder")
+        Toast.makeText(this, holder.busyReason(), Toast.LENGTH_SHORT).show()
+        pillBusy = true
+        busyNoticeJob?.cancel()
+        busyNoticeJob = scope.launch {
+            delay(QUICK_STATUS_MS)
+            pillBusy = false
+        }
+    }
+
+    /** Clears a pending BUSY mark, e.g. because a capture actually started. Safe to call always. */
+    private fun clearPillBusy() {
+        busyNoticeJob?.cancel()
+        busyNoticeJob = null
+        pillBusy = false
+    }
+
+    /**
      * Resolves the provisional text's colour from the user's chosen M3 role + opacity, against the
      * overlay's live scheme. Resolved at call time rather than stored, so a theme change or a settings
      * edit takes effect without restarting the pill.
@@ -784,6 +824,7 @@ class FloatingOverlayService : Service() {
                     debugPillPhase = debugPillPhase,
                     cardClosing = cardClosing,
                     pillBackdrop = cardWindowShown || cardClosing,
+                    busy = pillBusy,
                 )
             }
         }
@@ -1004,7 +1045,7 @@ class FloatingOverlayService : Service() {
         // Composed here, not OR-ed onto `params.flags` at the capture sites: `setOverlayFocusable`
         // rebuilds the whole int from this function whenever the word-fix form opens or closes, so
         // a bit added anywhere else would be silently dropped by the next focus toggle.
-        val keepScreen = if (ScreenAwake.shouldHold(session.isRecording, settings.keepScreenOnWhileRecording)) {
+        val keepScreen = if (ScreenAwake.shouldHold(pillRecording, settings.keepScreenOnWhileRecording)) {
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         } else {
             0
@@ -1024,15 +1065,16 @@ class FloatingOverlayService : Service() {
 
     /**
      * Applies or releases the pill window's `FLAG_KEEP_SCREEN_ON` hold for the current capture
-     * state (D-050). The desired state comes from the **live recorder and setting**, not from
-     * [uiState]: `stopRecording` enters `REVIEW` while the mic is still finishing, so a UI-state
-     * trigger would drop the hold before the microphone actually stopped. A no-op when the bit is
-     * already correct, so the cheap calls at the capture boundaries cost nothing.
+     * state (D-050). The desired state comes from the **pill's own live recorder and setting**, not
+     * from [uiState] or the shared recorder: `stopRecording` enters `REVIEW` while the mic is still
+     * finishing, so a UI-state trigger would drop the hold before the microphone actually stopped,
+     * while another surface's capture must not hold the pill's window awake. A no-op when the bit
+     * is already correct, so the cheap calls at the capture boundaries cost nothing.
      */
     private fun refreshKeepScreenOn() {
         val params = activeInputParams() ?: return
         val view = activeInputView() ?: return
-        val desired = ScreenAwake.shouldHold(session.isRecording, settings.keepScreenOnWhileRecording)
+        val desired = ScreenAwake.shouldHold(pillRecording, settings.keepScreenOnWhileRecording)
         val current = (params.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0
         if (desired == current) return
         params.flags = overlayFlags(windowFocusable)
@@ -1678,7 +1720,10 @@ class FloatingOverlayService : Service() {
     // --- Dictation Capture & ASR ---
 
     private fun toggleRecording() {
-        if (uiState == FloatingUiState.RECORDING || session.isRecording) {
+        // Keyed off the pill's own UI state, never the shared recorder: `session.isRecording` is
+        // now also true while the transcribe screen or the desktop server captures (D-126), and a
+        // card press must not stop their capture (CHUNK-7).
+        if (uiState == FloatingUiState.RECORDING) {
             stopRecording()
         } else {
             startOrResumeRecording(fresh = false)
@@ -1717,25 +1762,26 @@ class FloatingOverlayService : Service() {
             return
         }
 
-        if (session.isRecording) return
+        // Only the pill's *own* live capture blocks a new start here (re-entrancy). The shared
+        // recorder can also be running for the transcribe screen or the desktop server (D-126); that
+        // must fall through to the arbiter below, which refuses and is surfaced — not a silent
+        // return (CHUNK-7).
+        if (pillRecording) return
 
-        // One capture at a time, process-wide (D-106): the desktop server claims the same lease. A
-        // refusal is surfaced, never silent. A resume from REVIEW already holds the pill's lease, so
-        // it must not re-acquire (that would refuse itself).
+        // One capture at a time, process-wide (D-106): the transcribe screen and the desktop server
+        // claim the same lease. A refusal is surfaced, never silent. A resume from REVIEW already
+        // holds the pill's lease, so it must not re-acquire (that would refuse itself).
         if (pillLease == null) {
             when (val result = session.arbiter.acquire(SessionArbiter.Owner.PILL)) {
                 is SessionArbiter.Result.Refused -> {
-                    val note = if (result.holder == SessionArbiter.Owner.SERVER) {
-                        "Desktop session active"
-                    } else {
-                        "Dictation already in progress"
-                    }
-                    Toast.makeText(this, note, Toast.LENGTH_SHORT).show()
+                    showPillBusy(result.holder)
                     return
                 }
                 is SessionArbiter.Result.Granted -> pillLease = result.lease
             }
         }
+        // A capture is really starting: drop any BUSY flash still on screen from a prior refusal.
+        clearPillBusy()
 
         quickCaptureActive = quick
         // The card path is the one transition that expands the window; capture the minimized state
@@ -1930,7 +1976,7 @@ class FloatingOverlayService : Service() {
         if (settings.cleanupEnabled) "Polishing with AI..." else "Finishing..."
 
     private fun stopRecording() {
-        if (!session.isRecording) return
+        if (!pillRecording) return
         captureStoppedAtMs = SystemClock.elapsedRealtime()
         stopAudioMetering()
         stopSilenceMonitoring()
@@ -1959,7 +2005,7 @@ class FloatingOverlayService : Service() {
     private fun releaseQuickCapture() {
         if (!quickCaptureActive) return
         quickCaptureActive = false
-        if (!session.isRecording) return
+        if (!pillRecording) return
         captureStoppedAtMs = SystemClock.elapsedRealtime()
         stopAudioMetering()
         stopSilenceMonitoring()
@@ -2076,7 +2122,7 @@ class FloatingOverlayService : Service() {
 
     private fun commitSession() {
         scope.launch(Dispatchers.Main.immediate) {
-            if (session.isRecording) {
+            if (pillRecording) {
                 captureStoppedAtMs = SystemClock.elapsedRealtime()
                 stopAudioMetering()
                 stopSilenceMonitoring()
@@ -2254,7 +2300,7 @@ class FloatingOverlayService : Service() {
     private fun startSilenceMonitoring() {
         silenceMonitoringJob?.cancel()
         silenceMonitoringJob = scope.launch {
-            while (isActive && session.isRecording) {
+            while (isActive && pillRecording) {
                 delay(100L)
                 val state = session.boundaryState
                 val stopAfter = settings.stopAfterSilenceSeconds
@@ -2295,7 +2341,10 @@ class FloatingOverlayService : Service() {
         /** Below this release speed a fling is not worth starting; the pill just settles. */
         private const val FLING_MIN_VELOCITY_PX_PER_SECOND = 120f
 
-        /** How long the minimized pill shows a quick-capture result before returning to rest (~1.7s). */
+        /**
+         * How long the minimized pill shows a transient mark (a quick-capture result, or the BUSY
+         * refusal) before returning to rest (~1.7s).
+         */
         private const val QUICK_STATUS_MS = 1700L
 
         /** The error state's user-facing line. Deliberately says nothing about exceptions. */

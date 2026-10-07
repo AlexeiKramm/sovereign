@@ -82,4 +82,16 @@ class SessionArbiterTest {
         arbiter.release(lease)
         assertTrue(arbiter.acquire(Owner.SERVER) is Result.Granted)
     }
+
+    /**
+     * CHUNK-7: every holder names itself for the user, and the transcribe holder in particular must
+     * not read as a generic busy — the shared wording the pill and the transcribe screen both show.
+     */
+    @Test
+    fun `each holder has its own user-facing reason`() {
+        val reasons = Owner.entries.map { it.busyReason() }
+        assertEquals(reasons.size, reasons.toSet().size)
+        assertTrue(reasons.all { it.isNotBlank() })
+        assertEquals("A transcription is already in progress", Owner.TRANSCRIBE.busyReason())
+    }
 }

@@ -1210,7 +1210,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         val s = session
         when (val result = s.arbiter.acquire(SessionArbiter.Owner.TRANSCRIBE)) {
             is SessionArbiter.Result.Refused -> {
-                _state.value = DictationUiState.Failed("busy", busyMessage(result.holder))
+                _state.value = DictationUiState.Failed("busy", result.holder.busyReason())
                 return
             }
             is SessionArbiter.Result.Granted -> transcribeLease = result.lease
@@ -1476,13 +1476,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         transcribeLease = null
     }
 
-    /** The user-facing reason a capture could not start, naming the current holder. */
-    private fun busyMessage(holder: SessionArbiter.Owner): String = when (holder) {
-        SessionArbiter.Owner.PILL -> "The floating pill is already dictating"
-        SessionArbiter.Owner.TRANSCRIBE -> "A transcription is already in progress"
-        SessionArbiter.Owner.SERVER -> "The desktop server is using the microphone"
-    }
-
     fun reset() {
         _state.value = DictationUiState.Idle
     }
@@ -1518,7 +1511,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 // its whole run and refuses the pill/server meanwhile (the accepted trade, D-126).
                 when (val result = s.arbiter.acquire(SessionArbiter.Owner.TRANSCRIBE)) {
                     is SessionArbiter.Result.Refused -> {
-                        _state.value = DictationUiState.Failed("busy", busyMessage(result.holder))
+                        _state.value = DictationUiState.Failed("busy", result.holder.busyReason())
                         return@launch
                     }
                     is SessionArbiter.Result.Granted -> transcribeLease = result.lease
