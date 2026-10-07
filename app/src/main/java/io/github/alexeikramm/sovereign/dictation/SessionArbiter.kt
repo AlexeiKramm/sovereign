@@ -1,5 +1,9 @@
 package io.github.alexeikramm.sovereign.dictation
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /**
  * Process-wide guard for "exactly one dictation capture at a time" (D-106, `REVIEW.md` H3).
  *
@@ -57,6 +61,14 @@ class SessionArbiter {
     /** The owner currently capturing, or null. The server reads this to report `SESSION_BUSY`. */
     val holder: Owner? get() = held?.owner
 
+    /**
+     * The same holder as an observable, for callers that must *react* to a change rather than poll
+     * it — the server broadcasts `SERVER_STATE` on every transition (CHUNK-8). Updated by [acquire]/
+     * [release]; `StateFlow` conflates repeats, so a collector sees each new holder once.
+     */
+    private val _holderFlow = MutableStateFlow<Owner?>(null)
+    val holderFlow: StateFlow<Owner?> = _holderFlow.asStateFlow()
+
     @Synchronized
     fun acquire(owner: Owner): Result {
         val current = held
@@ -65,13 +77,17 @@ class SessionArbiter {
         } else {
             val lease = Lease(owner)
             held = lease
+            _holderFlow.value = owner
             Result.Granted(lease)
         }
     }
 
     @Synchronized
     fun release(lease: Lease) {
-        if (held === lease) held = null
+        if (held === lease) {
+            held = null
+            _holderFlow.value = null
+        }
     }
 
     companion object {

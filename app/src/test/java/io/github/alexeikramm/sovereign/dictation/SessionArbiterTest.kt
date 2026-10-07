@@ -84,6 +84,20 @@ class SessionArbiterTest {
     }
 
     /**
+     * CHUNK-8: the arbiter's holder is observable, so the server can broadcast `SERVER_STATE` on every
+     * transition instead of polling.
+     */
+    @Test
+    fun `holderFlow follows acquire and release`() {
+        val arbiter = SessionArbiter()
+        assertNull(arbiter.holderFlow.value)
+        val lease = (arbiter.acquire(Owner.TRANSCRIBE) as Result.Granted).lease
+        assertEquals(Owner.TRANSCRIBE, arbiter.holderFlow.value)
+        arbiter.release(lease)
+        assertNull(arbiter.holderFlow.value)
+    }
+
+    /**
      * CHUNK-7: every holder names itself for the user, and the transcribe holder in particular must
      * not read as a generic busy — the shared wording the pill and the transcribe screen both show.
      */

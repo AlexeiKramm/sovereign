@@ -25,7 +25,15 @@ class SovereignServerEngineTest {
         val sent = mutableListOf<ServerMessage>()
         val capture = FakeCaptureHost()
         val pairing = FakePairingAuthority()
-        val engine = SovereignServerEngine(IDENTITY, pairing, capture, scope, { sent += it })
+        var availabilityState = ServerStatePayload(ServerState.IDLE, "", "")
+        val engine = SovereignServerEngine(
+            IDENTITY,
+            pairing,
+            capture,
+            scope,
+            { sent += it },
+            availability = { availabilityState },
+        )
 
         fun send(type: MessageType, payload: MessagePayload) =
             engine.onMessage(ServerMessage(type, "in-${sent.size}", 0L, payload))
@@ -45,7 +53,11 @@ class SovereignServerEngineTest {
             val token = lastPayload<PairResponsePayload>(MessageType.PAIR_RESPONSE).token
             send(MessageType.PAIR_DONE, PairDonePayload(PairingProof.compute(token, nonce)))
             send(MessageType.HELLO, HelloPayload(token, DEVICE_ID, ServerProtocol.VERSION, emptyList()))
-            assertEquals(MessageType.WELCOME, last().type)
+            // CHUNK-8: HELLO is answered with WELCOME followed immediately by the availability frame.
+            assertEquals(
+                listOf(MessageType.WELCOME, MessageType.SERVER_STATE),
+                sent.takeLast(2).map { it.type },
+            )
         }
 
         fun start(requestId: String = "req-1"): String {
@@ -233,6 +245,19 @@ class SovereignServerEngineTest {
 
         assertEquals(PairFailReason.DENIED, h.lastPayload<PairFailPayload>(MessageType.PAIR_FAIL).reason)
         assertEquals(SovereignServerEngine.Phase.AWAITING_PAIRING, h.engine.phase)
+    }
+
+    @Test
+    fun `an authenticated client is told the current availability`() = runTest {
+        val h = Harness(this)
+        h.availabilityState = ServerStatePayload(ServerState.RESERVED, DEVICE_ID, "Phone")
+
+        h.authenticate()
+
+        val state = h.lastPayload<ServerStatePayload>(MessageType.SERVER_STATE)
+        assertEquals(ServerState.RESERVED, state.state)
+        assertEquals(DEVICE_ID, state.holderDeviceId)
+        assertEquals("Phone", state.holderName)
     }
 
     @Test

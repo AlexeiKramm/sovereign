@@ -39,6 +39,14 @@ class SovereignServerEngine(
     private val onAuthenticated: (PairedDevice) -> Unit = {},
     /** A `PING` arrived; feeds the dashboard's heartbeat-age readout. */
     private val onHeartbeat: () -> Unit = {},
+    /**
+     * The current pipeline availability (CHUNK-8), advertised to a client immediately after `WELCOME`
+     * and read by the transport's broadcaster. Defaults to `IDLE` so a bare engine (and its tests)
+     * need not know about the arbiter.
+     */
+    private val availability: () -> ServerStatePayload = {
+        ServerStatePayload(ServerState.IDLE, "", "")
+    },
 ) {
 
     /** Connection phase. `READY` means authenticated; session messages are refused before it. */
@@ -190,6 +198,9 @@ class SovereignServerEngine(
                 maxFrameBytes = ServerProtocol.MAX_FRAME_BYTES,
             ),
         )
+        // CHUNK-8: a freshly authenticated client learns immediately whether the one pipeline is
+        // free, reserved by a phone-local surface, or held by a desktop session.
+        emit(MessageType.SERVER_STATE, availability())
     }
 
     // --- Dictation session --------------------------------------------------------------------

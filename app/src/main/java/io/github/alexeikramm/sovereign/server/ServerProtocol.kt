@@ -188,6 +188,7 @@ enum class MessageType(
     TAKEOVER("TAKEOVER", Direction.C2S, TakeoverPayload.serializer()),
     SESSION_RELEASED("SESSION_RELEASED", Direction.S2C, SessionReleasedPayload.serializer()),
     STATE_CHANGED("STATE_CHANGED", Direction.S2C, StateChangedPayload.serializer()),
+    SERVER_STATE("SERVER_STATE", Direction.S2C, ServerStatePayload.serializer()),
     PROVISIONAL_TEXT("PROVISIONAL_TEXT", Direction.S2C, ProvisionalTextPayload.serializer()),
     COMMIT_TEXT("COMMIT_TEXT", Direction.S2C, CommitTextPayload.serializer()),
     UTTERANCE_DONE("UTTERANCE_DONE", Direction.S2C, UtteranceDonePayload.serializer()),
@@ -281,6 +282,22 @@ enum class ReleaseReason { STOPPED, CANCELLED, TAKEOVER, TIMEOUT, ERROR }
 
 @Serializable
 data class StateChangedPayload(val sessionId: String, val state: PipelineState) : MessagePayload
+
+/**
+ * Unsolicited pipeline availability (PROTOCOL.md §6, v1.1 addendum). Sent after `WELCOME` and on every
+ * arbiter change. `RESERVED` is a phone-local capture; `BUSY` is a desktop session (possibly another
+ * desktop). Added by CHUNK-8; only the arbiter's *holder* is known process-wide, so a `BUSY` holder
+ * cannot yet be named per-connection (see `serverStatePayload`).
+ */
+@Serializable
+data class ServerStatePayload(
+    val state: ServerState,
+    val holderDeviceId: String,
+    val holderName: String,
+) : MessagePayload
+
+@Serializable
+enum class ServerState { IDLE, RESERVED, BUSY }
 
 @Serializable
 enum class PipelineState { WARMING, LISTENING, PROCESSING, IDLE, CANCELLED, ERROR }
