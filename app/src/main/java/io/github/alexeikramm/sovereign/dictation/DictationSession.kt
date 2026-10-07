@@ -163,6 +163,20 @@ class DictationSession(
     val totalActiveLlmMs: Long get() = pipeline.totalActiveLlmMs
     val boundaryState get() = pipeline.boundaryState
 
+    /** Frames the ASR queue dropped this utterance; 0 for a backpressured replay. */
+    val droppedFrames: Int get() = pipeline.droppedFrames
+
+    /** The local recogniser's install/load state without loading it (for the tier decision). */
+    fun asrAvailability(): LocalAsrEngine.Availability {
+        // Point the engine at the currently-selected model before asking: selection is applied lazily
+        // (no eager re-point on change), so a stale spec could otherwise answer for the previous model.
+        localEngine.applyModel(settings.asrModel, appContext.filesDir)
+        return localEngine.availability()
+    }
+
+    /** Cold-load time of the last ASR load, in ms (the screen reports it on the utterance that paid it). */
+    val lastAsrLoadMillis: Long get() = localEngine.lastLoadMillis
+
     // --- Capture lifecycle ---------------------------------------------------------------------
 
     /**
@@ -198,6 +212,13 @@ class DictationSession(
 
     /** Feed a raw mic frame. The pill's recorder sink already routes these; the server may too. */
     fun onFrames(bytes: ByteArray, count: Int) = pipeline.onFrames(bytes, count)
+
+    /**
+     * Feed an already-float frame with backpressure. The audio-file transcribe path decodes to
+     * `FloatArray`, so it replays through here rather than the non-blocking mic entry point, which
+     * would drop frames against a full queue and silently truncate the file.
+     */
+    suspend fun onFramesSuspending(frame: FloatArray) = pipeline.onFramesSuspending(frame)
 
     /** Starts the microphone. Throws when `AudioRecord` cannot start (the caller cancels). */
     fun startRecording() = recorder.start()
@@ -335,6 +356,32 @@ class DictationSession(
             setCleanupLoaded(false)
             Log.i(TAG, "Engines unloaded ($reason)")
         }
+    }
+
+    /**
+     * Loads the recogniser once, reports availability and the cold-load ms, then unloads it. This is
+     * the Models screen's "verify" probe (D-010's load check) served by the one shared engine rather
+     * than a second instance.
+     */
+    suspend fun probeAsrLoad(): Pair<LocalAsrEngine.Availability, Long> {
+        localEngine.applyModel(settings.asrModel, appContext.filesDir)
+        val result = withContext(asrDispatcher) {
+            val availability = localEngine.load()
+            val loadMs = localEngine.lastLoadMillis
+            localEngine.unload()
+            availability to loadMs
+        }
+        setAsrLoaded(false)
+        return result
+    }
+
+    /**
+     * Releases the ASR model on its own dispatcher and waits. Used when the model is about to be
+     * deleted or replaced and the unload must not race the file removal.
+     */
+    suspend fun unloadAsr() {
+        withContext(asrDispatcher) { localEngine.unload() }
+        setAsrLoaded(false)
     }
 
     /** Tears the session down for good: unload both engines and close the dispatchers. */

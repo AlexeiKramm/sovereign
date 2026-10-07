@@ -271,7 +271,10 @@ class SovereignServerEngine(
 
     private fun busyPayload(holder: SessionArbiter.Owner): SessionBusyPayload = when (holder) {
         // The phone's own pill holds the arbiter.
-        SessionArbiter.Owner.PILL ->
+        SessionArbiter.Owner.PILL,
+        // The transcribe screen's own capture (live mic or file replay) holds it (D-126).
+        SessionArbiter.Owner.TRANSCRIBE,
+        ->
             SessionBusyPayload(identity.deviceId, identity.serverName, canTakeover = false)
         // A different desktop: identifying it needs the service registry (Chunk 1b).
         SessionArbiter.Owner.SERVER ->

@@ -190,8 +190,18 @@ class LocalAsrSession(
      */
     suspend fun onFramesSuspending(bytes: ByteArray, count: Int) {
         if (count <= 0) return
+        onFramesSuspending(AudioFrames.toFloat(bytes, count))
+    }
+
+    /**
+     * Suspending feed for callers that already hold `FloatArray` samples in `[-1, 1)` — the
+     * audio-file replay, whose decoder produces floats and would otherwise pay a float→s16→float
+     * round trip over the whole file. Same backpressure contract as the byte overload: the frame
+     * waits for queue space instead of being dropped.
+     */
+    suspend fun onFramesSuspending(frame: FloatArray) {
+        if (frame.isEmpty()) return
         val queue = this.queue ?: return
-        val frame = AudioFrames.toFloat(bytes, count)
         if (queue.trySend(frame).isSuccess) return
         // Full: wait for the worker. A closed queue means the utterance ended mid-feed; count it so the
         // loss is visible rather than silent.

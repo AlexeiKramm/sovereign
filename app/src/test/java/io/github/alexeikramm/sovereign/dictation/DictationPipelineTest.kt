@@ -248,6 +248,31 @@ class DictationPipelineTest {
         repeat(frames) { pipeline.onFrames(bytes, bytes.size) }
     }
 
+    /** A 100 ms 16 kHz float frame; the fake engine ignores the samples. */
+    private suspend fun feedFloats(pipeline: DictationPipeline, frames: Int) {
+        val samples = FloatArray(1600)
+        repeat(frames) { pipeline.onFramesSuspending(samples) }
+    }
+
+    /**
+     * The audio-file replay path feeds already-decoded floats through the same pipeline as the mic
+     * (D-126). This pins that the float feed produces the identical text to the byte feed.
+     */
+    @Test
+    fun `the float replay feed delivers the same text as the mic byte feed`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("Hello.", "World."))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feedFloats(pipeline, 2)
+        pipeline.finish()
+
+        assertEquals("Hello. World.", pipeline.committedText)
+        assertEquals("Hello. World.", pipeline.rawText)
+    }
+
     @Test
     fun `cleanup off routes every unit straight to the text and never calls the cleaner`() = runBlocking {
         val engine = FakeAsrEngine(listOf("Hello.", "World."))

@@ -18,7 +18,17 @@ package io.github.alexeikramm.sovereign.dictation
 class SessionArbiter {
 
     /** Who is capturing. The refusal message and the residency policy both key off this. */
-    enum class Owner { PILL, SERVER }
+    enum class Owner {
+        PILL,
+
+        /**
+         * The transcribe screen: a live mic capture or an audio-file replay driven through the same
+         * shared session (D-126). A file job holds the lease for its whole run, so the pill and the
+         * desktop server are refused while it works — the accepted trade for one engine set.
+         */
+        TRANSCRIBE,
+        SERVER,
+    }
 
     sealed interface Result {
         data class Granted(val lease: Lease) : Result

@@ -68,4 +68,18 @@ class SessionArbiterTest {
         arbiter.release(lease)
         assertNull(arbiter.holder)
     }
+
+    /**
+     * D-126: the transcribe screen is a first-class claimant (live mic and file replay), so it
+     * refuses the pill and the server exactly as they refuse each other.
+     */
+    @Test
+    fun `the transcribe screen is a first-class claimant`() {
+        val arbiter = SessionArbiter()
+        val lease = (arbiter.acquire(Owner.TRANSCRIBE) as Result.Granted).lease
+        assertEquals(Owner.TRANSCRIBE, arbiter.holder)
+        assertEquals(Owner.TRANSCRIBE, (arbiter.acquire(Owner.PILL) as Result.Refused).holder)
+        arbiter.release(lease)
+        assertTrue(arbiter.acquire(Owner.SERVER) is Result.Granted)
+    }
 }

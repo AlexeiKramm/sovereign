@@ -164,6 +164,12 @@ class DictationPipeline(
      */
     suspend fun onFramesSuspending(bytes: ByteArray, count: Int) = session.onFramesSuspending(bytes, count)
 
+    /**
+     * Float-sample replay entry point for the audio-file transcribe path, which decodes to
+     * `FloatArray` directly. Same backpressure as the byte overload.
+     */
+    suspend fun onFramesSuspending(frame: FloatArray) = session.onFramesSuspending(frame)
+
     /** Frames the ASR queue dropped this utterance; 0 for a backpressured replay. */
     val droppedFrames: Int get() = session.droppedFrames
 

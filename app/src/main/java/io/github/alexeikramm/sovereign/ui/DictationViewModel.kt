@@ -6,13 +6,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModels
-import io.github.alexeikramm.sovereign.asr.AudioSegmenter
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
-import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.audio.WavRecorder
 import io.github.alexeikramm.sovereign.asr.ListenerTimings
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
-import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmCleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelSpec
 import io.github.alexeikramm.sovereign.cleanup.LiteRtLmModelStore
@@ -35,6 +32,9 @@ import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.data.UsageStatsData
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
+import io.github.alexeikramm.sovereign.dictation.DictationSession
+import io.github.alexeikramm.sovereign.dictation.DictationSessionHolder
+import io.github.alexeikramm.sovereign.dictation.SessionArbiter
 import java.io.InputStream
 import java.io.OutputStream
 import io.github.alexeikramm.sovereign.download.DownloadProgress
@@ -46,7 +46,6 @@ import io.github.alexeikramm.sovereign.download.PresetStage
 import io.github.alexeikramm.sovereign.engine.DictationOutcome
 import io.github.alexeikramm.sovereign.engine.Engine
 import io.github.alexeikramm.sovereign.engine.EnginePreference
-import io.github.alexeikramm.sovereign.engine.PipelineTimingTracker
 import io.github.alexeikramm.sovereign.engine.PipelineTimings
 import io.github.alexeikramm.sovereign.engine.TierPolicy
 import io.github.alexeikramm.sovereign.net.EXPECTED_CONTRACT_VERSION
@@ -59,7 +58,6 @@ import io.github.alexeikramm.sovereign.ui.onboarding.OnboardingModelPresets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +67,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
-import java.util.concurrent.Executors
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.Manifest
 import android.content.Context
@@ -149,16 +146,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val app: Application = application
     private val settings = AppSettings(application)
     private val dictionaryStore = DictionaryStore(application)
-    private val recorder = WavRecorder()
+    /**
+     * The legacy HTTP tier's recorder. That tier uploads a WAV to the separate `local-voice-stack`
+     * and runs no ASR/cleanup on the phone, so it is not a pipeline and keeps its own recorder; it
+     * is a separate head slated for deletion (modularization MAP head 3). The local live-mic and
+     * audio-file paths no longer use it.
+     */
+    private val remoteRecorder = WavRecorder()
     private var ticker: Job? = null
 
-    /** Same rule as the IME: one worker, because a streaming session is serial. */
-    private val asrDispatcher = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "sovereign-asr")
-    }.asCoroutineDispatcher()
-    private val cleanupDispatcher = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "sovereign-cleanup")
-    }.asCoroutineDispatcher()
+    /**
+     * The one process-wide pipeline (D-106). The local live-mic and audio-file paths both drive it,
+     * exactly as the floating pill and the desktop server do; this ViewModel only adapts it to
+     * `DictationUiState`. The engines, their residency and the arbiter are shared, so this screen
+     * never constructs a second engine set (D-126).
+     */
+    private val session get() = DictationSessionHolder.shared(app)
+
+    /** This screen's claim on the shared arbiter while it captures; null when idle. */
+    private var transcribeLease: SessionArbiter.Lease? = null
 
     val asrCatalog: List<AsrModelSpec> = AsrModels.CATALOG
 
@@ -167,24 +173,6 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val modelDirectory: File
         get() = _selectedAsrModel.value.directory(app.filesDir)
-
-    /**
-     * The pause threshold is *part of the recogniser's config*, so it is passed at construction and
-     * applied again through [onPauseSilenceChange] (D-035). Everything else about the listener is a
-     * software rule and needs no rebuild.
-     */
-    private val localEngine = LocalAsrEngine(
-        modelDirectory = settings.asrModel.directory(app.filesDir),
-        pauseSilenceSeconds = settings.pauseSilenceSeconds,
-        modelSpec = settings.asrModel,
-        assetManager = app.assets,
-    )
-    private val localSession = LocalAsrSession(
-        engine = localEngine,
-        dispatcher = asrDispatcher,
-        scope = viewModelScope,
-        timings = { settings.listenerTimings() },
-    )
 
     /** Cold-load time reported on the utterance that paid it (D-010 rule 2). */
     @Volatile
@@ -271,7 +259,8 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         if (spec.id == _selectedAsrModel.value.id) return
         settings.asrModelId = spec.id
         _selectedAsrModel.value = spec
-        localEngine.applyModel(spec, app.filesDir)
+        // The shared session applies the model at its next `begin`; there is no private engine to
+        // re-point here (D-126).
         _modelStatus.value = currentModelStatus()
         _loadProbe.value = ""
     }
@@ -506,7 +495,8 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _pauseField.value = TimingField(text, parsed, parsed == null)
         if (parsed == null) return
         settings.pauseSilenceSeconds = parsed
-        localEngine.applyPauseSilence(parsed)
+        // Applied by the shared session at its next `begin` (the threshold lives in the recogniser's
+        // own config, so it rebuilds the recogniser then). No private engine to re-point (D-035/D-126).
         _loadProbe.value = null
         _timingNote.value = String.format(Locale.US, "Sentence pause set to %.1f s", parsed)
     }
@@ -1121,6 +1111,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     /**
      * Loads the recogniser once and reports how long it took. This is the same code path the first
      * dictation takes, so a green result here means the model loads, not merely that it downloaded.
+     * Served by the one shared engine (D-126).
      */
     fun probeLocalEngine() {
         val spec = _selectedAsrModel.value
@@ -1131,16 +1122,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         }
         _loadProbe.value = "loading…"
         viewModelScope.launch {
-            var loadTime = 0L
-            val availability = withContext(asrDispatcher) {
-                try {
-                    val res = localEngine.load()
-                    loadTime = localEngine.lastLoadMillis
-                    res
-                } finally {
-                    localEngine.unload()
-                }
-            }
+            val (availability, loadTime) = session.probeAsrLoad()
             _loadProbe.value = when (availability) {
                 LocalAsrEngine.Availability.Loaded -> "Verified in ${loadTime} ms (unloaded)"
                 LocalAsrEngine.Availability.NotInstalled -> "not downloaded"
@@ -1156,7 +1138,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun deleteModel(spec: AsrModelSpec = _selectedAsrModel.value) {
         viewModelScope.launch {
             if (spec.id == _selectedAsrModel.value.id) {
-                withContext(asrDispatcher) { localEngine.unload() }
+                session.unloadAsr()
             }
             withContext(Dispatchers.IO) {
                 spec.directory(app.filesDir).deleteRecursively()
@@ -1210,49 +1192,90 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     // ------------------------------------------------------------------ dictation
 
     fun startRecording() {
-        val choice = TierPolicy.choose(settings.enginePreference, localEngine.availability())
+        val choice = TierPolicy.choose(settings.enginePreference, session.asrAvailability())
         coldLoadMs = 0L
-
         if (choice.engine == Engine.LOCAL) {
-            // Queued before the model loads, so the first utterance is not silently truncated.
-            paysColdLoad = localEngine.availability() != LocalAsrEngine.Availability.Loaded
-            localSession.begin()
-            recorder.frameSink = localSession::onFrames
+            startLocalRecording()
         } else {
-            recorder.frameSink = null
+            startRemoteRecording()
+        }
+    }
+
+    /**
+     * Claim the shared arbiter, then run the one shared session for a live mic capture — the same
+     * begin/open/record/finish sequence the pill runs (D-106/D-126). A refusal (the pill or a
+     * desktop is already capturing) is surfaced, never silent.
+     */
+    private fun startLocalRecording() {
+        val s = session
+        when (val result = s.arbiter.acquire(SessionArbiter.Owner.TRANSCRIBE)) {
+            is SessionArbiter.Result.Refused -> {
+                _state.value = DictationUiState.Failed("busy", busyMessage(result.holder))
+                return
+            }
+            is SessionArbiter.Result.Granted -> transcribeLease = result.lease
         }
 
-        runCatching { recorder.start() }
+        // Queued before the model loads, so the first utterance is not silently truncated.
+        paysColdLoad = s.asrAvailability() != LocalAsrEngine.Availability.Loaded
+        s.begin(fresh = true, cleanupEnabled = settings.cleanupEnabled)
+        s.beginSession()
+
+        runCatching { s.startRecording() }
             .onSuccess {
-                _state.value = DictationUiState.Recording(0.0, choice.engine)
+                _state.value = DictationUiState.Recording(0.0, Engine.LOCAL)
                 ticker = viewModelScope.launch {
                     while (isActive) {
                         delay(TICK_MS)
-                        if (recorder.capturedSeconds >= 600.0) {
+                        if (s.capturedSeconds >= 600.0) {
                             stopAndTranscribe()
                             return@launch
                         }
-                        _state.value = DictationUiState.Recording(recorder.capturedSeconds, choice.engine)
+                        _state.value = DictationUiState.Recording(s.capturedSeconds, Engine.LOCAL)
                     }
                 }
-                if (choice.engine == Engine.LOCAL) {
-                    viewModelScope.launch {
-                        val availability = localSession.open(settings.language)
-                        if (availability !is LocalAsrEngine.Availability.Loaded) {
-                            val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason
-                                ?: "model not installed"
-                            localSession.abort()
-                            recorder.cancel()
-                            ticker?.cancel()
-                            _state.value = DictationUiState.Failed("local_engine", reason)
-                        } else if (paysColdLoad) {
-                            coldLoadMs = localEngine.lastLoadMillis
-                        }
+                viewModelScope.launch {
+                    val availability = s.open(settings.language)
+                    if (availability !is LocalAsrEngine.Availability.Loaded) {
+                        val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason
+                            ?: "model not installed"
+                        s.abort()
+                        ticker?.cancel()
+                        releaseArbiter()
+                        _state.value = DictationUiState.Failed("local_engine", reason)
+                    } else if (paysColdLoad) {
+                        coldLoadMs = s.lastAsrLoadMillis
                     }
                 }
             }
             .onFailure {
-                localSession.abort()
+                s.abort()
+                releaseArbiter()
+                _state.value = DictationUiState.Failed("audio_init", it.message ?: "AudioRecord failed to start")
+            }
+    }
+
+    /**
+     * The legacy HTTP tier: record a WAV and upload it. It runs no phone engine, so it keeps its own
+     * recorder and does not claim the shared arbiter. Slated for deletion (modularization MAP head 3).
+     */
+    private fun startRemoteRecording() {
+        remoteRecorder.frameSink = null
+        runCatching { remoteRecorder.start() }
+            .onSuccess {
+                _state.value = DictationUiState.Recording(0.0, Engine.REMOTE)
+                ticker = viewModelScope.launch {
+                    while (isActive) {
+                        delay(TICK_MS)
+                        if (remoteRecorder.capturedSeconds >= 600.0) {
+                            stopAndTranscribe()
+                            return@launch
+                        }
+                        _state.value = DictationUiState.Recording(remoteRecorder.capturedSeconds, Engine.REMOTE)
+                    }
+                }
+            }
+            .onFailure {
                 _state.value = DictationUiState.Failed("audio_init", it.message ?: "AudioRecord failed to start")
             }
     }
@@ -1261,24 +1284,38 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         ticker?.cancel()
         ticker = null
 
-        val choice = TierPolicy.choose(settings.enginePreference, localEngine.availability())
-        val audioSeconds = recorder.capturedSeconds
+        // The recording state carries the engine the capture actually started on, so a settings
+        // change mid-capture cannot reroute a half-recorded utterance (D-126).
+        val engine = (_state.value as? DictationUiState.Recording)?.engine ?: Engine.LOCAL
+        val audioSeconds =
+            if (engine == Engine.LOCAL) session.capturedSeconds else remoteRecorder.capturedSeconds
 
-        when (choice.engine) {
-            Engine.LOCAL -> transcribeLocally(choice.note, audioSeconds)
+        when (engine) {
+            Engine.LOCAL -> transcribeLocally("on-device", audioSeconds)
             Engine.REMOTE -> transcribeOnServer(audioSeconds)
         }
     }
 
+    /**
+     * Finalise the shared session and record the utterance. The text, the raw/cleaned split and the
+     * ASR/LLM compute totals all come from the one pipeline, so they cannot drift from the pill or
+     * the desktop server (D-126).
+     */
     private fun transcribeLocally(note: String, audioSeconds: Double) {
         _state.value = DictationUiState.Working("Transcribing on device…", Engine.LOCAL)
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { recorder.stop() }
+            val s = session
             val stoppedAt = SystemClock.elapsedRealtime()
-            val rawText = localSession.finish()
-            val asrMs = localSession.totalActiveAsrMs.takeIf { it > 0L } ?: (SystemClock.elapsedRealtime() - stoppedAt)
+            val delivered = s.finish()
+            val rawText = s.rawText
+            val asrMs = s.totalActiveAsrMs.takeIf { it > 0L } ?: (SystemClock.elapsedRealtime() - stoppedAt)
+            val llmMs = s.totalActiveLlmMs
+            val cleanupEngaged = s.isCleanupEngaged
+            val droppedFrames = s.droppedFrames
+            releaseArbiter()
+            s.onCaptureFinished()
 
-            if (rawText.isBlank()) {
+            if (delivered.isBlank() && rawText.isBlank()) {
                 _state.value = DictationUiState.Done(
                     outcome = DictationOutcome(
                         text = "(no speech recognized)",
@@ -1295,29 +1332,13 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 return@launch
             }
 
-            var cleanedText = rawText
-            var diff = WordDiffCalculator.verbatim(rawText)
-            var llmModelLabel: String? = null
-            var llmMs = 0L
-
-            if (settings.cleanupEnabled) {
-                _state.value = DictationUiState.Working("Cleaning up transcription with LLM…", Engine.LOCAL)
-                try {
-                    val cleanupEngine = engine()
-                    val pass = cleanupEngine.clean(
-                        unit = rawText,
-                        rules = activeProfileRules(),
-                    )
-                    cleanedText = pass.text
-                    diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = pass.text)
-                    llmModelLabel = settings.litertModel.label
-                    llmMs = pass.activeMs
-                } catch (t: Throwable) {
-                    // Fall back to verbatim ASR if cleanup fails
-                    cleanedText = rawText
-                    diff = WordDiffCalculator.verbatim(rawText)
-                }
+            val text = delivered.ifBlank { rawText }
+            val diff = if (cleanupEngaged) {
+                WordDiffCalculator.calculate(rawText = rawText, cleanedText = text)
+            } else {
+                WordDiffCalculator.verbatim(rawText)
             }
+            val llmModelLabel = if (cleanupEngaged) settings.litertModel.label else null
 
             val totalElapsedMs = SystemClock.elapsedRealtime() - stoppedAt
             val activeComputeMs = asrMs + llmMs
@@ -1335,12 +1356,12 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                 capacity = settings.historyCapacity,
                 utterance = FinalizedUtterance(
                     rawText = rawText,
-                    cleanedText = cleanedText,
+                    cleanedText = text,
                     durationSeconds = audioSeconds,
                     engine = Engine.LOCAL.label,
                     asrModel = settings.asrModel.label,
                     llmModel = llmModelLabel,
-                    cleanedByLlm = llmModelLabel != null,
+                    cleanedByLlm = cleanupEngaged,
                     insertedSuccessfully = false,
                     asrMs = timings.asrActiveMs,
                     llmMs = timings.llmActiveMs,
@@ -1352,15 +1373,15 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
 
             _state.value = DictationUiState.Done(
                 outcome = DictationOutcome(
-                    text = cleanedText,
+                    text = text,
                     engine = Engine.LOCAL,
                     note = buildString {
                         append(note)
                         if (coldLoadMs > 0L) append(" · cold model load $coldLoadMs ms")
-                        if (localSession.droppedFrames > 0) {
-                            append(" · ${localSession.droppedFrames} frame(s) dropped")
+                        if (droppedFrames > 0) {
+                            append(" · $droppedFrames frame(s) dropped")
                         }
-                        if (settings.cleanupEnabled && llmModelLabel != null) {
+                        if (cleanupEngaged && llmModelLabel != null) {
                             append(" · LLM: $llmModelLabel ($llmMs ms)")
                         }
                         if (timings.asrActiveMs > 0L) {
@@ -1381,7 +1402,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private fun transcribeOnServer(audioSeconds: Double) {
         _state.value = DictationUiState.Working("Uploading %.1f s of audio, cleaned on the PC…".format(audioSeconds), Engine.REMOTE)
         viewModelScope.launch {
-            val wav = recorder.stop()
+            val wav = remoteRecorder.stop()
             if (wav == null) {
                 _state.value = DictationUiState.Failed("empty_recording", "No audio was captured — nothing was sent.")
                 return@launch
@@ -1441,9 +1462,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun cancelRecording() {
         ticker?.cancel()
         ticker = null
-        recorder.cancel()
-        localSession.abort()
+        remoteRecorder.cancel()
+        if (transcribeLease != null) {
+            session.abort()
+            releaseArbiter()
+        }
         _state.value = DictationUiState.Idle
+    }
+
+    /** Releases this screen's claim on the shared arbiter, if it holds one. Idempotent. */
+    private fun releaseArbiter() {
+        transcribeLease?.let { session.arbiter.release(it) }
+        transcribeLease = null
+    }
+
+    /** The user-facing reason a capture could not start, naming the current holder. */
+    private fun busyMessage(holder: SessionArbiter.Owner): String = when (holder) {
+        SessionArbiter.Owner.PILL -> "The floating pill is already dictating"
+        SessionArbiter.Owner.TRANSCRIBE -> "A transcription is already in progress"
+        SessionArbiter.Owner.SERVER -> "The desktop server is using the microphone"
     }
 
     fun reset() {
@@ -1459,9 +1496,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Transcribes an audio file on-device using the selected ASR model and cleans it with the LLM backend.
-     * Chunks audio using [AudioSegmenter] (<= 28s) to satisfy Whisper 30s limits and Parakeet low-RAM bounds,
-     * and pipelines units into [CleanupPipeline] with [io.github.alexeikramm.sovereign.cleanup.SeamHealer] to protect Gemma 4 context.
+     * Transcribes an audio file through the **same** shared pipeline as a live utterance (D-126).
+     * The decoded samples are replayed as 16 kHz frames at full speed; units are cut on pauses by the
+     * recogniser's own VAD, which is what bounds a decode window — so the file path no longer
+     * pre-segments with `AudioSegmenter` (its 28 s cap duplicated the bound the recogniser already
+     * owns). Cleanup runs through the same `CleanupPipeline`.
      */
     fun transcribeAudioFile(samples: FloatArray, fileName: String, audioDurationSec: Float) {
         if (_state.value is DictationUiState.Working || _state.value is DictationUiState.Recording) return
@@ -1473,197 +1512,62 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         )
         fileTranscribeJob?.cancel()
         fileTranscribeJob = viewModelScope.launch {
-            var cleanupPipeline: CleanupPipeline? = null
+            val s = session
             try {
-                val tracker = PipelineTimingTracker().apply { start() }
-
-                // Step 1: Segment audio into bounded chunks (<= 28s) on natural speech pauses
-                val chunks = withContext(asrDispatcher) {
-                    AudioSegmenter.segment(samples, app.assets)
+                // A file job is a single user-started task, so it takes the process-wide arbiter for
+                // its whole run and refuses the pill/server meanwhile (the accepted trade, D-126).
+                when (val result = s.arbiter.acquire(SessionArbiter.Owner.TRANSCRIBE)) {
+                    is SessionArbiter.Result.Refused -> {
+                        _state.value = DictationUiState.Failed("busy", busyMessage(result.holder))
+                        return@launch
+                    }
+                    is SessionArbiter.Result.Granted -> transcribeLease = result.lease
                 }
 
-                if (chunks.isEmpty()) {
-                    val timings = tracker.stop()
-                    _state.value = DictationUiState.Done(
-                        outcome = DictationOutcome(
-                            text = "(no speech detected in file)",
-                            engine = Engine.LOCAL,
-                            note = "Audio file decoded ($audioDurationSec s) but no speech recognized",
-                            audioSeconds = audioDurationSec.toDouble(),
-                            elapsedMs = timings.wallClockMs,
-                            timings = timings,
-                        ),
-                        roundTripMs = null,
-                        rawText = "",
-                        diff = null,
-                    )
+                val startedAt = SystemClock.elapsedRealtime()
+                s.begin(fresh = true, cleanupEnabled = settings.cleanupEnabled)
+                s.beginSession()
+
+                val availability = s.open(settings.language)
+                if (availability !is LocalAsrEngine.Availability.Loaded) {
+                    val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason
+                        ?: "model not installed"
+                    releaseArbiter()
+                    _state.value = DictationUiState.Failed("local_engine", reason)
                     return@launch
                 }
 
-                val totalChunks = chunks.size
-                val rawUnits = mutableListOf<String>()
-                val cleanupEnabled = settings.cleanupEnabled
-
-                var asrDoneCount = 0
-                var llmDoneCount = 0
-
-                fun reportProgress() {
-                    val totalSteps = if (cleanupEnabled) totalChunks * 2 else totalChunks
-                    val completedSteps = if (cleanupEnabled) asrDoneCount + llmDoneCount else asrDoneCount
-                    val prog = (completedSteps.toFloat() / totalSteps).coerceIn(0.05f, 0.98f)
-                    val activeChunk = if (cleanupEnabled) {
-                        (llmDoneCount + 1).coerceAtMost(totalChunks)
-                    } else {
-                        asrDoneCount.coerceAtMost(totalChunks).coerceAtLeast(1)
-                    }
-                    _state.value = DictationUiState.Working(
-                        stage = "Processing speech…",
-                        engine = Engine.LOCAL,
-                        progress = prog,
-                        details = "Chunk $activeChunk of $totalChunks",
-                    )
-                }
-
-                cleanupPipeline = if (cleanupEnabled) {
-                    CleanupPipeline(
-                        engine = engine(),
-                        scope = this,
-                        dispatcher = cleanupDispatcher,
-                        rules = { activeProfileRules() },
-                        healingSentencesCount = { settings.healingSentencesCount },
-                        maxTurns = { settings.maxTurns },
-                        onCommitted = {
-                            llmDoneCount++
-                            reportProgress()
-                        },
-                    ).also { it.begin() }
-                } else null
-
-                // Step 2: Decode chunks through ASR sequentially, pipelining units into CleanupPipeline
-                for ((index, chunk) in chunks.withIndex()) {
-                    val asrResult = withContext(asrDispatcher) {
-                        localEngine.decodeSegmentTimed(chunk, settings.language)
-                    }
-                    tracker.recordAsrChunk(asrResult.activeMs)
-                    asrDoneCount++
-                    if (asrResult.text.isNotBlank()) {
-                        rawUnits.add(asrResult.text)
-                        cleanupPipeline?.submit(asrResult.text)
-                    } else if (cleanupEnabled) {
-                        // Empty pause chunk produces no LLM unit, mark as completed
-                        llmDoneCount++
-                    }
-                    reportProgress()
-                }
-
-                val rawText = rawUnits.joinToString(" ").trim()
-
-                if (rawText.isBlank()) {
-                    cleanupPipeline?.abort()
-                    val timings = tracker.stop(overrideLlmActiveMs = 0L)
-                    _state.value = DictationUiState.Done(
-                        outcome = DictationOutcome(
-                            text = "(no speech detected in file)",
+                // Replay the whole file as 100 ms frames. The suspending feed waits for the ASR
+                // worker rather than dropping: the non-blocking mic path would silently truncate a
+                // file fed faster than real time.
+                var offset = 0
+                var lastReported = 0
+                while (offset < samples.size) {
+                    val end = minOf(offset + FILE_FRAME_SAMPLES, samples.size)
+                    s.onFramesSuspending(samples.copyOfRange(offset, end))
+                    offset = end
+                    if (offset - lastReported >= FILE_PROGRESS_STEP_SAMPLES) {
+                        lastReported = offset
+                        val frac = offset.toFloat() / samples.size
+                        _state.value = DictationUiState.Working(
+                            stage = "Transcribing audio…",
                             engine = Engine.LOCAL,
-                            note = "Audio file decoded ($audioDurationSec s) but no speech recognized",
-                            audioSeconds = audioDurationSec.toDouble(),
-                            elapsedMs = timings.wallClockMs,
-                            timings = timings,
-                        ),
-                        roundTripMs = null,
-                        rawText = "",
-                        diff = null,
-                    )
-                    return@launch
+                            progress = (0.05f + frac * 0.9f).coerceIn(0.05f, 0.95f),
+                            details = "Transcribing %.0f%% of %.1f s".format(
+                                Locale.US, frac * 100f, audioDurationSec,
+                            ),
+                        )
+                    }
                 }
 
-                // Step 3: Drain cleanup pipeline if enabled
-                if (cleanupPipeline != null) {
-                    cleanupPipeline.drain()
-                    val timings = tracker.stop(overrideLlmActiveMs = cleanupPipeline.totalActiveLlmMs)
-                    val cleanedText = cleanupPipeline.state.carriedTail.ifBlank { rawText }
-                    val diff = WordDiffCalculator.calculate(rawText = rawText, cleanedText = cleanedText)
-
-                    FinalizedUtteranceRecorder.record(
-                        historyStore = dictationHistoryStore,
-                        usageStatsStore = usageStatsStore,
-                        historyEnabled = settings.historyEnabled,
-                        capacity = settings.historyCapacity,
-                        utterance = FinalizedUtterance(
-                            rawText = rawText,
-                            cleanedText = cleanedText,
-                            durationSeconds = audioDurationSec.toDouble(),
-                            engine = Engine.LOCAL.label,
-                            asrModel = settings.asrModel.label,
-                            llmModel = settings.litertModel.label,
-                            cleanedByLlm = true,
-                            insertedSuccessfully = false,
-                            asrMs = timings.asrActiveMs,
-                            llmMs = timings.llmActiveMs,
-                            wallClockMs = timings.wallClockMs,
-                        ),
-                    )
-                    refreshUsageStats()
-                    refreshHistory()
-
-                    _state.value = DictationUiState.Done(
-                        outcome = DictationOutcome(
-                            text = cleanedText,
-                            engine = Engine.LOCAL,
-                            note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s · $totalChunks chunks) · ${timings.formatSummary()}",
-                            audioSeconds = audioDurationSec.toDouble(),
-                            elapsedMs = timings.wallClockMs,
-                            timings = timings,
-                        ),
-                        roundTripMs = null,
-                        rawText = rawText,
-                        diff = diff,
-                    )
-                } else {
-                    val timings = tracker.stop(overrideLlmActiveMs = 0L)
-                    val diff = WordDiffCalculator.verbatim(rawText)
-
-                    FinalizedUtteranceRecorder.record(
-                        historyStore = dictationHistoryStore,
-                        usageStatsStore = usageStatsStore,
-                        historyEnabled = settings.historyEnabled,
-                        capacity = settings.historyCapacity,
-                        utterance = FinalizedUtterance(
-                            rawText = rawText,
-                            cleanedText = rawText,
-                            durationSeconds = audioDurationSec.toDouble(),
-                            engine = Engine.LOCAL.label,
-                            asrModel = settings.asrModel.label,
-                            llmModel = null,
-                            cleanedByLlm = false,
-                            insertedSuccessfully = false,
-                            asrMs = timings.asrActiveMs,
-                            llmMs = 0L,
-                            wallClockMs = timings.wallClockMs,
-                        ),
-                    )
-                    refreshUsageStats()
-                    refreshHistory()
-
-                    _state.value = DictationUiState.Done(
-                        outcome = DictationOutcome(
-                            text = rawText,
-                            engine = Engine.LOCAL,
-                            note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s · $totalChunks chunks) · ASR: %,d ms · Wall: %,d ms (cleanup off)".format(Locale.US, timings.asrActiveMs, timings.wallClockMs),
-                            audioSeconds = audioDurationSec.toDouble(),
-                            elapsedMs = timings.wallClockMs,
-                            timings = timings,
-                        ),
-                        roundTripMs = null,
-                        rawText = rawText,
-                        diff = diff,
-                    )
-                }
+                finishFileTranscription(s, fileName, audioDurationSec, startedAt)
             } catch (_: CancellationException) {
-                cleanupPipeline?.abort()
+                s.abort()
+                releaseArbiter()
                 _state.value = DictationUiState.Idle
             } catch (e: Exception) {
-                cleanupPipeline?.abort()
+                s.abort()
+                releaseArbiter()
                 _state.value = DictationUiState.Failed("transcribe_error", e.message ?: "Transcription failed")
             } finally {
                 fileTranscribeJob = null
@@ -1671,22 +1575,102 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Drains the shared session, records the file utterance and publishes the result. */
+    private suspend fun finishFileTranscription(
+        s: DictationSession,
+        fileName: String,
+        audioDurationSec: Float,
+        startedAt: Long,
+    ) {
+        val delivered = s.finish()
+        val rawText = s.rawText
+        val asrMs = s.totalActiveAsrMs
+        val llmMs = s.totalActiveLlmMs
+        val cleanupEngaged = s.isCleanupEngaged
+        releaseArbiter()
+        s.onCaptureFinished()
+
+        val wallClockMs = SystemClock.elapsedRealtime() - startedAt
+        val text = delivered.ifBlank { rawText }
+
+        if (text.isBlank() && rawText.isBlank()) {
+            _state.value = DictationUiState.Done(
+                outcome = DictationOutcome(
+                    text = "(no speech detected in file)",
+                    engine = Engine.LOCAL,
+                    note = "Audio file decoded ($audioDurationSec s) but no speech recognized",
+                    audioSeconds = audioDurationSec.toDouble(),
+                    elapsedMs = wallClockMs,
+                    timings = PipelineTimings(asrActiveMs = asrMs, wallClockMs = wallClockMs),
+                ),
+                roundTripMs = null,
+                rawText = "",
+                diff = null,
+            )
+            return
+        }
+
+        val diff = if (cleanupEngaged) {
+            WordDiffCalculator.calculate(rawText = rawText, cleanedText = text)
+        } else {
+            WordDiffCalculator.verbatim(rawText)
+        }
+        val llmModelLabel = if (cleanupEngaged) settings.litertModel.label else null
+        val timings = PipelineTimings(
+            asrActiveMs = asrMs,
+            llmActiveMs = llmMs,
+            wallClockMs = wallClockMs,
+        )
+
+        FinalizedUtteranceRecorder.record(
+            historyStore = dictationHistoryStore,
+            usageStatsStore = usageStatsStore,
+            historyEnabled = settings.historyEnabled,
+            capacity = settings.historyCapacity,
+            utterance = FinalizedUtterance(
+                rawText = rawText,
+                cleanedText = text,
+                durationSeconds = audioDurationSec.toDouble(),
+                engine = Engine.LOCAL.label,
+                asrModel = settings.asrModel.label,
+                llmModel = llmModelLabel,
+                cleanedByLlm = cleanupEngaged,
+                insertedSuccessfully = false,
+                asrMs = timings.asrActiveMs,
+                llmMs = timings.llmActiveMs,
+                wallClockMs = wallClockMs,
+            ),
+        )
+        refreshUsageStats()
+        refreshHistory()
+
+        _state.value = DictationUiState.Done(
+            outcome = DictationOutcome(
+                text = text,
+                engine = Engine.LOCAL,
+                note = "File: $fileName (${String.format(Locale.US, "%.1f", audioDurationSec)}s) · ${timings.formatSummary()}",
+                audioSeconds = audioDurationSec.toDouble(),
+                elapsedMs = wallClockMs,
+                timings = timings,
+            ),
+            roundTripMs = null,
+            rawText = rawText,
+            diff = diff,
+        )
+    }
+
     private fun client() = TranscribeClient(_serverUrl.value)
 
     fun onAppBackgrounded() {
         ticker?.cancel()
-        if (recorder.isRecording) {
-            recorder.cancel()
-            localSession.abort()
-            _state.value = DictationUiState.Idle
+        // The shared session's engines and residency are process-wide (D-106): this screen only
+        // abandons its own capture, it does not unload models the pill or a desktop may still want.
+        if (transcribeLease != null) {
+            if (session.isRecording) session.abort()
+            releaseArbiter()
         }
-        viewModelScope.launch {
-            withContext(asrDispatcher) {
-                localEngine.unload()
-            }
-            cleanupEngine?.unload()
-            cleanupEngine = null
-            System.gc()
+        if (_state.value is DictationUiState.Recording) {
+            _state.value = DictationUiState.Idle
         }
     }
 
@@ -1721,18 +1705,25 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         settings.removeThemeModeObserver()
         ticker?.cancel()
-        // The settings screen owns this instance, so it releases it; the IME will own its own (5c).
+        // The engines belong to the process-wide session now (D-106/D-126); this ViewModel only
+        // abandons its own capture and its transient cleanup-bench model.
+        if (transcribeLease != null) {
+            if (session.isRecording) session.abort()
+            releaseArbiter()
+        }
         cleanupEngine?.unload()
         cleanupEngine = null
-        recorder.cancel()
-        localSession.abort()
-        localEngine.unload()
-        asrDispatcher.close()
-        cleanupDispatcher.close()
+        remoteRecorder.cancel()
         super.onCleared()
     }
 
     companion object {
         private const val TICK_MS = 200L
+
+        /** 100 ms of 16 kHz mono audio — the same frame size the mic capture path reads. */
+        private const val FILE_FRAME_SAMPLES = 1_600
+
+        /** How often the file path republishes progress during the replay (5 s of audio). */
+        private const val FILE_PROGRESS_STEP_SAMPLES = 80_000
     }
 }
