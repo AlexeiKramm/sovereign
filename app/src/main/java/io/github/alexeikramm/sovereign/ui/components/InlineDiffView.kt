@@ -92,10 +92,10 @@ fun DiffModeCycleButton(
  * - [InlineDiffMode.RAW]: Returns the raw speech recognition text verbatim.
  * - [InlineDiffMode.DIFF]: Renders unified inline annotations:
  *   - Removed words (fillers): `[~~filler~~]` in strikethrough error color.
- *   - Substituted words: `[~~old~~ → new]` with old struck through and new bold green.
+ *   - Substituted words — including a word the cleanup merely re-cased: `[~~old~~ → new]` with old
+ *     struck through and new bold green.
  *   - Inserted words: `[+ added]` in bold green.
- *   - Re-cased / re-punctuated words: the cleaned word in green with an underline (no strikethrough —
- *     the letters are the same, only the capitalization or punctuation changed).
+ *   - Added or removed punctuation: `[+ .]` / `[~~,~~]`, attached to the word it belongs to.
  *   - Matched words: standard flowing text.
  */
 @Composable
@@ -132,21 +132,11 @@ fun rememberInlineDiffAnnotatedString(
                     val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
                     buildAnnotatedString {
                         diff.tokens.forEachIndexed { index, token ->
-                            if (index > 0) append(" ")
+                            if (index > 0 && needsSpaceBefore(token)) append(" ")
 
                             when (token) {
                                 is InlineDiffToken.Match -> {
                                     append(token.text)
-                                }
-                                is InlineDiffToken.Formatting -> {
-                                    withStyle(
-                                        SpanStyle(
-                                            color = successColor,
-                                            textDecoration = TextDecoration.Underline,
-                                        )
-                                    ) {
-                                        append(token.text)
-                                    }
                                 }
                                 is InlineDiffToken.Removal -> {
                                     withStyle(SpanStyle(color = bracketColor)) {
@@ -215,6 +205,20 @@ fun rememberInlineDiffAnnotatedString(
         }
     }
 }
+
+/**
+ * Whether a diff token begins a new word and so needs a space before it. Punctuation the cleanup
+ * added or removed is attached to the word it belongs to — `issue` → `issue.` renders `issue[+ .]`,
+ * not `issue [+ .]` — while every other token is whitespace-separated like the text it came from.
+ */
+internal fun needsSpaceBefore(token: InlineDiffToken): Boolean = when (token) {
+    is InlineDiffToken.Removal -> !isPunctuationOnly(token.text)
+    is InlineDiffToken.Insertion -> !isPunctuationOnly(token.text)
+    is InlineDiffToken.Match, is InlineDiffToken.Substitution -> true
+}
+
+internal fun isPunctuationOnly(text: String): Boolean =
+    text.isNotEmpty() && text.all { !it.isLetterOrDigit() }
 
 /**
  * Standardized single-box component for displaying raw speech vs cleaned output.

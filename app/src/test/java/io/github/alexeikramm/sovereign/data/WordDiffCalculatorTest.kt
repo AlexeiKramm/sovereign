@@ -138,45 +138,64 @@ class WordDiffCalculatorTest {
     }
 
     @Test
-    fun `computeInlineDiff surfaces casing and punctuation changes as Formatting tokens`() {
-        val raw = "hello world how are you"
-        val clean = "Hello, world! How are you?"
-        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
-
-        // Every word was re-cased or re-punctuated (except "are", which was untouched), so the diff
-        // has something to show rather than rendering the cleaned text with no annotation (the bug).
+    fun `computeInlineDiff renders a re-cased word as a Substitution`() {
+        val diff = WordDiffCalculator.computeInlineDiff("Make it work", "make it work")
         assertEquals(true, diff.hasEdits)
-        assertEquals(5, diff.tokens.size)
-        assertEquals(InlineDiffToken.Formatting("Hello,"), diff.tokens[0])
-        assertEquals(InlineDiffToken.Formatting("world!"), diff.tokens[1])
-        assertEquals(InlineDiffToken.Formatting("How"), diff.tokens[2])
-        assertEquals(InlineDiffToken.Match("are"), diff.tokens[3])
-        assertEquals(InlineDiffToken.Formatting("you?"), diff.tokens[4])
+        assertEquals(1, diff.tokens.filterIsInstance<InlineDiffToken.Substitution>().size)
+        assertEquals(InlineDiffToken.Substitution("Make", "make"), diff.tokens[0])
     }
 
     @Test
-    fun `computeInlineDiff surfaces the device record where only Make became make and a period was added`() {
+    fun `computeInlineDiff attaches added punctuation to its word as an Insertion`() {
+        // The word itself is untouched, so only the period is bracketed: "issue[+ .]".
+        val diff = WordDiffCalculator.computeInlineDiff("issue", "issue.")
+        assertEquals(true, diff.hasEdits)
+        assertEquals(
+            listOf(InlineDiffToken.Match("issue"), InlineDiffToken.Insertion(".")),
+            diff.tokens,
+        )
+    }
+
+    @Test
+    fun `computeInlineDiff attaches removed punctuation to its word as a Removal`() {
+        val diff = WordDiffCalculator.computeInlineDiff("again, so", "again so")
+        assertEquals(true, diff.hasEdits)
+        assertEquals(
+            listOf(
+                InlineDiffToken.Match("again"),
+                InlineDiffToken.Removal(","),
+                InlineDiffToken.Match("so"),
+            ),
+            diff.tokens,
+        )
+    }
+
+    @Test
+    fun `computeInlineDiff surfaces the device record where Make became make and a period was added`() {
         // The exact 2026-10-07 history record that rendered an empty diff: raw had "Make" and no
-        // final period; cleanup lowercased the M and added the ".".
+        // final period; cleanup lowercased the M and added the ".". It must now read
+        // "... to [Make -> make] it work ... issue[+ .]".
         val raw = "Three restarting sovereign on the client seems to Make it work again, so this may be the client side issue"
         val clean = "Three restarting sovereign on the client seems to make it work again, so this may be the client side issue."
         val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
 
         assertEquals(true, diff.hasEdits)
-        assertEquals(20, diff.tokens.size)
-        assertEquals(InlineDiffToken.Formatting("make"), diff.tokens[8])
-        assertEquals(InlineDiffToken.Formatting("issue."), diff.tokens.last())
+        assertEquals(InlineDiffToken.Substitution("Make", "make"), diff.tokens[8])
+        assertEquals(InlineDiffToken.Match("issue"), diff.tokens[diff.tokens.size - 2])
+        assertEquals(InlineDiffToken.Insertion("."), diff.tokens.last())
         // Untouched words stay matches, so the annotation is not sprayed over the whole sentence.
         assertEquals(InlineDiffToken.Match("Three"), diff.tokens[0])
         assertEquals(InlineDiffToken.Match("client"), diff.tokens[5])
-        assertEquals(0, diff.tokens.count { it is InlineDiffToken.Substitution })
+        assertEquals(0, diff.tokens.count { it is InlineDiffToken.Removal })
     }
 
     @Test
-    fun `computeInlineDiff keeps a casing-only difference inside a real substitution a Substitution`() {
+    fun `computeInlineDiff keeps a real letter change a Substitution not a punctuation edit`() {
         val diff = WordDiffCalculator.computeInlineDiff("She dont know", "She doesn't know")
         assertEquals(true, diff.hasEdits)
-        assertEquals(1, diff.tokens.filterIsInstance<InlineDiffToken.Substitution>().size)
+        val subs = diff.tokens.filterIsInstance<InlineDiffToken.Substitution>()
+        assertEquals(1, subs.size)
+        assertEquals(InlineDiffToken.Substitution("dont", "doesn't"), subs[0])
     }
 
     @Test
@@ -221,8 +240,12 @@ class WordDiffCalculatorTest {
         val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
         assertEquals(true, diff.hasEdits)
         val insertions = diff.tokens.filterIsInstance<InlineDiffToken.Insertion>()
-        assertEquals(1, insertions.size)
+        // Two insertions now: the added words "to the", and the added final period, which is
+        // bracketed on its own and attached to "store" (D-129).
+        assertEquals(2, insertions.size)
         assertEquals("to the", insertions[0].text)
+        assertEquals(".", insertions[1].text)
+        assertEquals(InlineDiffToken.Match("store"), diff.tokens[diff.tokens.size - 2])
     }
 
     @Test

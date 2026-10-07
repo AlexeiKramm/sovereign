@@ -256,10 +256,10 @@ object WordDiffCalculator {
      * Computes an inline word-level diff aligning [rawText] against [cleanedText].
      *
      * - Preserved words become [InlineDiffToken.Match].
-     * - Words that differ only in capitalization or punctuation — the cleanup's most common edit —
-     *   become [InlineDiffToken.Formatting] (see [Formatting] for why they are surfaced, not hidden).
+     * - A word whose only change is trailing punctuation keeps its word as a [Match] and adds an
+     *   [Insertion]/[Removal] for the punctuation itself, so `issue` → `issue.` reads `issue[+ .]`.
+     * - Re-cased and otherwise altered words become [InlineDiffToken.Substitution].
      * - Deleted words (fillers, stutters) become [InlineDiffToken.Removal].
-     * - Altered words become [InlineDiffToken.Substitution].
      * - Inserted words become [InlineDiffToken.Insertion].
      * Adjacent non-match operations are automatically coalesced into unified edit tokens.
      */
@@ -328,11 +328,10 @@ object WordDiffCalculator {
                     else -> 1.0
                 }
                 if (Math.abs(dp[i][j] - (dp[i - 1][j - 1] + cost)) < 1e-6) {
-                    when {
-                        r == c -> rawOps.add(StepOp(DiffOpType.MATCH, r, c))
-                        normalizeForDiff(r) == normalizeForDiff(c) && normalizeForDiff(r).isNotEmpty() ->
-                            rawOps.add(StepOp(DiffOpType.FORMAT, r, c))
-                        else -> rawOps.add(StepOp(DiffOpType.SUB, r, c))
+                    if (r == c) {
+                        rawOps.add(StepOp(DiffOpType.MATCH, r, c))
+                    } else {
+                        rawOps.add(StepOp(DiffOpType.SUB, r, c))
                     }
                     i--
                     j--
@@ -378,10 +377,6 @@ object WordDiffCalculator {
                     flushPending()
                     tokens.add(InlineDiffToken.Match(op.cleanWord ?: ""))
                 }
-                DiffOpType.FORMAT -> {
-                    flushPending()
-                    op.cleanWord?.let { tokens.add(InlineDiffToken.Formatting(it)) }
-                }
                 DiffOpType.DEL -> {
                     op.rawWord?.let { pendingRaw.add(it) }
                 }
@@ -389,8 +384,26 @@ object WordDiffCalculator {
                     op.cleanWord?.let { pendingClean.add(it) }
                 }
                 DiffOpType.SUB -> {
-                    op.rawWord?.let { pendingRaw.add(it) }
-                    op.cleanWord?.let { pendingClean.add(it) }
+                    // A word whose only change is trailing punctuation is not a substitution: the
+                    // word itself is untouched, so keep it a Match and bracket just the added (or
+                    // removed) punctuation — "issue" -> "issue." reads "issue[+ .]", not
+                    // "[issue -> issue.]". A genuine letter change (including case) still coalesces
+                    // into a Substitution.
+                    val split = punctuationSplit(op.rawWord, op.cleanWord)
+                    if (split != null) {
+                        flushPending()
+                        tokens.add(InlineDiffToken.Match(split.matchText))
+                        tokens.add(
+                            if (split.added) {
+                                InlineDiffToken.Insertion(split.editText)
+                            } else {
+                                InlineDiffToken.Removal(split.editText)
+                            }
+                        )
+                    } else {
+                        op.rawWord?.let { pendingRaw.add(it) }
+                        op.cleanWord?.let { pendingClean.add(it) }
+                    }
                 }
             }
         }
@@ -400,8 +413,30 @@ object WordDiffCalculator {
     }
 }
 
-private enum class DiffOpType { MATCH, FORMAT, SUB, DEL, INS }
+private enum class DiffOpType { MATCH, SUB, DEL, INS }
 private data class StepOp(val type: DiffOpType, val rawWord: String?, val cleanWord: String?)
+
+/** A word whose only change is trailing punctuation, split into its unchanged part and the edit. */
+private data class PunctuationSplit(val matchText: String, val editText: String, val added: Boolean)
+
+/**
+ * Splits a raw/clean word pair that differs **only** in trailing punctuation, e.g. `issue`/`issue.`
+ * (a period was added) or `again,`/`again` (a comma was dropped). Returns null when the words differ
+ * in any letter — including case — so a real word change stays a [InlineDiffToken.Substitution].
+ */
+private fun punctuationSplit(rawWord: String?, cleanWord: String?): PunctuationSplit? {
+    val raw = rawWord ?: return null
+    val clean = cleanWord ?: return null
+    if (clean.length > raw.length && clean.startsWith(raw)) {
+        val tail = clean.substring(raw.length)
+        if (tail.all { !it.isLetterOrDigit() }) return PunctuationSplit(raw, tail, added = true)
+    }
+    if (raw.length > clean.length && raw.startsWith(clean)) {
+        val tail = raw.substring(clean.length)
+        if (tail.all { !it.isLetterOrDigit() }) return PunctuationSplit(clean, tail, added = false)
+    }
+    return null
+}
 
 /**
  * An atomic token within an inline diff comparing raw speech to cleaned text.
@@ -409,18 +444,6 @@ private data class StepOp(val type: DiffOpType, val rawWord: String?, val cleanW
 sealed class InlineDiffToken {
     /** An unchanged word: byte-for-byte the same in the raw speech and the cleaned text. */
     data class Match(val text: String) : InlineDiffToken()
-
-    /**
-     * A word the cleanup re-cased or re-punctuated without changing its letters — e.g. `Make` →
-     * `make`, or `issue` → `issue.`.
-     *
-     * These are surfaced as their own token rather than folded into [Match] because they are the
-     * cleanup's most common edit and, folded in, the whole diff can render as "nothing changed"
-     * (found on the device: a dictation whose only cleanup was `Make`→`make` and a trailing period
-     * showed an empty diff). [text] is the cleaned form; the raw form differs only in case and
-     * punctuation, so it is not worth striking through.
-     */
-    data class Formatting(val text: String) : InlineDiffToken()
 
     /** Words present in raw speech but deleted/removed in cleanup (e.g. fillers, stutters). */
     data class Removal(val text: String) : InlineDiffToken()
