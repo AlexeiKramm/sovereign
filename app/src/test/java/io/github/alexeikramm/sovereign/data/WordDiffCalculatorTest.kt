@@ -138,14 +138,45 @@ class WordDiffCalculatorTest {
     }
 
     @Test
-    fun `computeInlineDiff with casing and punctuation difference treats as Match without edits`() {
+    fun `computeInlineDiff surfaces casing and punctuation changes as Formatting tokens`() {
         val raw = "hello world how are you"
         val clean = "Hello, world! How are you?"
         val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
-        assertEquals(false, diff.hasEdits)
+
+        // Every word was re-cased or re-punctuated (except "are", which was untouched), so the diff
+        // has something to show rather than rendering the cleaned text with no annotation (the bug).
+        assertEquals(true, diff.hasEdits)
         assertEquals(5, diff.tokens.size)
-        assertEquals("Hello,", (diff.tokens[0] as InlineDiffToken.Match).text)
-        assertEquals("world!", (diff.tokens[1] as InlineDiffToken.Match).text)
+        assertEquals(InlineDiffToken.Formatting("Hello,"), diff.tokens[0])
+        assertEquals(InlineDiffToken.Formatting("world!"), diff.tokens[1])
+        assertEquals(InlineDiffToken.Formatting("How"), diff.tokens[2])
+        assertEquals(InlineDiffToken.Match("are"), diff.tokens[3])
+        assertEquals(InlineDiffToken.Formatting("you?"), diff.tokens[4])
+    }
+
+    @Test
+    fun `computeInlineDiff surfaces the device record where only Make became make and a period was added`() {
+        // The exact 2026-10-07 history record that rendered an empty diff: raw had "Make" and no
+        // final period; cleanup lowercased the M and added the ".".
+        val raw = "Three restarting sovereign on the client seems to Make it work again, so this may be the client side issue"
+        val clean = "Three restarting sovereign on the client seems to make it work again, so this may be the client side issue."
+        val diff = WordDiffCalculator.computeInlineDiff(raw, clean)
+
+        assertEquals(true, diff.hasEdits)
+        assertEquals(20, diff.tokens.size)
+        assertEquals(InlineDiffToken.Formatting("make"), diff.tokens[8])
+        assertEquals(InlineDiffToken.Formatting("issue."), diff.tokens.last())
+        // Untouched words stay matches, so the annotation is not sprayed over the whole sentence.
+        assertEquals(InlineDiffToken.Match("Three"), diff.tokens[0])
+        assertEquals(InlineDiffToken.Match("client"), diff.tokens[5])
+        assertEquals(0, diff.tokens.count { it is InlineDiffToken.Substitution })
+    }
+
+    @Test
+    fun `computeInlineDiff keeps a casing-only difference inside a real substitution a Substitution`() {
+        val diff = WordDiffCalculator.computeInlineDiff("She dont know", "She doesn't know")
+        assertEquals(true, diff.hasEdits)
+        assertEquals(1, diff.tokens.filterIsInstance<InlineDiffToken.Substitution>().size)
     }
 
     @Test

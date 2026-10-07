@@ -94,7 +94,9 @@ fun DiffModeCycleButton(
  *   - Removed words (fillers): `[~~filler~~]` in strikethrough error color.
  *   - Substituted words: `[~~old~~ → new]` with old struck through and new bold green.
  *   - Inserted words: `[+ added]` in bold green.
- *   - Matched words: standard flowing text with proper casing and punctuation.
+ *   - Re-cased / re-punctuated words: the cleaned word in green with an underline (no strikethrough —
+ *     the letters are the same, only the capitalization or punctuation changed).
+ *   - Matched words: standard flowing text.
  */
 @Composable
 fun rememberInlineDiffAnnotatedString(
@@ -135,6 +137,16 @@ fun rememberInlineDiffAnnotatedString(
                             when (token) {
                                 is InlineDiffToken.Match -> {
                                     append(token.text)
+                                }
+                                is InlineDiffToken.Formatting -> {
+                                    withStyle(
+                                        SpanStyle(
+                                            color = successColor,
+                                            textDecoration = TextDecoration.Underline,
+                                        )
+                                    ) {
+                                        append(token.text)
+                                    }
                                 }
                                 is InlineDiffToken.Removal -> {
                                     withStyle(SpanStyle(color = bracketColor)) {

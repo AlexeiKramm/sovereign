@@ -255,7 +255,9 @@ object WordDiffCalculator {
     /**
      * Computes an inline word-level diff aligning [rawText] against [cleanedText].
      *
-     * - Preserved words (including minor punctuation/casing changes) become [InlineDiffToken.Match].
+     * - Preserved words become [InlineDiffToken.Match].
+     * - Words that differ only in capitalization or punctuation — the cleanup's most common edit —
+     *   become [InlineDiffToken.Formatting] (see [Formatting] for why they are surfaced, not hidden).
      * - Deleted words (fillers, stutters) become [InlineDiffToken.Removal].
      * - Altered words become [InlineDiffToken.Substitution].
      * - Inserted words become [InlineDiffToken.Insertion].
@@ -326,10 +328,11 @@ object WordDiffCalculator {
                     else -> 1.0
                 }
                 if (Math.abs(dp[i][j] - (dp[i - 1][j - 1] + cost)) < 1e-6) {
-                    if (r == c || (normalizeForDiff(r) == normalizeForDiff(c) && normalizeForDiff(r).isNotEmpty())) {
-                        rawOps.add(StepOp(DiffOpType.MATCH, r, c))
-                    } else {
-                        rawOps.add(StepOp(DiffOpType.SUB, r, c))
+                    when {
+                        r == c -> rawOps.add(StepOp(DiffOpType.MATCH, r, c))
+                        normalizeForDiff(r) == normalizeForDiff(c) && normalizeForDiff(r).isNotEmpty() ->
+                            rawOps.add(StepOp(DiffOpType.FORMAT, r, c))
+                        else -> rawOps.add(StepOp(DiffOpType.SUB, r, c))
                     }
                     i--
                     j--
@@ -375,6 +378,10 @@ object WordDiffCalculator {
                     flushPending()
                     tokens.add(InlineDiffToken.Match(op.cleanWord ?: ""))
                 }
+                DiffOpType.FORMAT -> {
+                    flushPending()
+                    op.cleanWord?.let { tokens.add(InlineDiffToken.Formatting(it)) }
+                }
                 DiffOpType.DEL -> {
                     op.rawWord?.let { pendingRaw.add(it) }
                 }
@@ -393,15 +400,27 @@ object WordDiffCalculator {
     }
 }
 
-private enum class DiffOpType { MATCH, SUB, DEL, INS }
+private enum class DiffOpType { MATCH, FORMAT, SUB, DEL, INS }
 private data class StepOp(val type: DiffOpType, val rawWord: String?, val cleanWord: String?)
 
 /**
  * An atomic token within an inline diff comparing raw speech to cleaned text.
  */
 sealed class InlineDiffToken {
-    /** An unchanged word or phrase (carrying normalized capitalization and punctuation). */
+    /** An unchanged word: byte-for-byte the same in the raw speech and the cleaned text. */
     data class Match(val text: String) : InlineDiffToken()
+
+    /**
+     * A word the cleanup re-cased or re-punctuated without changing its letters — e.g. `Make` →
+     * `make`, or `issue` → `issue.`.
+     *
+     * These are surfaced as their own token rather than folded into [Match] because they are the
+     * cleanup's most common edit and, folded in, the whole diff can render as "nothing changed"
+     * (found on the device: a dictation whose only cleanup was `Make`→`make` and a trailing period
+     * showed an empty diff). [text] is the cleaned form; the raw form differs only in case and
+     * punctuation, so it is not worth striking through.
+     */
+    data class Formatting(val text: String) : InlineDiffToken()
 
     /** Words present in raw speech but deleted/removed in cleanup (e.g. fillers, stutters). */
     data class Removal(val text: String) : InlineDiffToken()
