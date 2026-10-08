@@ -1,6 +1,7 @@
 package io.github.alexeikramm.sovereign.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -13,16 +14,16 @@ class DictationHistoryStoreTest {
     @JvmField
     val temp = TemporaryFolder()
 
+    private fun store() = DictationHistoryStore(temp.root, SealedTestCipher())
+
     @Test
     fun `initially empty store returns empty records`() {
-        val store = DictationHistoryStore(temp.root)
-        val data = store.load()
-        assertTrue(data.records.isEmpty())
+        assertTrue(store().load().records.isEmpty())
     }
 
     @Test
     fun `record adds entry to front of history`() {
-        val store = DictationHistoryStore(temp.root)
+        val store = store()
         val record1 = DictationRecord(
             id = "rec-1",
             timestampMs = 1000L,
@@ -60,7 +61,7 @@ class DictationHistoryStoreTest {
 
     @Test
     fun `capacity limits history to maxCapacity and drops oldest records`() {
-        val store = DictationHistoryStore(temp.root)
+        val store = store()
         val capacity = 5
 
         for (i in 1..10) {
@@ -90,7 +91,7 @@ class DictationHistoryStoreTest {
 
     @Test
     fun `delete removes specific record by id`() {
-        val store = DictationHistoryStore(temp.root)
+        val store = store()
         val r1 = DictationRecord("1", 100L, 1.0, "a", "A", "m")
         val r2 = DictationRecord("2", 200L, 2.0, "b", "B", "m")
         val r3 = DictationRecord("3", 300L, 3.0, "c", "C", "m")
@@ -108,37 +109,48 @@ class DictationHistoryStoreTest {
 
     @Test
     fun `clear deletes file and empties history`() {
-        val store = DictationHistoryStore(temp.root)
+        val store = store()
         val r = DictationRecord("1", 100L, 1.0, "text", "Text", "m")
         store.record(r)
         assertEquals(1, store.load().records.size)
 
         store.clear()
         assertTrue(store.load().records.isEmpty())
-        val file = File(temp.root, "dictation_history.json")
-        assertTrue(!file.exists())
+        val file = File(temp.root, DictationHistoryStore.FILE_NAME)
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun `the transcript is never written in the clear`() {
+        val store = store()
+        val sentinel = "SECRET-DICTATED-PHRASE-9f2a"
+        store.record(DictationRecord("1", 1L, 1.0, sentinel, sentinel, "m"))
+
+        val raw = File(temp.root, DictationHistoryStore.FILE_NAME)
+            .readBytes()
+            .toString(Charsets.ISO_8859_1)
+        assertFalse("history must be sealed at rest", raw.contains(sentinel))
     }
 
     @Test
     fun `history written before the wordsEdited rename still loads`() {
-        // The pre-rename key ("wordsCleaned") must keep working so existing history is not lost.
-        File(temp.root, "dictation_history.json").writeText(
+        // The pre-rename key ("wordsCleaned") must keep working so existing history is not lost. It is
+        // also a pre-encryption plaintext file, so this exercises the legacy import.
+        File(temp.root, DictationHistoryStore.FILE_NAME).writeText(
             """
             {"records":[{"id":"1","timestampMs":1,"durationSeconds":1.0,"rawText":"a","cleanedText":"A","asrModel":"m","wordsCleaned":7}]}
             """.trimIndent(),
             Charsets.UTF_8,
         )
-        val record = DictationHistoryStore(temp.root).load().records.single()
+        val record = store().load().records.single()
         assertEquals(7, record.wordsEdited)
     }
 
     @Test
     fun `corrupted JSON file recovers gracefully with empty records`() {
-        val file = File(temp.root, "dictation_history.json")
+        val file = File(temp.root, DictationHistoryStore.FILE_NAME)
         file.writeText("invalid json content {{{")
 
-        val store = DictationHistoryStore(temp.root)
-        val data = store.load()
-        assertTrue(data.records.isEmpty())
+        assertTrue(store().load().records.isEmpty())
     }
 }

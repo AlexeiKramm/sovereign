@@ -19,7 +19,7 @@ class FinalizedUtteranceRecorderTest {
     @JvmField
     val temp = TemporaryFolder()
 
-    private fun history() = DictationHistoryStore(temp.root)
+    private fun history() = DictationHistoryStore(temp.root, SealedTestCipher())
     private fun stats() = UsageStatsStore(temp.root)
 
     private fun utterance(
