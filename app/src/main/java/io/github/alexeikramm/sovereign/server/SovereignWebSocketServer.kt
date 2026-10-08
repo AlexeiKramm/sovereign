@@ -11,8 +11,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.java_websocket.WebSocket
+import org.java_websocket.drafts.Draft_6455
+import org.java_websocket.framing.CloseFrame
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.DefaultSSLWebSocketServerFactory
 import org.java_websocket.server.WebSocketServer
@@ -24,8 +28,12 @@ import org.java_websocket.server.WebSocketServer
  * the [CaptureHost].
  *
  * All engine work is marshalled onto [dispatcher] (the main dispatcher), because the engine mutates
- * shared dictation state and must see every message and session callback on one thread. Socket reads
- * arrive on Java-WebSocket's own threads; they post here.
+ * shared dictation state and must see every message and session callback on one thread. Frame
+ * *parsing* happens on the socket thread instead, so a decode flood cannot queue work on main.
+ *
+ * Untrusted-LAN hardening (Chunk 9C): the transport caps frame size, live and pending connections,
+ * and per-connection message rate, and reaps idle connections — all before the protocol engine ever
+ * runs. TLS + token auth still gate every protocol action.
  */
 class SovereignWebSocketServer(
     private val boundPort: Int,
@@ -39,9 +47,22 @@ class SovereignWebSocketServer(
     private val runtime: ServerRuntime = ServerRuntime.shared,
     /** The process-wide reservation source; its changes are broadcast as `SERVER_STATE` (CHUNK-8). */
     private val arbiter: SessionArbiter = SessionArbiter.shared,
-) : WebSocketServer(InetSocketAddress(boundPort)) {
+) : WebSocketServer(
+    InetSocketAddress(boundPort),
+    0,
+    listOf(Draft_6455(emptyList(), emptyList(), ServerProtocol.MAX_FRAME_BYTES)),
+) {
 
-    private class Connection(val engine: SovereignServerEngine, val scope: CoroutineScope)
+    private class Connection(
+        val engine: SovereignServerEngine,
+        val scope: CoroutineScope,
+    ) {
+        val limiter = MessageRateLimiter()
+
+        /** `elapsedRealtime` of the last inbound frame, for the idle sweep. */
+        @Volatile
+        var lastFrameMs: Long = SystemClock.elapsedRealtime()
+    }
 
     private val connections = ConcurrentHashMap<WebSocket, Connection>()
 
@@ -56,6 +77,11 @@ class SovereignWebSocketServer(
         // still lingering (Java-WebSocket defaults it to false; a stop/start with a client attached
         // otherwise fails with BindException: Address already in use).
         setReuseAddr(true)
+        // Bound the handshake backlog so a TLS-connect flood cannot pile up un-handshaken sockets.
+        setMaxPendingConnections(MAX_PENDING_CONNECTIONS)
+        // The bounded Draft_6455 goes through the super constructor: the server passes its own drafts
+        // to the factory's createWebSocket, so this is what actually stops Java-WebSocket from
+        // allocating a multi-gigabyte frame before ServerProtocol's 256 KiB check can run.
         setWebSocketFactory(DefaultSSLWebSocketServerFactory(tls.sslContext))
         // CHUNK-8: broadcast the pipeline's availability to every connected desktop whenever the
         // process-wide arbiter changes. StateFlow emits the current value first, so this also covers
@@ -71,6 +97,21 @@ class SovereignWebSocketServer(
                 ))
             }
         }
+        // Reap connections that stop sending frames. The real client PINGs every 5 s, so a link
+        // silent for IDLE_TIMEOUT_MS is dead — and if it held a session, closing it frees the arbiter
+        // via onClose/onTransportClosed instead of leaving the microphone held for minutes.
+        scope.launch {
+            while (isActive) {
+                delay(IDLE_SWEEP_MS)
+                val now = SystemClock.elapsedRealtime()
+                connections.forEach { (conn, connection) ->
+                    if (now - connection.lastFrameMs > IDLE_TIMEOUT_MS) {
+                        Log.i(TAG, "Closing an idle connection (no frame in ${IDLE_TIMEOUT_MS}ms)")
+                        runCatching { conn.close(CloseFrame.POLICY_VALIDATION, "idle") }
+                    }
+                }
+            }
+        }
     }
 
     override fun onStart() {
@@ -82,6 +123,11 @@ class SovereignWebSocketServer(
     suspend fun awaitBound() = bindGate.await()
 
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
+        if (connections.size >= MAX_CONNECTIONS) {
+            Log.w(TAG, "Refusing connection: cap of $MAX_CONNECTIONS reached")
+            runCatching { conn.close(CloseFrame.TRY_AGAIN_LATER, "server busy") }
+            return
+        }
         val connectionScope = CoroutineScope(SupervisorJob() + dispatcher)
         val engine = SovereignServerEngine(
             identity = identity,
@@ -101,9 +147,26 @@ class SovereignWebSocketServer(
     }
 
     override fun onMessage(conn: WebSocket, message: String) {
+        val connection = connections[conn] ?: return
+        connection.lastFrameMs = SystemClock.elapsedRealtime()
+
+        when (connection.limiter.check()) {
+            MessageRateLimiter.Decision.CLOSE -> {
+                Log.w(TAG, "Closing a rate-abusive connection")
+                runCatching { conn.close(CloseFrame.POLICY_VALIDATION, "rate limited") }
+                return
+            }
+            MessageRateLimiter.Decision.LIMIT -> {
+                scope.launch { send(conn, rateLimitedError()) }
+                return
+            }
+            MessageRateLimiter.Decision.ALLOW -> Unit
+        }
+
+        // Decode on this (socket) thread; only the protocol engine is marshalled onto main.
+        val disposition = ServerFrames.disposition(message)
         scope.launch {
-            val connection = connections[conn] ?: return@launch
-            when (val disposition = ServerFrames.disposition(message)) {
+            when (disposition) {
                 is ServerFrames.Disposition.Forward -> connection.engine.onMessage(disposition.message)
                 ServerFrames.Disposition.Ignore -> Log.d(TAG, "Ignored an unknown message type")
                 is ServerFrames.Disposition.Fail -> {
@@ -118,6 +181,7 @@ class SovereignWebSocketServer(
 
     /** Binary frames are reserved (PROTOCOL.md §1); v1 ignores them rather than guessing. */
     override fun onMessage(conn: WebSocket, message: ByteBuffer) {
+        connections[conn]?.let { it.lastFrameMs = SystemClock.elapsedRealtime() }
         Log.d(TAG, "Ignored a binary frame (${message.remaining()} bytes)")
     }
 
@@ -151,6 +215,13 @@ class SovereignWebSocketServer(
             .onFailure { Log.w(TAG, "Failed to send ${message.type.wire}", it) }
     }
 
+    private fun rateLimitedError(): ServerMessage = ServerMessage(
+        type = MessageType.ERROR,
+        id = UUID.randomUUID().toString(),
+        ts = System.currentTimeMillis(),
+        payload = ErrorPayload(ErrorCode.RATE_LIMITED, "too many messages", fatal = false),
+    )
+
     /** Sends one unsolicited frame to every open connection (CHUNK-8's `SERVER_STATE`). */
     private fun broadcast(message: ServerMessage) {
         if (connections.isEmpty()) return
@@ -168,5 +239,15 @@ class SovereignWebSocketServer(
     private companion object {
         const val TAG = "SovereignServer"
         const val NORMAL_CLOSURE = 1000
+
+        /** Live authenticated/unauthenticated connections; a handful of paired desktops is the norm. */
+        const val MAX_CONNECTIONS = 8
+
+        /** Un-handshaken sockets allowed to pile up before the listener refuses more. */
+        const val MAX_PENDING_CONNECTIONS = 16
+
+        /** A connection silent this long (>> the 5 s client PING) is treated as dead. */
+        const val IDLE_TIMEOUT_MS = 20_000L
+        const val IDLE_SWEEP_MS = 5_000L
     }
 }

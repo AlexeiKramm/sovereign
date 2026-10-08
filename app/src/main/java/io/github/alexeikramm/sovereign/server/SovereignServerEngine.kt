@@ -70,7 +70,18 @@ class SovereignServerEngine(
     private var commitSeq = 0L
 
     private val listener = object : CaptureListener {
-        override fun onState(state: PipelineState) = emitState(state)
+        override fun onState(state: PipelineState) {
+            if (state == PipelineState.ERROR) {
+                // A capture that fails to come up leaves no session behind — the host has already
+                // aborted and released the arbiter — so release the protocol session too. Without
+                // this, sessionId stays set and every later START_DICTATION is answered against a
+                // session that no longer exists.
+                emitState(PipelineState.ERROR)
+                sessionId?.let { endSession(it, ReleaseReason.ERROR) }
+                return
+            }
+            emitState(state)
+        }
 
         override fun onProvisional(text: String) {
             val sid = activeSessionId() ?: return
@@ -176,6 +187,9 @@ class SovereignServerEngine(
     // --- Authentication -----------------------------------------------------------------------
 
     private fun onHello(p: HelloPayload) {
+        // A connection authenticates once; a repeat HELLO is ignored rather than re-running Keystore
+        // auth and re-emitting WELCOME.
+        if (phase == Phase.READY) return
         if (p.protover != ServerProtocol.VERSION) {
             emit(MessageType.AUTH_FAIL, AuthFailPayload(AuthFailReason.PROTO_VERSION))
             return
@@ -242,7 +256,15 @@ class SovereignServerEngine(
         stopping = true
         emitState(PipelineState.PROCESSING)
         scope.launch {
-            val result = capture.finish()
+            val result = try {
+                capture.finish()
+            } catch (e: Exception) {
+                // A throwing finish must still release the session, or the connection wedges with a
+                // sessionId that can never be stopped and the arbiter stays held.
+                emitError(ErrorCode.INTERNAL, e.message ?: "finish failed", fatal = false)
+                endSession(sid, ReleaseReason.ERROR)
+                return@launch
+            }
             emit(
                 MessageType.UTTERANCE_DONE,
                 UtteranceDonePayload(sid, result.deliveryText, result.rawText, UtteranceDoneReason.FINAL),

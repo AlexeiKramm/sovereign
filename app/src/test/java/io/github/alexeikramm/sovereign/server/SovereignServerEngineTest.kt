@@ -281,12 +281,55 @@ class SovereignServerEngineTest {
         assertTrue(h.ofType(MessageType.PONG).isEmpty())
     }
 
+    @Test
+    fun `a capture error releases the session instead of wedging`() = runTest {
+        val h = Harness(this)
+        h.authenticate()
+        h.start("req-1")
+
+        // The host reports a warmup failure (it has already aborted and released the arbiter).
+        h.capture.listener!!.onState(PipelineState.ERROR)
+
+        assertEquals(ReleaseReason.ERROR, h.lastPayload<SessionReleasedPayload>(MessageType.SESSION_RELEASED).reason)
+        // The session is gone, so a fresh start is accepted rather than refused as busy.
+        h.start("req-2")
+        assertEquals(2, h.ofType(MessageType.START_ACK).size)
+        assertTrue(h.ofType(MessageType.SESSION_BUSY).isEmpty())
+    }
+
+    @Test
+    fun `a throwing finish releases the session`() = runTest {
+        val h = Harness(this)
+        h.authenticate()
+        val sid = h.start()
+        h.capture.finishThrows = true
+
+        h.send(MessageType.STOP_DICTATION, StopDictationPayload(sid))
+        advanceUntilIdle()
+
+        assertEquals(ReleaseReason.ERROR, h.lastPayload<SessionReleasedPayload>(MessageType.SESSION_RELEASED).reason)
+        assertTrue(h.ofType(MessageType.UTTERANCE_DONE).isEmpty())
+    }
+
+    @Test
+    fun `a repeat HELLO is ignored once ready`() = runTest {
+        val h = Harness(this)
+        h.authenticate()
+        val welcomes = h.ofType(MessageType.WELCOME).size
+
+        h.send(MessageType.HELLO, HelloPayload("whatever", DEVICE_ID, ServerProtocol.VERSION, emptyList()))
+
+        assertEquals(welcomes, h.ofType(MessageType.WELCOME).size)
+        assertTrue(h.ofType(MessageType.AUTH_FAIL).isEmpty())
+    }
+
     // --- fakes --------------------------------------------------------------------------------
 
     private class FakeCaptureHost : CaptureHost {
         var listener: CaptureListener? = null
         var beginOutcome: StartOutcome = StartOutcome.Started
         var finishResult = CaptureResult("final text", "raw text")
+        var finishThrows = false
         var cancelled = false
 
         override fun begin(listener: CaptureListener): StartOutcome {
@@ -294,7 +337,10 @@ class SovereignServerEngineTest {
             return beginOutcome
         }
 
-        override suspend fun finish(): CaptureResult = finishResult
+        override suspend fun finish(): CaptureResult {
+            if (finishThrows) throw IllegalStateException("finish boom")
+            return finishResult
+        }
 
         override fun cancel() {
             cancelled = true
