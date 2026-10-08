@@ -53,14 +53,23 @@ class DictationHistoryStore(
         if (!file.exists()) return DictationHistoryData()
         return try {
             val bytes = file.readBytes()
+            var legacy = false
             val plain = try {
                 cipher.decrypt(bytes)
             } catch (_: Exception) {
                 // A pre-encryption history file is still plain JSON; import it so it is not lost.
-                if (looksLikeJson(bytes)) bytes else return DictationHistoryData()
+                if (looksLikeJson(bytes)) {
+                    legacy = true
+                    bytes
+                } else {
+                    return DictationHistoryData()
+                }
             }
             val text = plain.toString(Charsets.UTF_8).trim()
-            if (text.isEmpty()) DictationHistoryData() else json.decodeFromString<DictationHistoryData>(text)
+            val data = if (text.isEmpty()) DictationHistoryData() else json.decodeFromString<DictationHistoryData>(text)
+            // Re-seal a pre-encryption file at once so the plaintext does not linger on disk.
+            if (legacy) save(data)
+            data
         } catch (_: Exception) {
             DictationHistoryData()
         }

@@ -133,6 +133,20 @@ class DictationHistoryStoreTest {
     }
 
     @Test
+    fun `a legacy plaintext file is re-sealed on load`() {
+        val sentinel = "LEGACY-PLAINTEXT-SENTINEL"
+        File(temp.root, DictationHistoryStore.FILE_NAME).writeText(
+            """{"records":[{"id":"1","timestampMs":1,"durationSeconds":1.0,"rawText":"$sentinel","cleanedText":"$sentinel","asrModel":"m"}]}""",
+            Charsets.UTF_8,
+        )
+        val store = store()
+
+        assertEquals(1, store.load().records.size)
+        val raw = File(temp.root, DictationHistoryStore.FILE_NAME).readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse("legacy plaintext must be re-sealed on load", raw.contains(sentinel))
+    }
+
+    @Test
     fun `history written before the wordsEdited rename still loads`() {
         // The pre-rename key ("wordsCleaned") must keep working so existing history is not lost. It is
         // also a pre-encryption plaintext file, so this exercises the legacy import.

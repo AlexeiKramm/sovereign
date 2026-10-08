@@ -49,7 +49,6 @@ class SovereignWebSocketServer(
     private val arbiter: SessionArbiter = SessionArbiter.shared,
 ) : WebSocketServer(
     InetSocketAddress(boundPort),
-    0,
     listOf(Draft_6455(emptyList(), emptyList(), ServerProtocol.MAX_FRAME_BYTES)),
 ) {
 
@@ -65,6 +64,9 @@ class SovereignWebSocketServer(
     }
 
     private val connections = ConcurrentHashMap<WebSocket, Connection>()
+
+    /** Guards the connection cap's check-then-insert: onOpen runs on per-connection worker threads. */
+    private val connectionLock = Any()
 
     /** Own scope for frame handling, so it survives individual connection teardown. */
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -123,45 +125,35 @@ class SovereignWebSocketServer(
     suspend fun awaitBound() = bindGate.await()
 
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
-        if (connections.size >= MAX_CONNECTIONS) {
-            Log.w(TAG, "Refusing connection: cap of $MAX_CONNECTIONS reached")
-            runCatching { conn.close(CloseFrame.TRY_AGAIN_LATER, "server busy") }
-            return
-        }
         val connectionScope = CoroutineScope(SupervisorJob() + dispatcher)
-        val engine = SovereignServerEngine(
-            identity = identity,
-            pairing = pairing,
-            capture = capture,
-            scope = connectionScope,
-            sink = { message -> send(conn, message) },
-            onAuthenticated = { device ->
-                runtime.onClientConnected(device.deviceId, device.name, remoteAddress(conn))
-            },
-            onHeartbeat = { runtime.onHeartbeat(SystemClock.elapsedRealtime()) },
-            availability = { serverStatePayload(arbiter.holder, identity) },
-        )
-        connections[conn] = Connection(engine, connectionScope)
+        synchronized(connectionLock) {
+            if (connections.size >= MAX_CONNECTIONS) {
+                Log.w(TAG, "Refusing connection: cap of $MAX_CONNECTIONS reached")
+                connectionScope.cancel()
+                runCatching { conn.close(CloseFrame.TRY_AGAIN_LATER, "server busy") }
+                return
+            }
+            val engine = SovereignServerEngine(
+                identity = identity,
+                pairing = pairing,
+                capture = capture,
+                scope = connectionScope,
+                sink = { message -> send(conn, message) },
+                onAuthenticated = { device ->
+                    runtime.onClientConnected(device.deviceId, device.name, remoteAddress(conn))
+                },
+                onHeartbeat = { runtime.onHeartbeat(SystemClock.elapsedRealtime()) },
+                availability = { serverStatePayload(arbiter.holder, identity) },
+            )
+            connections[conn] = Connection(engine, connectionScope)
+        }
         Log.i(TAG, "Connection opened (${connections.size} active)")
         onConnectionCountChanged(connections.size)
     }
 
     override fun onMessage(conn: WebSocket, message: String) {
         val connection = connections[conn] ?: return
-        connection.lastFrameMs = SystemClock.elapsedRealtime()
-
-        when (connection.limiter.check()) {
-            MessageRateLimiter.Decision.CLOSE -> {
-                Log.w(TAG, "Closing a rate-abusive connection")
-                runCatching { conn.close(CloseFrame.POLICY_VALIDATION, "rate limited") }
-                return
-            }
-            MessageRateLimiter.Decision.LIMIT -> {
-                scope.launch { send(conn, rateLimitedError()) }
-                return
-            }
-            MessageRateLimiter.Decision.ALLOW -> Unit
-        }
+        if (!admit(conn, connection)) return
 
         // Decode on this (socket) thread; only the protocol engine is marshalled onto main.
         val disposition = ServerFrames.disposition(message)
@@ -181,8 +173,31 @@ class SovereignWebSocketServer(
 
     /** Binary frames are reserved (PROTOCOL.md §1); v1 ignores them rather than guessing. */
     override fun onMessage(conn: WebSocket, message: ByteBuffer) {
-        connections[conn]?.let { it.lastFrameMs = SystemClock.elapsedRealtime() }
+        val connection = connections[conn] ?: return
+        if (!admit(conn, connection)) return
         Log.d(TAG, "Ignored a binary frame (${message.remaining()} bytes)")
+    }
+
+    /**
+     * Applies the per-connection rate limit for one inbound frame and updates its idle clock. Returns
+     * false when the frame was rate-limited (answered [ErrorCode.RATE_LIMITED]) or the connection was
+     * closed for abuse. The reply is sent inline on the socket thread — queueing it on the main
+     * dispatcher would reintroduce the flood the limiter exists to stop.
+     */
+    private fun admit(conn: WebSocket, connection: Connection): Boolean {
+        connection.lastFrameMs = SystemClock.elapsedRealtime()
+        return when (connection.limiter.check()) {
+            MessageRateLimiter.Decision.ALLOW -> true
+            MessageRateLimiter.Decision.CLOSE -> {
+                Log.w(TAG, "Closing a rate-abusive connection")
+                runCatching { conn.close(CloseFrame.POLICY_VALIDATION, "rate limited") }
+                false
+            }
+            MessageRateLimiter.Decision.LIMIT -> {
+                send(conn, rateLimitedError())
+                false
+            }
+        }
     }
 
     override fun onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean) {

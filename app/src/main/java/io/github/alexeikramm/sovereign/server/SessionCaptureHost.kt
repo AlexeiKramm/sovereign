@@ -165,14 +165,19 @@ class SessionCaptureHost(
         phase = ServerPipeline.IDLE
         cleaning = settings.cleanupEnabled
         publishStage()
-        session.finish()
-        session.onCaptureFinished()
-        val result = CaptureResult(session.deliveryText, session.rawText)
-        recordUtterance(result)
-        release()
-        cleaning = false
-        publishStage()
-        return result
+        try {
+            session.finish()
+            session.onCaptureFinished()
+            val result = CaptureResult(session.deliveryText, session.rawText)
+            recordUtterance(result)
+            return result
+        } finally {
+            // Always release the arbiter lease: a throw from the session or the recorder must not
+            // leave the microphone held and every later dictation answered SESSION_BUSY.
+            release()
+            cleaning = false
+            publishStage()
+        }
     }
 
     override fun cancel() {

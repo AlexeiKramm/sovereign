@@ -258,13 +258,16 @@ class SovereignServerEngine(
         scope.launch {
             val result = try {
                 capture.finish()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 // A throwing finish must still release the session, or the connection wedges with a
                 // sessionId that can never be stopped and the arbiter stays held.
                 emitError(ErrorCode.INTERNAL, e.message ?: "finish failed", fatal = false)
                 endSession(sid, ReleaseReason.ERROR)
                 return@launch
             }
+            // A capture ERROR may have released the session while finish() was in flight; do not
+            // deliver text for a session that no longer exists.
+            if (sessionId != sid) return@launch
             emit(
                 MessageType.UTTERANCE_DONE,
                 UtteranceDonePayload(sid, result.deliveryText, result.rawText, UtteranceDoneReason.FINAL),
