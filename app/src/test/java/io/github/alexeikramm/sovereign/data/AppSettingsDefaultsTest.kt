@@ -15,7 +15,7 @@ class AppSettingsDefaultsTest {
     fun `boundary timing defaults (pause lowered by D-090)`() {
         assertEquals(0.5f, AppSettings.DEFAULT_PAUSE_SILENCE_S, 0.001f)
         assertEquals(3.0f, AppSettings.DEFAULT_STABLE_SILENCE_S, 0.001f)
-        assertEquals(8.0f, AppSettings.DEFAULT_STOP_AFTER_SILENCE_S, 0.001f)
+        assertEquals(60.0f, AppSettings.DEFAULT_STOP_AFTER_SILENCE_S, 0.001f)
     }
 
     @Test

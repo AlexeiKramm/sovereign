@@ -20,7 +20,7 @@ data class ListenerTimings(
 ) {
     companion object {
         const val DEFAULT_FALLBACK_QUIET_SECONDS = 3.0
-        const val DEFAULT_STOP_AFTER_SILENCE_SECONDS = 6.0
+        const val DEFAULT_STOP_AFTER_SILENCE_SECONDS = 60.0
 
         /**
          * Reads a seconds value out of a text field, or null when the text is not a usable number yet —

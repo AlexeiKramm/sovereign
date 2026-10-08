@@ -609,13 +609,15 @@ class AppSettings(context: Context) {
          * matrix (D-090) then showed 1.0 s buys no cleanup quality over 0.5 s and is ~0.5 s slower to
          * first visible text, so "Pause sensitivity" is lowered to 0.5 s. [DEFAULT_STABLE_SILENCE_S]
          * is unchanged — it is the endpointing fallback, not a user-facing control.
+         * Auto-stop silence defaults to 60.0 s so pauses in thought during continuous dictation do
+         * not unexpectedly terminate recording.
          */
         const val DEFAULT_PAUSE_SILENCE_S = 0.5f
         const val DEFAULT_STABLE_SILENCE_S = 3.0f
-        const val DEFAULT_STOP_AFTER_SILENCE_S = 8.0f
+        const val DEFAULT_STOP_AFTER_SILENCE_S = 60.0f
 
-        /** What the text fields accept: seconds, at most a minute, and no negatives. */
-        const val MAX_TIMING_SECONDS = 60f
+        /** What the text fields accept: seconds, at most 5 minutes (300 s), and no negatives. */
+        const val MAX_TIMING_SECONDS = 300f
 
         /** The smallest value that still means "a pause of some length" for the two boundary rules. */
         const val MIN_BOUNDARY_SECONDS = 0.2f

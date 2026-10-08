@@ -2311,10 +2311,12 @@ class FloatingOverlayService : Service() {
                     stopCapture()
                     break
                 }
-                // 2. Initial silence timeout (10s without speech after starting). Card path only —
+                // 2. Initial silence timeout (without speech after starting). Card path only —
                 //    a held finger with no speech is the user's choice, ended by the release.
-                if (!quickCaptureActive && session.capturedSeconds >= 10.0 && !state.heardAudio) {
-                    Log.i(TAG, "Initial silence timeout (10s) reached without speech")
+                //    Tracks auto-stop silence setting so a pause before speaking does not cut off early.
+                val initialTimeout = if (stopAfter > 0f) maxOf(10.0, stopAfter.toDouble()) else 0.0
+                if (!quickCaptureActive && initialTimeout > 0.0 && session.capturedSeconds >= initialTimeout && !state.heardAudio) {
+                    Log.i(TAG, "Initial silence timeout (%.1fs) reached without speech".format(initialTimeout))
                     stopCapture()
                     break
                 }

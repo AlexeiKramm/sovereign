@@ -21,11 +21,38 @@ object SettingsControls {
 
     /** Silence that ends the recording. **0 means the mic never stops on its own.** */
     const val STOP_MIN_SECONDS = 0.0f
-    const val STOP_MAX_SECONDS = 20.0f
+    const val STOP_MAX_SECONDS = 300.0f
 
     /** Discrete stops between the endpoints, in the shape Compose's `Slider(steps = ...)` wants. */
     val PAUSE_STEPS: Int = stepsFor(PAUSE_MIN_SECONDS, PAUSE_MAX_SECONDS)
     val STOP_STEPS: Int = stepsFor(STOP_MIN_SECONDS, STOP_MAX_SECONDS)
+
+    /**
+     * Stepper progression for the auto-stop silence setting.
+     * Below 10 s, steps in 1 s increments (0 = Off, 1 s, 2 s, ... 10 s).
+     * Above 10 s, steps in 5 s increments (10 s, 15 s, ... 300 s).
+     */
+    fun nextStopSeconds(current: Float): Float {
+        if (current >= STOP_MAX_SECONDS) return STOP_MAX_SECONDS
+        return if (current < 10f) {
+            ((current + 1f).roundToInt().toFloat()).coerceIn(STOP_MIN_SECONDS, STOP_MAX_SECONDS)
+        } else {
+            val rem = current % 5f
+            val next = if (rem == 0f) current + 5f else current + (5f - rem)
+            next.coerceIn(STOP_MIN_SECONDS, STOP_MAX_SECONDS)
+        }
+    }
+
+    fun prevStopSeconds(current: Float): Float {
+        if (current <= STOP_MIN_SECONDS) return STOP_MIN_SECONDS
+        return if (current <= 10f) {
+            ((current - 1f).roundToInt().toFloat()).coerceIn(STOP_MIN_SECONDS, STOP_MAX_SECONDS)
+        } else {
+            val rem = current % 5f
+            val prev = if (rem == 0f) current - 5f else current - rem
+            prev.coerceIn(STOP_MIN_SECONDS, STOP_MAX_SECONDS)
+        }
+    }
 
     /**
      * Number of *interior* stops for a range that should land on [step] increments. A slider with

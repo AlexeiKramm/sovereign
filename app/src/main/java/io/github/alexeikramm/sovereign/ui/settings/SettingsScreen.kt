@@ -476,22 +476,12 @@ fun SettingsScreen(
                         valueLabel = SettingsControls.formatSeconds(stopSeconds),
                         onMinusClick = {
                             viewModel.setStopAfterSilenceSeconds(
-                                SettingsControls.snap(
-                                    stopSeconds - 1.0f,
-                                    SettingsControls.STOP_MIN_SECONDS,
-                                    SettingsControls.STOP_MAX_SECONDS,
-                                    1.0f,
-                                )
+                                SettingsControls.prevStopSeconds(stopSeconds)
                             )
                         },
                         onPlusClick = {
                             viewModel.setStopAfterSilenceSeconds(
-                                SettingsControls.snap(
-                                    stopSeconds + 1.0f,
-                                    SettingsControls.STOP_MIN_SECONDS,
-                                    SettingsControls.STOP_MAX_SECONDS,
-                                    1.0f,
-                                )
+                                SettingsControls.nextStopSeconds(stopSeconds)
                             )
                         },
                         minusEnabled = stopSeconds > SettingsControls.STOP_MIN_SECONDS,
