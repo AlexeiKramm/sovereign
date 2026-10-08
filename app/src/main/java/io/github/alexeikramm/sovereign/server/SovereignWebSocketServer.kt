@@ -15,11 +15,24 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.java_websocket.WebSocket
+import org.java_websocket.drafts.Draft
 import org.java_websocket.drafts.Draft_6455
 import org.java_websocket.framing.CloseFrame
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.DefaultSSLWebSocketServerFactory
 import org.java_websocket.server.WebSocketServer
+
+/**
+ * The drafts the transport serves with. Uses the 2-arg `Draft_6455(extensions, maxFrameSize)` overload,
+ * NOT the 3-arg `(extensions, protocols, maxFrameSize)` one: `Draft_6455.acceptHandshakeAsServer`
+ * requires a matched protocol AND a matched extension, and the 2-arg overload supplies the default
+ * `Protocol("")` that matches any client. An explicit empty protocol list returns `NOT_MATCHED` for
+ * every handshake, so the server answers every upgrade with "404 WebSocket Upgrade Failure"
+ * (`WebSocketImpl.closeConnectionDueToWrongHandshake`) — a live-but-dead listener. Only the frame-size
+ * cap is overridden; extensions/protocols stay at their defaults. Internal so a host test can pin the
+ * handshake contract: a broken draft still *constructs*, so construction alone proves nothing.
+ */
+internal fun serverDrafts(): List<Draft> = listOf(Draft_6455(emptyList(), ServerProtocol.MAX_FRAME_BYTES))
 
 /**
  * The pinned-TLS `wss://` endpoint (PROTOCOL.md §1): Java-WebSocket bound to `port` and serving the
@@ -49,7 +62,7 @@ class SovereignWebSocketServer(
     private val arbiter: SessionArbiter = SessionArbiter.shared,
 ) : WebSocketServer(
     InetSocketAddress(boundPort),
-    listOf(Draft_6455(emptyList(), emptyList(), ServerProtocol.MAX_FRAME_BYTES)),
+    serverDrafts(),
 ) {
 
     private class Connection(

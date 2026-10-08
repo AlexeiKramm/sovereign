@@ -2,16 +2,24 @@ package io.github.alexeikramm.sovereign.server
 
 import io.github.alexeikramm.sovereign.data.PairedDevice
 import kotlinx.coroutines.Dispatchers
+import org.java_websocket.enums.HandshakeState
+import org.java_websocket.enums.Role
+import org.java_websocket.handshake.HandshakeImpl1Client
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * Constructing the transport must not throw. Java-WebSocket 1.6.0's `WebSocketServer(address, int,
- * drafts)` treats the `int` as a **decoder-thread count** and requires >= 1, so an earlier revision
- * that passed `0` there aborted server startup with `IllegalArgumentException`; this pins the
- * drafts-carrying two-argument form and the bounded `Draft_6455`.
+ * Pins the transport's construction *and* its WebSocket handshake contract — the two are not the
+ * same, and an earlier revision proved it: the bounded `Draft_6455` was built with an **empty
+ * protocol list**, and `Draft_6455.acceptHandshakeAsServer` requires a matched protocol AND a matched
+ * extension, so the server answered every upgrade with `404 WebSocket Upgrade Failure`. Construction
+ * still succeeded, so only a handshake-level assertion catches this.
+ *
+ * It also pins Java-WebSocket 1.6.0's `WebSocketServer(address, int, drafts)`, whose `int` is a
+ * **decoder-thread count** requiring >= 1 — the reason the drafts-carrying two-argument form is used.
  */
 class SovereignWebSocketServerConstructionTest {
 
@@ -51,5 +59,20 @@ class SovereignWebSocketServerConstructionTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun `the served draft matches a standard client handshake`() {
+        // Mirror the server's own decode path: copyInstance() then setParseMode(SERVER) before accept.
+        val draft = serverDrafts().single().copyInstance()
+        draft.setParseMode(Role.SERVER)
+        val handshake = HandshakeImpl1Client().apply {
+            resourceDescriptor = ServerProtocol.PATH
+            put("Upgrade", "websocket")
+            put("Connection", "Upgrade")
+            put("Sec-WebSocket-Version", "13")
+            put("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+        }
+        assertEquals(HandshakeState.MATCHED, draft.acceptHandshakeAsServer(handshake))
     }
 }
