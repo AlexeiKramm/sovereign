@@ -315,8 +315,15 @@ class SovereignWebSocketServer(
         /** Un-handshaken sockets allowed to pile up before the listener refuses more. */
         const val MAX_PENDING_CONNECTIONS = 16
 
-        /** A connection silent this long (>> the 5 s client PING) is treated as dead. */
-        const val IDLE_TIMEOUT_MS = 20_000L
-        const val IDLE_SWEEP_MS = 5_000L
+        /**
+         * A connection silent this long is treated as dead. It must exceed the client's **idle** PING
+         * interval (D-131: ~30–60 s when idle) so a healthy idle link is never reaped; a genuinely
+         * gone peer is still cleared within a couple of minutes. A refused link no longer relies on
+         * this at all — `AUTH_FAIL` closes it at once (D-133).
+         */
+        const val IDLE_TIMEOUT_MS = 90_000L
+
+        /** How often the sweep runs. Coarse by design (CHUNK-5/D-132); it only reaps the truly dead. */
+        const val IDLE_SWEEP_MS = 30_000L
     }
 }

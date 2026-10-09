@@ -539,21 +539,12 @@ private fun ReadyWave(
     color: Color,
     modifier: Modifier = Modifier,
 ) {
-    val phase = remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(Unit) {
-        var lastNanos = withFrameNanos { it }
-        while (true) {
-            val nowNanos = withFrameNanos { it }
-            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-            lastNanos = nowNanos
-            phase.floatValue = (phase.floatValue + dtSeconds * WaterSurface.OMEGA_READY) % TWO_PI
-        }
-    }
-
+    // Static at rest (CHUNK-5/D-132): the pill's READY mark is a fixed water surface, not a
+    // `withFrameNanos` loop. A pill sitting idle must schedule no frames; only a live capture
+    // (RecordingWave) animates.
     Canvas(modifier) {
         drawWaterSurface(
-            values = WaterSurface.readySamples(phase = phase.floatValue),
+            values = WaterSurface.readySamples(phase = 0f),
             color = color,
             strokeWidth = PillLayout.MARK_STROKE_DP.dp,
         )
