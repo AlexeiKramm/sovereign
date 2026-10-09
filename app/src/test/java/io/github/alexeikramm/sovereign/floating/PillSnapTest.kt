@@ -317,8 +317,8 @@ class PillSnapTest {
     }
 
     @Test
-    fun `DRAG_MARGIN_DP is one third tighter than the original 8dp`() {
-        // 8dp reduced by one third = 16/3dp = 5.333dp.
-        assertEquals(8f * 2f / 3f, PillDock.DRAG_MARGIN_DP, 0.001f)
+    fun `DRAG_MARGIN_DP is half the original 8dp`() {
+        // 8dp reduced by one half = 4dp.
+        assertEquals(4f, PillDock.DRAG_MARGIN_DP, 0.001f)
     }
 }

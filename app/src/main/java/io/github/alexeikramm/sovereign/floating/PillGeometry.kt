@@ -261,11 +261,10 @@ object PillDock {
     const val DEFAULT_BOTTOM_OFFSET_DP = 90f
 
     /**
-     * Keeps the pill's edge off the very screen edge after a drag. Reduced by one third from the
-     * original 8dp (→ 16/3dp ≈ 5.33dp), applied on both axes and to both the resting dock and the
-     * drag clamp.
+     * Keeps the pill's edge off the very screen edge after a drag. Half the original 8dp (→ 4dp),
+     * applied on both axes and to both the resting dock and the drag clamp.
      */
-    const val DRAG_MARGIN_DP = 16f / 3f
+    const val DRAG_MARGIN_DP = 4f
 
     fun defaultPosition(density: Float): PillPoint = PillPoint(
         x = (DEFAULT_INSET_DP * density).toInt(),
