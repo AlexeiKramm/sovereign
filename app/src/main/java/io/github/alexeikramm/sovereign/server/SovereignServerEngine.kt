@@ -194,9 +194,16 @@ class SovereignServerEngine(
             emit(MessageType.AUTH_FAIL, AuthFailPayload(AuthFailReason.PROTO_VERSION))
             return
         }
-        val device = pairing.authenticate(p.deviceId, p.token)
+        val device = pairing.matchToken(p.deviceId, p.token)
         if (device == null) {
             emit(MessageType.AUTH_FAIL, AuthFailPayload(AuthFailReason.BAD_TOKEN))
+            return
+        }
+        if (!device.enabled) {
+            // Known client, valid token, but switched off in Server settings (D-133): say so with the
+            // reason the protocol already defines, rather than the generic BAD_TOKEN. The token was
+            // verified first, so this leaks nothing about which ids are paired.
+            emit(MessageType.AUTH_FAIL, AuthFailPayload(AuthFailReason.DISABLED))
             return
         }
         authenticatedDevice = device

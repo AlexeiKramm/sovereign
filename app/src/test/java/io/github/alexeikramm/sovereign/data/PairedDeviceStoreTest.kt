@@ -77,6 +77,18 @@ class PairedDeviceStoreTest {
     }
 
     @Test
+    fun `matchToken matches a disabled device while authenticate refuses it`() {
+        val store = store()
+        store.upsert(device("a", "tok-a"))
+        store.setEnabled("a", false)
+
+        assertEquals("a", store.matchToken("a", "tok-a")?.deviceId)
+        assertNull(store.matchToken("a", "wrong"))
+        assertNull(store.matchToken("other", "tok-a"))
+        assertNull(store.authenticate("a", "tok-a"))
+    }
+
+    @Test
     fun `the token is never written in the clear`() {
         val token = "TOKEN-SENTINEL-0f8a1c27"
         store().upsert(device("a", token))

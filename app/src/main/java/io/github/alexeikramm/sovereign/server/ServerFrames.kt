@@ -66,4 +66,17 @@ object ServerFrames {
             )
         }
     }
+
+    /**
+     * Whether the transport must close the link after sending [message] (PROTOCOL.md §5/§8):
+     * `AUTH_FAIL` and any `fatal` `ERROR` are terminal for the connection. Closing a refused client is
+     * not just polite — an un-closed refusal lingers in the transport's connection map and eats a
+     * slot; on device that piled up to the cap and refused **every** reconnect until the server
+     * restarted (D-133).
+     */
+    fun closesConnection(message: ServerMessage): Boolean = when (message.type) {
+        MessageType.AUTH_FAIL -> true
+        MessageType.ERROR -> (message.payload as? ErrorPayload)?.fatal == true
+        else -> false
+    }
 }

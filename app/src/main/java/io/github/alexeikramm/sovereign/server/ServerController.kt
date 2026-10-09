@@ -30,4 +30,17 @@ object ServerController {
     fun stop(context: Context) {
         context.stopService(Intent(context, SovereignServerService::class.java))
     }
+
+    /**
+     * Drops [deviceId]'s live connection if the server is running (D-133): switching a client off in
+     * Server settings revokes the session at once. A no-op when the server is down — the persisted
+     * `PairedDevice.enabled` already refuses the next connect, so there is nothing live to close.
+     */
+    fun disconnectClient(context: Context, deviceId: String) {
+        if (ServerRuntime.shared.snapshot().lifecycle != ServerLifecycle.RUNNING) return
+        val intent = Intent(context, SovereignServerService::class.java)
+            .setAction(SovereignServerService.ACTION_DISCONNECT_CLIENT)
+            .putExtra(SovereignServerService.EXTRA_DEVICE_ID, deviceId)
+        context.startService(intent)
+    }
 }

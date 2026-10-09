@@ -323,6 +323,26 @@ class SovereignServerEngineTest {
         assertTrue(h.ofType(MessageType.AUTH_FAIL).isEmpty())
     }
 
+    @Test
+    fun `a known but disabled client is refused with DISABLED`() = runTest {
+        val h = Harness(this)
+        // Pair the device, then switch it off in the registry, before it authenticates (D-133).
+        h.send(MessageType.PAIR_HELLO, PairHelloPayload(DEVICE_ID, "Desktop", ServerProtocol.VERSION))
+        val nonce = h.lastPayload<PairChallengePayload>(MessageType.PAIR_CHALLENGE).serverNonce
+        advanceUntilIdle()
+        val token = h.lastPayload<PairResponsePayload>(MessageType.PAIR_RESPONSE).token
+        h.send(MessageType.PAIR_DONE, PairDonePayload(PairingProof.compute(token, nonce)))
+        h.pairing.disable(DEVICE_ID)
+
+        h.send(MessageType.HELLO, HelloPayload(token, DEVICE_ID, ServerProtocol.VERSION, emptyList()))
+
+        assertEquals(AuthFailReason.DISABLED, h.lastPayload<AuthFailPayload>(MessageType.AUTH_FAIL).reason)
+        assertTrue(h.ofType(MessageType.WELCOME).isEmpty())
+        // It never reaches READY: a session message is still refused as AUTH_REQUIRED.
+        h.send(MessageType.START_DICTATION, StartDictationPayload("req-1", DictationMode.HOLD))
+        assertEquals(ErrorCode.AUTH_REQUIRED, h.lastPayload<ErrorPayload>(MessageType.ERROR).code)
+    }
+
     // --- fakes --------------------------------------------------------------------------------
 
     private class FakeCaptureHost : CaptureHost {
@@ -370,6 +390,14 @@ class SovereignServerEngineTest {
 
         override fun authenticate(deviceId: String, token: String): PairedDevice? =
             devices[deviceId]?.takeIf { it.enabled && it.token == token }
+
+        override fun matchToken(deviceId: String, token: String): PairedDevice? =
+            devices[deviceId]?.takeIf { it.token == token }
+
+        /** Switch a paired device off, as Server settings does (D-133). */
+        fun disable(deviceId: String) {
+            devices[deviceId]?.let { devices[deviceId] = it.copy(enabled = false) }
+        }
 
         override fun lockoutRemainingMs(): Long = lockoutMs
 

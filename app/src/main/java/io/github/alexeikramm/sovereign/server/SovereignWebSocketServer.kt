@@ -120,9 +120,17 @@ class SovereignWebSocketServer(
                 delay(IDLE_SWEEP_MS)
                 val now = SystemClock.elapsedRealtime()
                 connections.forEach { (conn, connection) ->
-                    if (now - connection.lastFrameMs > IDLE_TIMEOUT_MS) {
+                    if (now - connection.lastFrameMs <= IDLE_TIMEOUT_MS) return@forEach
+                    if (conn.isOpen) {
                         Log.i(TAG, "Closing an idle connection (no frame in ${IDLE_TIMEOUT_MS}ms)")
                         runCatching { conn.close(CloseFrame.POLICY_VALIDATION, "idle") }
+                    } else {
+                        // A socket Java-WebSocket has already given up on: `close()` no-ops and
+                        // `onClose` never runs, so the entry would sit in the map and eat a connection
+                        // slot. Found on device: refused reconnects piled up to MAX_CONNECTIONS and
+                        // every reconnect was refused until the server restarted (D-133).
+                        Log.i(TAG, "Evicting a dead connection (no frame in ${IDLE_TIMEOUT_MS}ms)")
+                        detach(conn)
                     }
                 }
             }
@@ -151,7 +159,15 @@ class SovereignWebSocketServer(
                 pairing = pairing,
                 capture = capture,
                 scope = connectionScope,
-                sink = { message -> send(conn, message) },
+                // Send, then close the link when the protocol says the refusal is terminal (D-133):
+                // AUTH_FAIL / a fatal ERROR must not leave the socket lingering in `connections`.
+                sink = { message ->
+                    send(conn, message)
+                    if (ServerFrames.closesConnection(message)) {
+                        Log.i(TAG, "Closing after ${message.type.wire}")
+                        runCatching { conn.close(CloseFrame.POLICY_VALIDATION, message.type.wire) }
+                    }
+                },
                 onAuthenticated = { device ->
                     runtime.onClientConnected(device.deviceId, device.name, remoteAddress(conn))
                 },
@@ -214,14 +230,24 @@ class SovereignWebSocketServer(
     }
 
     override fun onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean) {
-        val connection = connections.remove(conn) ?: return
+        if (detach(conn) == null) return
         Log.i(TAG, "Connection closed: code=$code reason=$reason remote=$remote (${connections.size} active)")
+    }
+
+    /**
+     * Removes [conn] from the live map and runs its one-time teardown — connection count, dashboard
+     * list, engine close, scope cancel. Returns the removed [Connection], or null when it was already
+     * gone, so [onClose] and the idle sweep's eviction can never double-release a session.
+     */
+    private fun detach(conn: WebSocket): Connection? {
+        val connection = connections.remove(conn) ?: return null
         onConnectionCountChanged(connections.size)
         runtime.onClientDisconnected(connection.engine.authenticatedDevice?.deviceId)
         scope.launch {
             connection.engine.onTransportClosed()
             connection.scope.cancel()
         }
+        return connection
     }
 
     override fun onError(conn: WebSocket?, ex: Exception) {
@@ -236,6 +262,21 @@ class SovereignWebSocketServer(
     fun shutdown() {
         runCatching { stop(1000) }.onFailure { Log.w(TAG, "Server stop reported", it) }
         scope.cancel()
+    }
+
+    /**
+     * Closes the authenticated connection belonging to [deviceId], if one is open (D-133): switching a
+     * client off in Server settings must revoke a **live** session, not only the next connect attempt.
+     * The close runs through [onClose], so the dictation session/arbiter is released and the
+     * dashboard's client list updates like any other disconnect. Returns whether one was found.
+     */
+    fun disconnectDevice(deviceId: String): Boolean {
+        val match = connections.entries.firstOrNull {
+            it.value.engine.authenticatedDevice?.deviceId == deviceId
+        } ?: return false
+        Log.i(TAG, "Closing the connection for disabled client $deviceId")
+        runCatching { match.key.close(CloseFrame.POLICY_VALIDATION, "client disabled") }
+        return true
     }
 
     private fun send(conn: WebSocket, message: ServerMessage) {

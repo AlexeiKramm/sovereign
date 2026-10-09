@@ -70,4 +70,27 @@ class ServerFramesTest {
         assertEquals(ErrorCode.INTERNAL, error.code)
         assertFalse(error.fatal)
     }
+
+    @Test
+    fun `a terminal outbound message closes the link`() {
+        // AUTH_FAIL and a fatal ERROR end the connection; benign frames do not (D-133).
+        assertTrue(
+            ServerFrames.closesConnection(
+                ServerMessage(MessageType.AUTH_FAIL, "id", 0L, AuthFailPayload(AuthFailReason.DISABLED)),
+            ),
+        )
+        assertTrue(
+            ServerFrames.closesConnection(
+                ServerMessage(MessageType.ERROR, "id", 0L, ErrorPayload(ErrorCode.AUTH_REQUIRED, "nope", fatal = true)),
+            ),
+        )
+        assertFalse(
+            ServerFrames.closesConnection(
+                ServerMessage(MessageType.ERROR, "id", 0L, ErrorPayload(ErrorCode.INTERNAL, "soft", fatal = false)),
+            ),
+        )
+        assertFalse(
+            ServerFrames.closesConnection(ServerMessage(MessageType.PING, "id", 0L, PingPayload(1L))),
+        )
+    }
 }

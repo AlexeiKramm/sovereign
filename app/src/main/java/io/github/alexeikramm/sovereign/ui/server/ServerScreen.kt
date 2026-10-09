@@ -128,6 +128,9 @@ fun ServerScreen(
             pairedDevices = pairedDevices,
             onTogglePaired = { deviceId, enabled ->
                 pairedStore.setEnabled(deviceId, enabled)
+                // Switching a client off revokes a *live* session at once (D-133); enabling only
+                // affects its next connect, so there is nothing to disconnect.
+                if (!enabled) ServerController.disconnectClient(context, deviceId)
                 reloadPairedDevices()
             },
             onUnpair = { deviceId ->
@@ -498,10 +501,16 @@ private fun ClientRowItem(
 ) {
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val okColor = if (isDark) ColorRoles.OkDark else ColorRoles.OkLight
+    // Disabled wins (D-133): a switched-off client is grey even while its socket is still closing.
     val dotColor = when {
-        row.connected -> okColor
         !row.enabled -> MaterialTheme.colorScheme.outline
+        row.connected -> okColor
         else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val nameColor = if (row.enabled) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Row(
@@ -517,7 +526,7 @@ private fun ClientRowItem(
                 text = row.name,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = nameColor,
             )
             Text(
                 text = ServerClients.statusLabel(row),

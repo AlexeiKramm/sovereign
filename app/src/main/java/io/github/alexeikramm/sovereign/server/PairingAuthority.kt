@@ -64,6 +64,13 @@ interface PairingAuthority {
     /** The device if [token] is valid and enabled, else null. */
     fun authenticate(deviceId: String, token: String): PairedDevice?
 
+    /**
+     * The device if [token] matches, **regardless of [PairedDevice.enabled]**, else null. It lets the
+     * engine distinguish a known-but-disabled client (`AUTH_FAIL(DISABLED)`) from an unknown one
+     * (`BAD_TOKEN`); implementations must still verify [token].
+     */
+    fun matchToken(deviceId: String, token: String): PairedDevice?
+
     /** Milliseconds until pairing is accepted again; 0 when not locked out. */
     fun lockoutRemainingMs(): Long
 
@@ -143,6 +150,9 @@ class RegistryPairingAuthority(
 
     override fun authenticate(deviceId: String, token: String): PairedDevice? =
         store.authenticate(deviceId, token)
+
+    override fun matchToken(deviceId: String, token: String): PairedDevice? =
+        store.matchToken(deviceId, token)
 
     override fun lockoutRemainingMs(): Long {
         val remaining = lockedUntilMs - now()

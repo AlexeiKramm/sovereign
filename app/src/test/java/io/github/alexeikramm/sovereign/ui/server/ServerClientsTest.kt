@@ -53,6 +53,18 @@ class ServerClientsTest {
     }
 
     @Test
+    fun aDisabledClientReadsDisabledEvenWhileStillConnected() {
+        // D-133: the brief window before the live socket closes must not read "Connected".
+        val row = ServerClients.rows(
+            paired = listOf(paired("a", "Foxtop", enabled = false)),
+            connected = listOf(connected("a", "Foxtop")),
+        ).single()
+        assertTrue(row.connected)
+        assertFalse(row.enabled)
+        assertEquals("Disabled", ServerClients.statusLabel(row))
+    }
+
+    @Test
     fun connectedClientWithoutARegistryEntryIsShownReadOnly() {
         val rows = ServerClients.rows(
             paired = emptyList(),

@@ -32,6 +32,7 @@ class SovereignWebSocketServerConstructionTest {
         override suspend fun approve(deviceId: String, name: String) = PairingDecision.APPROVED
         override fun issue(deviceId: String, name: String) = PairedDevice(deviceId, name, "token")
         override fun authenticate(deviceId: String, token: String): PairedDevice? = null
+        override fun matchToken(deviceId: String, token: String): PairedDevice? = null
         override fun lockoutRemainingMs() = 0L
         override fun attemptsRemaining() = 5
         override fun recordFailedProof() {}

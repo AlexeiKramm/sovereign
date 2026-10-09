@@ -48,10 +48,14 @@ object ServerClients {
         return pairedRows + orphanRows
     }
 
-    /** The short status word for a row: connection wins, then the enable switch. */
+    /**
+     * The short status word for a row. **Disabled wins** (D-133): a client switched off reads
+     * "Disabled" even in the brief window before its live socket has closed, so the row never claims
+     * a revoked client is connected.
+     */
     fun statusLabel(row: ClientRow): String = when {
-        row.connected -> "Connected"
         !row.enabled -> "Disabled"
+        row.connected -> "Connected"
         else -> "Offline"
     }
 }

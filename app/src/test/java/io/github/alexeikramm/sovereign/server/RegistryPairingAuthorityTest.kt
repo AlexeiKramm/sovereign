@@ -128,4 +128,17 @@ class RegistryPairingAuthorityTest {
         store().remove("desk-1")
         assertNull(pairing.authenticate("desk-1", device.token))
     }
+
+    @Test
+    fun `matchToken still finds a disabled device`() = runTest {
+        val pairing = authority(FakePrompter(answer = true))
+        pairing.approve("desk-1", "Desktop")
+        val device = pairing.issue("desk-1", "Desktop")
+
+        store().setEnabled("desk-1", false)
+
+        assertEquals("desk-1", pairing.matchToken("desk-1", device.token)?.deviceId)
+        assertNull(pairing.matchToken("desk-1", "nope"))
+        assertNull(pairing.authenticate("desk-1", device.token))
+    }
 }

@@ -69,6 +69,15 @@ class SovereignServerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A command on a live server (D-133), not a start: close a client that was just switched off in
+        // Server settings. Delivered with startService while the service is already foreground.
+        if (intent?.action == ACTION_DISCONNECT_CLIENT) {
+            intent.getStringExtra(EXTRA_DEVICE_ID)?.let { id ->
+                Log.i(TAG, "Disconnect requested for client $id")
+                server?.disconnectDevice(id)
+            }
+            return START_NOT_STICKY
+        }
         if (running) {
             Log.i(TAG, "Already serving; ignoring repeat start")
             return START_NOT_STICKY
@@ -334,5 +343,11 @@ class SovereignServerService : Service() {
 
         /** Optional override for the device walkthrough / the dashboard's timeout selector. */
         const val EXTRA_TIMEOUT_MINUTES = "timeout_minutes"
+
+        /** Command action (D-133): close the live connection for [EXTRA_DEVICE_ID]. */
+        const val ACTION_DISCONNECT_CLIENT = "io.github.alexeikramm.sovereign.action.DISCONNECT_CLIENT"
+
+        /** The client to drop, for [ACTION_DISCONNECT_CLIENT]. */
+        const val EXTRA_DEVICE_ID = "device_id"
     }
 }

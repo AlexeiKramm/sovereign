@@ -113,13 +113,23 @@ class PairedDeviceStore(
     fun remove(deviceId: String) =
         save(load().filterNot { it.deviceId == deviceId })
 
+    /**
+     * The device whose id and token match, **regardless of [PairedDevice.enabled]** (constant-time
+     * token compare), else null. [authenticate] is this plus the enabled check; the split lets the
+     * engine answer a known-but-disabled client `AUTH_FAIL(DISABLED)` instead of the generic
+     * `BAD_TOKEN`, without leaking which ids are paired — the caller must already hold the token.
+     */
+    @Synchronized
+    fun matchToken(deviceId: String, token: String): PairedDevice? =
+        load().firstOrNull {
+            it.deviceId == deviceId &&
+                MessageDigest.isEqual(it.token.toByteArray(Charsets.UTF_8), token.toByteArray(Charsets.UTF_8))
+        }
+
     /** The **enabled** device whose id and token match, else null (constant-time token compare). */
     @Synchronized
     fun authenticate(deviceId: String, token: String): PairedDevice? =
-        load().firstOrNull {
-            it.deviceId == deviceId && it.enabled &&
-                MessageDigest.isEqual(it.token.toByteArray(Charsets.UTF_8), token.toByteArray(Charsets.UTF_8))
-        }
+        matchToken(deviceId, token)?.takeIf { it.enabled }
 
     /** Whether any desktop is currently enabled — the mDNS `paired` hint (PROTOCOL.md §2). */
     @Synchronized
