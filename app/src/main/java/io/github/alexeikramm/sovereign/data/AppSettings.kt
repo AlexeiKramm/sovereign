@@ -325,6 +325,18 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putInt(KEY_SERVER_TIMEOUT_MIN, value) }
 
     /**
+     * Whether the Server active dashboard holds the display awake while it is open. Default on. This
+     * is a *convenience*: the server foreground service survives screen-off either way (D-105); the
+     * dashboard only avoids Doze/deep-sleep jitter and gives the phone a dim place to sit.
+     */
+    var serverKeepScreenAwake: Boolean
+        get() = prefs.getBoolean(
+            KEY_SERVER_KEEP_SCREEN_AWAKE,
+            DEFAULT_SERVER_KEEP_SCREEN_AWAKE,
+        )
+        set(value) = prefs.edit { putBoolean(KEY_SERVER_KEEP_SCREEN_AWAKE, value) }
+
+    /**
      * Number of sentences from the tail of the previous segment to rewrite and heal across pause cuts.
      * 0 disables rewriting (pure append-only mode). Default is 2.
      */
@@ -527,6 +539,7 @@ class AppSettings(context: Context) {
         private const val KEY_UNLOAD_KEYBOARD_CLOSE = "unload_keyboard_close"
         private const val KEY_IDLE_TIMEOUT_MIN = "model_idle_timeout_min"
         private const val KEY_SERVER_TIMEOUT_MIN = "server_timeout_min"
+        private const val KEY_SERVER_KEEP_SCREEN_AWAKE = "server_keep_screen_awake"
         private const val KEY_HEALING_SENTENCES_COUNT = "healing_sentences_count"
         private const val KEY_MAX_TURNS = "cleanup_max_turns"
         private const val KEY_FLOATING_PILL_ENABLED = "floating_pill_enabled"
@@ -600,6 +613,9 @@ class AppSettings(context: Context) {
         /** The desktop server's default session cap (2 h) and the dashboard's option list. */
         const val DEFAULT_SERVER_TIMEOUT_MIN = 120
         val SERVER_TIMEOUT_OPTIONS = listOf(60, 120, 0)
+
+        /** The Server active dashboard holds the display awake by default; see the property. */
+        const val DEFAULT_SERVER_KEEP_SCREEN_AWAKE = true
 
         /**
          * Boundary timings. D-037 raised the first tuned values (1.2 s / 1.8 s / 3.0 s) because a

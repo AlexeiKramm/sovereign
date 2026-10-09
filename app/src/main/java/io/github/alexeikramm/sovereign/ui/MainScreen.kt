@@ -196,28 +196,32 @@ fun MainScreen(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 bottomBar = {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ) {
-                        tabs.forEachIndexed { index, tab ->
-                            val isSelected = !showHistory && !showTranscribe && !showServer && (currentTabIndex == index)
-                            val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = { selectTab(index) },
-                                icon = {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = tab.title,
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.title,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                },
-                            )
+                    // The Server route is a full-bleed surface (server-active-screen PLAN.md): hide the
+                    // app's own bottom navigation too, so the keep-awake dashboard fills the screen.
+                    if (!showServer) {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        ) {
+                            tabs.forEachIndexed { index, tab ->
+                                val isSelected = !showHistory && !showTranscribe && !showServer && (currentTabIndex == index)
+                                val icon = if (isSelected) tab.selectedIcon else tab.unselectedIcon
+                                NavigationBarItem(
+                                    selected = isSelected,
+                                    onClick = { selectTab(index) },
+                                    icon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = tab.title,
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.title,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    },
+                                )
+                            }
                         }
                     }
                 },

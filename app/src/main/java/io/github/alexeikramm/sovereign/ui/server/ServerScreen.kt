@@ -49,6 +49,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,7 +86,6 @@ import java.util.Locale
  * All live values come from [ServerRuntime], which the foreground service publishes into; nothing
  * here invents state. Reached from the Home card or the server notification.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerScreen(
     modifier: Modifier = Modifier,
@@ -95,9 +95,12 @@ fun ServerScreen(
     val snapshot by ServerRuntime.shared.state.collectAsStateWithLifecycle()
     val settings = remember { AppSettings(context) }
     var timeoutMinutes by remember { mutableIntStateOf(settings.serverTimeoutMinutes) }
+    var keepScreenAwake by remember { mutableStateOf(settings.serverKeepScreenAwake) }
+    // The cog opens the settings panel; otherwise the hub shows the ON/OFF dashboard.
+    var showSettings by rememberSaveable { mutableStateOf(false) }
 
-    // The paired-desktop registry (Chunk 2b) is phone-local config: readable whether or not the
-    // server is up, and edited here. A pairing completed elsewhere shows up once a desktop connects.
+    // The paired-client registry (Chunk 2b) is phone-local config: readable whether or not the
+    // server is up. A pairing completed elsewhere shows up once a client connects.
     val pairedStore = remember { PairedDeviceStore(context) }
     var pairedDevices by remember { mutableStateOf(pairedStore.load()) }
     val pairingRequest by AppPairingPrompter.pending.collectAsStateWithLifecycle()
@@ -107,9 +110,71 @@ fun ServerScreen(
     LaunchedEffect(snapshot.clients) { reloadPairedDevices() }
 
     if (onNavigateUp != null) {
-        BackHandler { onNavigateUp() }
+        BackHandler { if (showSettings) showSettings = false else onNavigateUp() }
     }
 
+    if (showSettings) {
+        ServerSettingsPanel(
+            modifier = modifier,
+            snapshot = snapshot,
+            timeoutMinutes = timeoutMinutes,
+            onSelectTimeout = {
+                timeoutMinutes = it
+                settings.serverTimeoutMinutes = it
+            },
+            pairedDevices = pairedDevices,
+            onTogglePaired = { device, enabled ->
+                pairedStore.setEnabled(device.deviceId, enabled)
+                reloadPairedDevices()
+            },
+            onUnpair = { device ->
+                pairedStore.remove(device.deviceId)
+                reloadPairedDevices()
+            },
+            keepScreenAwake = keepScreenAwake,
+            onKeepScreenAwakeChange = {
+                keepScreenAwake = it
+                settings.serverKeepScreenAwake = it
+            },
+            onToggleServer = { enabled ->
+                if (enabled) ServerController.start(context, timeoutMinutes) else ServerController.stop(context)
+            },
+            onBack = { showSettings = false },
+        )
+    } else {
+        ServerHubBody(
+            modifier = modifier,
+            snapshot = snapshot,
+            keepScreenAwake = keepScreenAwake,
+            onOpenSettings = { showSettings = true },
+            onStart = { ServerController.start(context, timeoutMinutes) },
+            onStop = { ServerController.stop(context) },
+        )
+    }
+
+    pairingRequest?.let { request ->
+        PairingApprovalDialog(request = request) { approved ->
+            AppPairingPrompter.resolve(request.id, approved)
+            reloadPairedDevices()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ServerSettingsPanel(
+    snapshot: ServerSnapshot,
+    timeoutMinutes: Int,
+    onSelectTimeout: (Int) -> Unit,
+    pairedDevices: List<PairedDevice>,
+    onTogglePaired: (PairedDevice, Boolean) -> Unit,
+    onUnpair: (PairedDevice) -> Unit,
+    keepScreenAwake: Boolean,
+    onKeepScreenAwakeChange: (Boolean) -> Unit,
+    onToggleServer: (Boolean) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
@@ -122,16 +187,14 @@ fun ServerScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Desktop Server",
+                            text = "Server settings",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
                     },
                     navigationIcon = {
-                        if (onNavigateUp != null) {
-                            IconButton(onClick = onNavigateUp) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                            }
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
                     scrollBehavior = scrollBehavior,
@@ -154,39 +217,18 @@ fun ServerScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
-                ControlCard(
-                    snapshot = snapshot,
-                    onToggle = { enabled ->
-                        if (enabled) {
-                            ServerController.start(context, timeoutMinutes)
-                        } else {
-                            ServerController.stop(context)
-                        }
-                    },
-                )
+                ControlCard(snapshot = snapshot, onToggle = onToggleServer)
             }
 
             item {
-                TimeoutCard(
-                    selectedMinutes = timeoutMinutes,
-                    onSelect = {
-                        timeoutMinutes = it
-                        settings.serverTimeoutMinutes = it
-                    },
-                )
+                TimeoutCard(selectedMinutes = timeoutMinutes, onSelect = onSelectTimeout)
             }
 
             item {
                 PairedDevicesCard(
                     devices = pairedDevices,
-                    onToggle = { device, enabled ->
-                        pairedStore.setEnabled(device.deviceId, enabled)
-                        reloadPairedDevices()
-                    },
-                    onUnpair = { device ->
-                        pairedStore.remove(device.deviceId)
-                        reloadPairedDevices()
-                    },
+                    onToggle = onTogglePaired,
+                    onUnpair = onUnpair,
                 )
             }
 
@@ -195,15 +237,15 @@ fun ServerScreen(
             }
 
             item {
+                OptionsCard(
+                    keepScreenAwake = keepScreenAwake,
+                    onKeepScreenAwakeChange = onKeepScreenAwakeChange,
+                )
+            }
+
+            item {
                 DiagnosticsCard(snapshot = snapshot)
             }
-        }
-    }
-
-    pairingRequest?.let { request ->
-        PairingApprovalDialog(request = request) { approved ->
-            AppPairingPrompter.resolve(request.id, approved)
-            reloadPairedDevices()
         }
     }
 }
@@ -318,6 +360,45 @@ private fun statusSubtitle(snapshot: ServerSnapshot): String = when {
         "Serving · ${snapshot.clients.size} desktop connected"
     snapshot.lifecycle == ServerLifecycle.RUNNING -> "Waiting for a desktop to connect"
     else -> "Off — your phone is not serving"
+}
+
+// --- Options ---------------------------------------------------------------------------------
+
+@Composable
+private fun OptionsCard(keepScreenAwake: Boolean, onKeepScreenAwakeChange: (Boolean) -> Unit) {
+    Column {
+        SettingsSectionHeader(title = "OPTIONS")
+        SettingsGroupCard {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Keep screen awake",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Hold the display on while the server dashboard is open. The server " +
+                            "keeps running with the screen off either way.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = keepScreenAwake,
+                    onCheckedChange = onKeepScreenAwakeChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                    ),
+                )
+            }
+        }
+    }
 }
 
 // --- Session timeout -------------------------------------------------------------------------
