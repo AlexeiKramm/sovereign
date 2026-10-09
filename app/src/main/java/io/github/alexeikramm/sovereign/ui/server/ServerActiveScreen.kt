@@ -1,6 +1,8 @@
 package io.github.alexeikramm.sovereign.ui.server
 
 import android.app.Activity
+import android.os.SystemClock
+import android.view.View
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -9,6 +11,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,8 +32,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -38,6 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,6 +58,7 @@ import io.github.alexeikramm.sovereign.floating.WaterSurfaceWave
 import io.github.alexeikramm.sovereign.server.ServerLifecycle
 import io.github.alexeikramm.sovereign.server.ServerSnapshot
 import io.github.alexeikramm.sovereign.theme.ColorRoles
+import kotlinx.coroutines.delay
 
 /**
  * The Server route's full-bleed surface (server-active-screen CHUNK-1): the ON dashboard while
@@ -65,6 +74,7 @@ import io.github.alexeikramm.sovereign.theme.ColorRoles
 internal fun ServerHubBody(
     snapshot: ServerSnapshot,
     keepScreenAwake: Boolean,
+    dimWhenIdle: Boolean,
     onOpenSettings: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
@@ -74,6 +84,30 @@ internal fun ServerHubBody(
     val starting = snapshot.lifecycle == ServerLifecycle.STARTING
 
     val view = LocalView.current
+
+    // Idle dimming (CHUNK-2): after a spell with no touch, drop the window brightness hard; any
+    // touch restores it. The rule is pure (ServerIdleDim); the override is per-window and needs no
+    // permission.
+    var dimmed by remember { mutableStateOf(false) }
+    var interactionTick by remember { mutableIntStateOf(0) }
+    val onInteract: () -> Unit = {
+        dimmed = false
+        interactionTick++
+    }
+    LaunchedEffect(interactionTick, dimWhenIdle) {
+        dimmed = false
+        if (!dimWhenIdle) return@LaunchedEffect
+        val startMs = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(ServerIdleDim.POLL_MS)
+            if (ServerIdleDim.shouldDim(dimWhenIdle, SystemClock.elapsedRealtime() - startMs)) {
+                dimmed = true
+                break
+            }
+        }
+    }
+    LaunchedEffect(dimmed) { applyScreenBrightness(view, dimmed) }
+    DisposableEffect(Unit) { onDispose { applyScreenBrightness(view, false) } }
 
     // Immersive: hide the system bars so the clean AMOLED canvas is unbroken, and they cannot burn
     // in. Transient bars come back on a swipe; fully restored when the route is left.
@@ -107,6 +141,8 @@ internal fun ServerHubBody(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF07090B))
+            // Any touch anywhere wakes the dimmed screen; the wave's own tap resets too.
+            .pointerInput(Unit) { detectTapGestures { onInteract() } }
             .drawBehind {
                 // A whisper of the app's radial accent glow. Kept very low: a large static bright
                 // patch is exactly the AMOLED burn-in this screen exists to avoid.
@@ -165,7 +201,10 @@ internal fun ServerHubBody(
                         interactionSource = interaction,
                         indication = null,
                         enabled = !starting,
-                        onClick = { if (running) onStop() else onStart() },
+                        onClick = {
+                            onInteract()
+                            if (running) onStop() else onStart()
+                        },
                     ),
                 contentAlignment = Alignment.Center,
             ) {
@@ -280,4 +319,16 @@ private fun PulsingDot(color: Color, pulsing: Boolean) {
                 drawCircle(color = color.copy(alpha = if (pulsing) pulseAlpha else 0.45f))
             },
     )
+}
+
+/**
+ * Applies the dim override to the host window. A per-window `screenBrightness` override, so it
+ * lowers the panel's real luminance regardless of the user's system brightness, and needs no
+ * permission. A no-op when the view is not attached to an Activity.
+ */
+private fun applyScreenBrightness(view: View, dimmed: Boolean) {
+    val window = (view.context as? Activity)?.window ?: return
+    window.attributes = window.attributes.apply {
+        screenBrightness = ServerIdleDim.brightnessFor(dimmed)
+    }
 }

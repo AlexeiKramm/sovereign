@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -96,6 +97,7 @@ fun ServerScreen(
     val settings = remember { AppSettings(context) }
     var timeoutMinutes by remember { mutableIntStateOf(settings.serverTimeoutMinutes) }
     var keepScreenAwake by remember { mutableStateOf(settings.serverKeepScreenAwake) }
+    var dimWhenIdle by remember { mutableStateOf(settings.serverDimWhenIdle) }
     // The cog opens the settings panel; otherwise the hub shows the ON/OFF dashboard.
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
@@ -136,6 +138,11 @@ fun ServerScreen(
                 keepScreenAwake = it
                 settings.serverKeepScreenAwake = it
             },
+            dimWhenIdle = dimWhenIdle,
+            onDimWhenIdleChange = {
+                dimWhenIdle = it
+                settings.serverDimWhenIdle = it
+            },
             onToggleServer = { enabled ->
                 if (enabled) ServerController.start(context, timeoutMinutes) else ServerController.stop(context)
             },
@@ -146,6 +153,7 @@ fun ServerScreen(
             modifier = modifier,
             snapshot = snapshot,
             keepScreenAwake = keepScreenAwake,
+            dimWhenIdle = dimWhenIdle,
             onOpenSettings = { showSettings = true },
             onStart = { ServerController.start(context, timeoutMinutes) },
             onStop = { ServerController.stop(context) },
@@ -171,6 +179,8 @@ private fun ServerSettingsPanel(
     onUnpair: (PairedDevice) -> Unit,
     keepScreenAwake: Boolean,
     onKeepScreenAwakeChange: (Boolean) -> Unit,
+    dimWhenIdle: Boolean,
+    onDimWhenIdleChange: (Boolean) -> Unit,
     onToggleServer: (Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -240,6 +250,8 @@ private fun ServerSettingsPanel(
                 OptionsCard(
                     keepScreenAwake = keepScreenAwake,
                     onKeepScreenAwakeChange = onKeepScreenAwakeChange,
+                    dimWhenIdle = dimWhenIdle,
+                    onDimWhenIdleChange = onDimWhenIdleChange,
                 )
             }
 
@@ -365,39 +377,71 @@ private fun statusSubtitle(snapshot: ServerSnapshot): String = when {
 // --- Options ---------------------------------------------------------------------------------
 
 @Composable
-private fun OptionsCard(keepScreenAwake: Boolean, onKeepScreenAwakeChange: (Boolean) -> Unit) {
+private fun OptionsCard(
+    keepScreenAwake: Boolean,
+    onKeepScreenAwakeChange: (Boolean) -> Unit,
+    dimWhenIdle: Boolean,
+    onDimWhenIdleChange: (Boolean) -> Unit,
+) {
     Column {
         SettingsSectionHeader(title = "OPTIONS")
         SettingsGroupCard {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Keep screen awake",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Hold the display on while the server dashboard is open. The server " +
-                            "keeps running with the screen off either way.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
+            Column {
+                OptionRow(
+                    title = "Keep screen awake",
+                    subtitle = "Hold the display on while the server dashboard is open. The server " +
+                        "keeps running with the screen off either way.",
                     checked = keepScreenAwake,
                     onCheckedChange = onKeepScreenAwakeChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                    ),
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                )
+                OptionRow(
+                    title = "Dim when idle",
+                    subtitle = "After 10 seconds untouched, darken the screen to save power. " +
+                        "Tap anywhere to brighten.",
+                    checked = dimWhenIdle,
+                    onCheckedChange = onDimWhenIdleChange,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun OptionRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
     }
 }
 
