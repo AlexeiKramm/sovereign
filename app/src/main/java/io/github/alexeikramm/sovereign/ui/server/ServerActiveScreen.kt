@@ -3,12 +3,6 @@ package io.github.alexeikramm.sovereign.ui.server
 import android.app.Activity
 import android.os.SystemClock
 import android.view.View
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -22,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -55,9 +48,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.alexeikramm.sovereign.floating.WaterSurfaceWave
+import io.github.alexeikramm.sovereign.server.ServerClient
 import io.github.alexeikramm.sovereign.server.ServerLifecycle
 import io.github.alexeikramm.sovereign.server.ServerSnapshot
 import io.github.alexeikramm.sovereign.theme.ColorRoles
+import io.github.alexeikramm.sovereign.ui.components.PresenceDot
 import kotlinx.coroutines.delay
 
 /**
@@ -168,7 +163,7 @@ internal fun ServerHubBody(
             StatusChip(
                 running = running,
                 starting = starting,
-                clients = snapshot.clients.size,
+                clients = snapshot.clients,
                 error = snapshot.error,
                 onSurfaceVariant = onSurfaceVariant,
                 okColor = okColor,
@@ -246,7 +241,7 @@ internal fun ServerHubBody(
 private fun StatusChip(
     running: Boolean,
     starting: Boolean,
-    clients: Int,
+    clients: List<ServerClient>,
     error: String?,
     onSurfaceVariant: Color,
     okColor: Color,
@@ -267,14 +262,18 @@ private fun StatusChip(
             dotColor = accent
             pulsing = true
         }
-        running && clients > 0 -> {
-            label = if (clients == 1) "Serving · 1 client" else "Serving · $clients clients"
-            dotColor = okColor
+        running && clients.isEmpty() -> {
+            label = "Ready · waiting for a client"
+            dotColor = accent
             pulsing = true
         }
         running -> {
-            label = "Ready · waiting for a client"
-            dotColor = accent
+            label = if (clients.size == 1) {
+                "Serving · ${clients.first().name}"
+            } else {
+                "Serving · ${clients.size} clients"
+            }
+            dotColor = okColor
             pulsing = true
         }
         else -> {
@@ -288,7 +287,7 @@ private fun StatusChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PulsingDot(color = dotColor, pulsing = pulsing)
+        PresenceDot(color = dotColor, pulsing = pulsing)
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
@@ -297,28 +296,6 @@ private fun StatusChip(
             maxLines = 2,
         )
     }
-}
-
-@Composable
-private fun PulsingDot(color: Color, pulsing: Boolean) {
-    val transition = rememberInfiniteTransition(label = "presence")
-    val pulseAlpha by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pulse",
-    )
-
-    Box(
-        modifier = Modifier
-            .size(10.dp)
-            .drawBehind {
-                drawCircle(color = color.copy(alpha = if (pulsing) pulseAlpha else 0.45f))
-            },
-    )
 }
 
 /**

@@ -921,7 +921,7 @@ private fun DesktopServerCard(onOpenServer: () -> Unit) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Desktop server",
+                    text = "Server",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,

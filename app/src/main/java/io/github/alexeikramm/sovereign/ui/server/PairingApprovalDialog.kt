@@ -39,7 +39,7 @@ fun PairingApprovalDialog(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    text = "Check that this fingerprint matches the one shown on the desktop, then " +
+                    text = "Check that this fingerprint matches the one shown on the client, then " +
                         "approve.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

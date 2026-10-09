@@ -1,10 +1,6 @@
 package io.github.alexeikramm.sovereign.ui.server
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -19,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -28,9 +23,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Computer
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -55,10 +54,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,6 +71,8 @@ import io.github.alexeikramm.sovereign.server.ServerLifecycle
 import io.github.alexeikramm.sovereign.server.ServerPipeline
 import io.github.alexeikramm.sovereign.server.ServerRuntime
 import io.github.alexeikramm.sovereign.server.ServerSnapshot
+import io.github.alexeikramm.sovereign.theme.ColorRoles
+import io.github.alexeikramm.sovereign.ui.components.PresenceDot
 import io.github.alexeikramm.sovereign.ui.components.SettingsGroupCard
 import io.github.alexeikramm.sovereign.ui.components.SettingsIconBadge
 import io.github.alexeikramm.sovereign.ui.components.SettingsSectionHeader
@@ -125,12 +126,12 @@ fun ServerScreen(
                 settings.serverTimeoutMinutes = it
             },
             pairedDevices = pairedDevices,
-            onTogglePaired = { device, enabled ->
-                pairedStore.setEnabled(device.deviceId, enabled)
+            onTogglePaired = { deviceId, enabled ->
+                pairedStore.setEnabled(deviceId, enabled)
                 reloadPairedDevices()
             },
-            onUnpair = { device ->
-                pairedStore.remove(device.deviceId)
+            onUnpair = { deviceId ->
+                pairedStore.remove(deviceId)
                 reloadPairedDevices()
             },
             keepScreenAwake = keepScreenAwake,
@@ -175,8 +176,8 @@ private fun ServerSettingsPanel(
     timeoutMinutes: Int,
     onSelectTimeout: (Int) -> Unit,
     pairedDevices: List<PairedDevice>,
-    onTogglePaired: (PairedDevice, Boolean) -> Unit,
-    onUnpair: (PairedDevice) -> Unit,
+    onTogglePaired: (String, Boolean) -> Unit,
+    onUnpair: (String) -> Unit,
     keepScreenAwake: Boolean,
     onKeepScreenAwakeChange: (Boolean) -> Unit,
     dimWhenIdle: Boolean,
@@ -231,19 +232,16 @@ private fun ServerSettingsPanel(
             }
 
             item {
-                TimeoutCard(selectedMinutes = timeoutMinutes, onSelect = onSelectTimeout)
-            }
-
-            item {
-                PairedDevicesCard(
-                    devices = pairedDevices,
+                ClientsCard(
+                    paired = pairedDevices,
+                    connected = snapshot.clients,
                     onToggle = onTogglePaired,
                     onUnpair = onUnpair,
                 )
             }
 
             item {
-                ConnectedDevicesCard(clients = snapshot.clients)
+                TimeoutCard(selectedMinutes = timeoutMinutes, onSelect = onSelectTimeout)
             }
 
             item {
@@ -284,7 +282,7 @@ private fun ControlCard(snapshot: ServerSnapshot, onToggle: (Boolean) -> Unit) {
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Desktop server",
+                        text = "Server",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -310,57 +308,6 @@ private fun ControlCard(snapshot: ServerSnapshot, onToggle: (Boolean) -> Unit) {
                     ),
                 )
             }
-
-            if (running && !snapshot.endpoint.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                EndpointRow(snapshot.endpoint)
-            }
-        }
-    }
-}
-
-@Composable
-private fun EndpointRow(endpoint: String) {
-    val context = LocalContext.current
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "CONNECT ADDRESS",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.6.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = endpoint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            IconButton(
-                onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Sovereign server address", endpoint))
-                    Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
-                },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ContentCopy,
-                    contentDescription = "Copy address",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -368,9 +315,11 @@ private fun EndpointRow(endpoint: String) {
 private fun statusSubtitle(snapshot: ServerSnapshot): String = when {
     !snapshot.error.isNullOrBlank() -> snapshot.error
     snapshot.lifecycle == ServerLifecycle.STARTING -> "Starting…"
-    snapshot.lifecycle == ServerLifecycle.RUNNING && snapshot.clients.isNotEmpty() ->
-        "Serving · ${snapshot.clients.size} desktop connected"
-    snapshot.lifecycle == ServerLifecycle.RUNNING -> "Waiting for a desktop to connect"
+    snapshot.lifecycle == ServerLifecycle.RUNNING && snapshot.clients.size == 1 ->
+        "Serving · ${snapshot.clients.first().name}"
+    snapshot.lifecycle == ServerLifecycle.RUNNING && snapshot.clients.size > 1 ->
+        "Serving · ${snapshot.clients.size} clients"
+    snapshot.lifecycle == ServerLifecycle.RUNNING -> "Waiting for a client to connect"
     else -> "Off — your phone is not serving"
 }
 
@@ -487,130 +436,161 @@ private fun timeoutLabel(minutes: Int): String = when (minutes) {
     else -> "$minutes min"
 }
 
-// --- Connected devices -----------------------------------------------------------------------
+// --- Clients (registry joined with live connections) -------------------------------------------
 
 @Composable
-private fun ConnectedDevicesCard(clients: List<ServerClient>) {
+private fun ClientsCard(
+    paired: List<PairedDevice>,
+    connected: List<ServerClient>,
+    onToggle: (String, Boolean) -> Unit,
+    onUnpair: (String) -> Unit,
+) {
+    val rows = remember(paired, connected) { ServerClients.rows(paired, connected) }
+    var pendingUnpair by remember { mutableStateOf<PairedDevice?>(null) }
+
     Column {
-        SettingsSectionHeader(title = "CONNECTED DESKTOPS")
+        SettingsSectionHeader(title = "CLIENTS")
         SettingsGroupCard {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (clients.isEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Wifi,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "None connected. Start the server, then connect the desktop client.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+            Column {
+                if (rows.isEmpty()) {
+                    Text(
+                        text = "No clients yet. Start the server, then pair from the client app.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
                 } else {
-                    clients.forEach { client ->
-                        Column {
-                            Text(
-                                text = client.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
+                    rows.forEachIndexed { index, row ->
+                        if (index > 0) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                             )
-                            if (!client.address.isNullOrBlank()) {
-                                Text(
-                                    text = client.address,
-                                    fontSize = 11.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
+                        ClientRowItem(
+                            row = row,
+                            onToggle = { enabled -> onToggle(row.deviceId, enabled) },
+                            onUnpair = {
+                                pendingUnpair = paired.firstOrNull { it.deviceId == row.deviceId }
+                            },
+                        )
                     }
                 }
             }
+        }
+    }
+
+    pendingUnpair?.let { device ->
+        UnpairDialog(
+            device = device,
+            onDecision = { confirmed ->
+                if (confirmed) onUnpair(device.deviceId)
+                pendingUnpair = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun ClientRowItem(
+    row: ClientRow,
+    onToggle: (Boolean) -> Unit,
+    onUnpair: () -> Unit,
+) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val okColor = if (isDark) ColorRoles.OkDark else ColorRoles.OkLight
+    val dotColor = when {
+        row.connected -> okColor
+        !row.enabled -> MaterialTheme.colorScheme.outline
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PresenceDot(color = dotColor, pulsing = row.connected)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = row.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = ServerClients.statusLabel(row),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (row.paired) {
+            Switch(
+                checked = row.enabled,
+                onCheckedChange = onToggle,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+            RowMenu(onUnpair = onUnpair)
         }
     }
 }
 
-// --- Paired devices (registry) ----------------------------------------------------------------
-
 @Composable
-private fun PairedDevicesCard(
-    devices: List<PairedDevice>,
-    onToggle: (PairedDevice, Boolean) -> Unit,
-    onUnpair: (PairedDevice) -> Unit,
-) {
-    Column {
-        SettingsSectionHeader(title = "PAIRED DESKTOPS")
-        SettingsGroupCard {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                if (devices.isEmpty()) {
-                    Text(
-                        text = "No desktops paired. Start the server, then pair from the desktop app.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    devices.forEach { device ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = device.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    text = device.deviceId,
-                                    fontSize = 11.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Switch(
-                                checked = device.enabled,
-                                onCheckedChange = { onToggle(device, it) },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
-                                ),
-                            )
-                            IconButton(onClick = { onUnpair(device) }) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = "Unpair ${device.name}",
-                                    tint = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+private fun RowMenu(onUnpair: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "More options",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("Unpair") },
+                onClick = {
+                    open = false
+                    onUnpair()
+                },
+            )
         }
     }
+}
+
+@Composable
+private fun UnpairDialog(device: PairedDevice, onDecision: (Boolean) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onDecision(false) },
+        title = { Text("Unpair ${device.name}?") },
+        text = {
+            Text("This client will need to pair again before it can dictate.")
+        },
+        confirmButton = {
+            TextButton(onClick = { onDecision(true) }) {
+                Text("Unpair", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onDecision(false) }) { Text("Cancel") }
+        },
+    )
 }
 
 // --- Diagnostics -----------------------------------------------------------------------------
 
 @Composable
 private fun DiagnosticsCard(snapshot: ServerSnapshot) {
-    // The heartbeat age is a live number, so tick once a second while the screen is visible.
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    // The heartbeat age is a live number, so tick once a second while the section is open.
     var nowRealtimeMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(snapshot.lastHeartbeatRealtimeMs) {
+    LaunchedEffect(expanded, snapshot.lastHeartbeatRealtimeMs) {
+        if (!expanded) return@LaunchedEffect
         while (true) {
             nowRealtimeMs = SystemClock.elapsedRealtime()
             delay(1_000L)
@@ -620,62 +600,103 @@ private fun DiagnosticsCard(snapshot: ServerSnapshot) {
     val heartbeat = snapshot.lastHeartbeatRealtimeMs?.let { formatAgo(nowRealtimeMs - it) } ?: "—"
 
     Column {
-        SettingsSectionHeader(title = "PIPELINE")
-        SettingsGroupCard {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = stageColor(snapshot.stages).copy(alpha = 0.18f),
+        CollapsibleSectionHeader(
+            title = "DIAGNOSTICS",
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+        )
+        if (expanded) {
+            SettingsGroupCard {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Text(
-                        text = stageHeadline(snapshot.stages),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = stageColor(snapshot.stages),
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    STAGES.forEach { (stage, label) ->
-                        StagePill(label = label, active = stage in snapshot.stages)
+                    Surface(
+                        shape = CircleShape,
+                        color = stageColor(snapshot.stages).copy(alpha = 0.18f),
+                    ) {
+                        Text(
+                            text = stageHeadline(snapshot.stages),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = stageColor(snapshot.stages),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        )
                     }
-                }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TelemetryTile(
-                        label = "LAST ASR",
-                        value = snapshot.lastAsrMs?.let { "${it} ms" } ?: "—",
-                        modifier = Modifier.weight(1f),
-                    )
-                    TelemetryTile(
-                        label = "LAST CLEANUP",
-                        value = snapshot.lastCleanupMs?.let { "${it} ms" } ?: "—",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TelemetryTile(
-                        label = "WORDS",
-                        value = snapshot.committedWords.toString(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    TelemetryTile(
-                        label = "HEARTBEAT",
-                        value = heartbeat,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        STAGES.forEach { (stage, label) ->
+                            StagePill(label = label, active = stage in snapshot.stages)
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        TelemetryTile(
+                            label = "LAST ASR",
+                            value = snapshot.lastAsrMs?.let { "${it} ms" } ?: "—",
+                            modifier = Modifier.weight(1f),
+                        )
+                        TelemetryTile(
+                            label = "LAST CLEANUP",
+                            value = snapshot.lastCleanupMs?.let { "${it} ms" } ?: "—",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        TelemetryTile(
+                            label = "WORDS",
+                            value = snapshot.committedWords.toString(),
+                            modifier = Modifier.weight(1f),
+                        )
+                        TelemetryTile(
+                            label = "HEARTBEAT",
+                            value = heartbeat,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    // The manual fallback address (the desktop's `-addr` flag). Debug-only: the
+                    // tray pairs over mDNS/the subnet sweep and never asks for it (D-131/D-130).
+                    if (!snapshot.endpoint.isNullOrBlank()) {
+                        Text(
+                            text = "CONNECT ADDRESS\n${snapshot.endpoint}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CollapsibleSectionHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Collapse" else "Expand",
+            tint = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
