@@ -3,6 +3,7 @@ package io.github.alexeikramm.sovereign.floating
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -32,8 +33,14 @@ import kotlin.math.exp
 
 /** Which surface [WaterSurfaceWave] draws. */
 enum class WaveMark {
-    /** The static resting mark (two lobes a side). No frame clock — zero cost at rest. */
+    /** The static resting mark (two lobes a side), phase zero. No frame clock. */
     RESTING,
+
+    /**
+     * The resting mark, drifting right at [WaterSurface.OMEGA_READY] — the pill's "model is warm"
+     * cue. Runs a frame clock (it is motion by design, not a battery defect).
+     */
+    READY,
 
     /** The travelling recording wave, height following the mic level. */
     RECORDING,
@@ -57,8 +64,8 @@ fun WaterSurfaceWave(
     glow: Boolean = false,
     speedRadPerSecond: Float = WaterSurface.OMEGA_RECORDING,
 ) {
-    if (mark == WaveMark.RESTING) {
-        Canvas(modifier) {
+    when (mark) {
+        WaveMark.RESTING -> Canvas(modifier) {
             drawWaterSurface(
                 values = WaterSurface.restingSamples(),
                 color = color,
@@ -66,24 +73,57 @@ fun WaterSurfaceWave(
                 glowAlpha = 0f,
             )
         }
-    } else {
-        val level = rememberWaveLevel(audioLevel, glow, speedRadPerSecond)
-        Canvas(modifier) {
-            // Read the states inside the draw lambda so a frame invalidates drawing only.
-            val amplitude = if (glow) {
-                WaterSurface.amplitudeFor(level.fast * (1f - SWELL_MIX) + level.swell * SWELL_MIX)
-            } else {
-                WaterSurface.amplitudeFor(level.fast)
+
+        WaveMark.READY -> {
+            val phase = rememberDriftPhase(speedRadPerSecond)
+            Canvas(modifier) {
+                drawWaterSurface(
+                    values = WaterSurface.readySamples(phase = phase.floatValue),
+                    color = color,
+                    strokeWidth = strokeWidth,
+                    glowAlpha = 0f,
+                )
             }
-            drawWaterSurface(
-                values = WaterSurface.samples(phase = level.phase, amplitude = amplitude),
-                color = color,
-                strokeWidth = strokeWidth,
-                // The halo follows the slow swell, so it breathes rather than flickers.
-                glowAlpha = if (glow) level.swell * 0.9f else 0f,
-            )
+        }
+
+        WaveMark.RECORDING -> {
+            val level = rememberWaveLevel(audioLevel, glow, speedRadPerSecond)
+            Canvas(modifier) {
+                // Read the states inside the draw lambda so a frame invalidates drawing only.
+                val amplitude = if (glow) {
+                    WaterSurface.amplitudeFor(level.fast * (1f - SWELL_MIX) + level.swell * SWELL_MIX)
+                } else {
+                    WaterSurface.amplitudeFor(level.fast)
+                }
+                drawWaterSurface(
+                    values = WaterSurface.samples(phase = level.phase, amplitude = amplitude),
+                    color = color,
+                    strokeWidth = strokeWidth,
+                    // The halo follows the slow swell, so it breathes rather than flickers.
+                    glowAlpha = if (glow) level.swell * 0.9f else 0f,
+                )
+            }
         }
     }
+}
+
+/**
+ * A phase that advances at a constant [speedRadPerSecond] — the frame clock behind the drifting ready
+ * mark. Read only inside the `Canvas` draw lambda, so a frame invalidates drawing, not composition.
+ */
+@Composable
+private fun rememberDriftPhase(speedRadPerSecond: Float): MutableFloatState {
+    val phase = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(speedRadPerSecond) {
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            val nowNanos = withFrameNanos { it }
+            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+            lastNanos = nowNanos
+            phase.floatValue = (phase.floatValue + dtSeconds * speedRadPerSecond) % TWO_PI
+        }
+    }
+    return phase
 }
 
 /**

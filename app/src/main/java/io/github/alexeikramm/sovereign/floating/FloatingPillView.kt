@@ -423,13 +423,24 @@ fun MinimizedPillView(
             contentAlignment = Alignment.Center,
         ) {
             when (phase) {
-                // COLD and READY render identically now that the ready mark is static at rest
-                // (CHUNK-5): the same resting surface, no frame clock.
-                MinimizedPillPhase.COLD,
-                MinimizedPillPhase.READY -> {
+                MinimizedPillPhase.COLD -> {
                     WaterSurfaceWave(
                         color = waveColor,
                         mark = WaveMark.RESTING,
+                        modifier = Modifier.size(
+                            width = PillLayout.MARK_WIDTH_DP.dp,
+                            height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
+                        ),
+                    )
+                }
+
+                // The ready mark drifts at 2.77 rad/s (0.44 crests/s): the resting pill's "model is
+                // warm" cue, restored (D-135 — the battery work was the dashboard's, not the pill's).
+                MinimizedPillPhase.READY -> {
+                    WaterSurfaceWave(
+                        color = waveColor,
+                        mark = WaveMark.READY,
+                        speedRadPerSecond = WaterSurface.OMEGA_READY,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
