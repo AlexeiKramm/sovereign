@@ -7,6 +7,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
+ * The waveform stroke colour as ARGB. One literal, shared by [ColorRoles.WaveformDark] /
+ * [ColorRoles.WaveformLight] and the pill/card layouts' legacy `COLOR_WAVEFORM_*` mirrors, so the
+ * three names cannot drift (server-active-screen CHUNK-4).
+ */
+internal const val WAVEFORM_DARK_ARGB = 0xFFDB7F40L
+internal const val WAVEFORM_LIGHT_ARGB = 0xFFD55A1AL
+
+/**
  * Shared design tokens: the numbers that should be identical everywhere rather
  * than re-guessed per screen. Screens should reference these instead of
  * hard-coding durations, radii and gaps.
@@ -58,8 +66,8 @@ object ColorRoles {
     val AcceptGlyphDark = Color(0xFF1A1207)
     val AcceptGlyphLight = Color(0xFFFFFFFF)
 
-    val WaveformDark = Color(0xFFDB7F40)
-    val WaveformLight = Color(0xFFD55A1A)
+    val WaveformDark = Color(WAVEFORM_DARK_ARGB)
+    val WaveformLight = Color(WAVEFORM_LIGHT_ARGB)
 
     val OkDark = Color(0xFF4ADE80)
     val OkLight = Color(0xFF16A34A)

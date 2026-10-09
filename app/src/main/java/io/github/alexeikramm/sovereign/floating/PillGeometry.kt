@@ -1,6 +1,8 @@
 package io.github.alexeikramm.sovereign.floating
 
 import io.github.alexeikramm.sovereign.data.AppSettings
+import io.github.alexeikramm.sovereign.theme.WAVEFORM_DARK_ARGB
+import io.github.alexeikramm.sovereign.theme.WAVEFORM_LIGHT_ARGB
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.log10
@@ -79,10 +81,10 @@ object PillLayout {
     const val COLOR_ACCENT_LIGHT = 0xFFEA580CL
 
     /** Dark theme waveform color at 85% accent (#DB7F40). */
-    const val COLOR_WAVEFORM_DARK = 0xFFDB7F40L
+    const val COLOR_WAVEFORM_DARK = WAVEFORM_DARK_ARGB
 
     /** Light theme waveform color at 85% accent (#D55A1A). */
-    const val COLOR_WAVEFORM_LIGHT = 0xFFD55A1AL
+    const val COLOR_WAVEFORM_LIGHT = WAVEFORM_LIGHT_ARGB
 
     /** Dark theme OK / success role color (#4ADE80). */
     const val COLOR_OK_DARK = 0xFF4ADE80L
@@ -226,10 +228,10 @@ object CardLayout {
     const val COLOR_ACCEPT_GLYPH_LIGHT = 0xFFFFFFFFL
 
     /** Waveform color at 85% accent (Dark): #DB7F40. */
-    const val COLOR_WAVEFORM_DARK = 0xFFDB7F40L
+    const val COLOR_WAVEFORM_DARK = WAVEFORM_DARK_ARGB
 
     /** Waveform color at 85% accent (Light): #D55A1A. */
-    const val COLOR_WAVEFORM_LIGHT = 0xFFD55A1AL
+    const val COLOR_WAVEFORM_LIGHT = WAVEFORM_LIGHT_ARGB
 
     /** Ok / success status dot color (Dark): #4ADE80. */
     const val COLOR_OK_DARK = 0xFF4ADE80L

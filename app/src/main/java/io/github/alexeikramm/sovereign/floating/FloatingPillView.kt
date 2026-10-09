@@ -74,13 +74,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -99,7 +97,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.alexeikramm.sovereign.data.AppThemeMode
@@ -109,7 +106,6 @@ import io.github.alexeikramm.sovereign.theme.Radius
 import io.github.alexeikramm.sovereign.theme.Spacing
 import io.github.alexeikramm.sovereign.theme.SovereignTheme
 import io.github.alexeikramm.sovereign.ui.rememberPinnedToBottom
-import kotlin.math.exp
 import kotlinx.coroutines.withTimeoutOrNull
 
 enum class FloatingUiState {
@@ -146,33 +142,6 @@ enum class MinimizedPillPhase {
     ERROR,
     BUSY,
 }
-
-/**
- * The recording wave's phase speed, in radians per second — locked at [WaterSurface.OMEGA_RECORDING]
- * (1.2 crests/second).
- */
-private const val RIPPLE_RADIANS_PER_SECOND = WaterSurface.OMEGA_RECORDING
-
-/**
- * Fast level follower: two cascaded one-poles (≈ critically damped, no overshoot) with a prompt
- * attack and a softer release. Each pole is faster than the overall target by [TWO_POLE_CORRECTION].
- */
-private const val LEVEL_ATTACK_SECONDS = 0.08f
-private const val LEVEL_RELEASE_SECONDS = 0.30f
-private const val TWO_POLE_CORRECTION = 0.64f
-
-/**
- * Slow "swell" follower mixed into the fast one. This is what gives the wave the organic,
- * breathing quality of a modern assistant glow rather than a VU needle: the level never simply
- * tracks the signal, it drifts.
- */
-private const val SWELL_SECONDS = 1.8f
-private const val SWELL_MIX = 0.25f
-
-/** Additive glow passes behind the stroke, as (width multiple, alpha). Cheap stacked strokes. */
-private val GLOW_PASSES = listOf(2.4f to 0.22f, 4.6f to 0.09f)
-
-private const val TWO_PI = (2.0 * kotlin.math.PI).toFloat()
 
 /**
  * Width of the expanded card (and of the settings view that replaces it). Internal rather than
@@ -454,24 +423,13 @@ fun MinimizedPillView(
             contentAlignment = Alignment.Center,
         ) {
             when (phase) {
-                MinimizedPillPhase.COLD -> {
-                    Canvas(
-                        modifier = Modifier.size(
-                            width = PillLayout.MARK_WIDTH_DP.dp,
-                            height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
-                        ),
-                    ) {
-                        drawWaterSurface(
-                            values = WaterSurface.restingSamples(),
-                            color = waveColor,
-                            strokeWidth = PillLayout.MARK_STROKE_DP.dp,
-                        )
-                    }
-                }
-
+                // COLD and READY render identically now that the ready mark is static at rest
+                // (CHUNK-5): the same resting surface, no frame clock.
+                MinimizedPillPhase.COLD,
                 MinimizedPillPhase.READY -> {
-                    ReadyWave(
+                    WaterSurfaceWave(
                         color = waveColor,
+                        mark = WaveMark.RESTING,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = PillLayout.MARK_BOX_HEIGHT_DP.dp,
@@ -480,9 +438,10 @@ fun MinimizedPillView(
                 }
 
                 MinimizedPillPhase.RECORDING -> {
-                    RecordingWave(
+                    WaterSurfaceWave(
                         audioLevel = audioLevel,
                         color = waveColor,
+                        mark = WaveMark.RECORDING,
                         modifier = Modifier.size(
                             width = PillLayout.MARK_WIDTH_DP.dp,
                             height = PillLayout.RECORDING_BOX_HEIGHT_DP.dp,
@@ -531,66 +490,6 @@ fun MinimizedPillView(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ReadyWave(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    // Static at rest (CHUNK-5/D-132): the pill's READY mark is a fixed water surface, not a
-    // `withFrameNanos` loop. A pill sitting idle must schedule no frames; only a live capture
-    // (RecordingWave) animates.
-    Canvas(modifier) {
-        drawWaterSurface(
-            values = WaterSurface.readySamples(phase = 0f),
-            color = color,
-            strokeWidth = PillLayout.MARK_STROKE_DP.dp,
-        )
-    }
-}
-
-@Composable
-private fun RecordingWave(
-    audioLevel: () -> Float,
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    val phase = remember { mutableFloatStateOf(0f) }
-    val stagedLevel = remember { mutableFloatStateOf(0f) }
-    val fastLevel = remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(Unit) {
-        var lastNanos = withFrameNanos { it }
-        while (true) {
-            val nowNanos = withFrameNanos { it }
-            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-            lastNanos = nowNanos
-
-            // Perceptual level (dB window), followed by two-pole filter (0.08s attack / 0.30s release)
-            val target = VoiceLevel.perceptual(audioLevel())
-            val tau = (if (target > stagedLevel.floatValue) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
-                TWO_POLE_CORRECTION
-            val follow = 1f - exp(-dtSeconds / tau)
-            stagedLevel.floatValue += (target - stagedLevel.floatValue) * follow
-            fastLevel.floatValue += (stagedLevel.floatValue - fastLevel.floatValue) * follow
-
-            // Constant phase speed 7.5398 rad/s (1.2 crests/s)
-            phase.floatValue = (phase.floatValue + dtSeconds * WaterSurface.OMEGA_RECORDING) % TWO_PI
-        }
-    }
-
-    Canvas(modifier) {
-        drawWaterSurface(
-            values = WaterSurface.samples(
-                phase = phase.floatValue,
-                amplitude = WaterSurface.amplitudeFor(fastLevel.floatValue),
-            ),
-            color = color,
-            strokeWidth = PillLayout.MARK_STROKE_DP.dp,
-            glowAlpha = 0f,
-        )
     }
 }
 
@@ -1218,9 +1117,11 @@ private fun DictationCard(
                             }
 
                             uiState == FloatingUiState.RECORDING -> {
-                                CardWaveform(
+                                WaterSurfaceWave(
                                     audioLevel = audioLevel,
                                     color = cs.primary,
+                                    mark = WaveMark.RECORDING,
+                                    strokeWidth = CardLayout.WAVEFORM_STROKE_DP.dp,
                                     modifier = Modifier.size(
                                         width = CardLayout.WAVEFORM_WIDTH_DP.dp,
                                         height = CardLayout.WAVEFORM_HEIGHT_DP.dp,
@@ -1498,53 +1399,6 @@ private fun CircleAction(
 }
 
 /**
- * The card waveform: travels at 1.2 crests/s (7.5398 rad/s) and follows the mic level,
- * ranging from 7.04dp peak-to-peak at silence floor to 28.8dp at full voice, in a 32dp container.
- */
-@Composable
-private fun CardWaveform(
-    audioLevel: () -> Float,
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    val phase = remember { mutableFloatStateOf(0f) }
-    val stagedLevel = remember { mutableFloatStateOf(0f) }
-    val fastLevel = remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(Unit) {
-        var lastNanos = withFrameNanos { it }
-        while (true) {
-            val nowNanos = withFrameNanos { it }
-            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-            lastNanos = nowNanos
-
-            // Perceptual level (dB window), followed by two-pole filter (0.08s attack / 0.30s release)
-            val target = VoiceLevel.perceptual(audioLevel())
-            val tau = (if (target > stagedLevel.floatValue) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
-                TWO_POLE_CORRECTION
-            val follow = 1f - exp(-dtSeconds / tau)
-            stagedLevel.floatValue += (target - stagedLevel.floatValue) * follow
-            fastLevel.floatValue += (stagedLevel.floatValue - fastLevel.floatValue) * follow
-
-            // Constant phase speed 7.5398 rad/s (1.2 crests/s)
-            phase.floatValue = (phase.floatValue + dtSeconds * WaterSurface.OMEGA_RECORDING) % TWO_PI
-        }
-    }
-
-    Canvas(modifier) {
-        drawWaterSurface(
-            values = WaterSurface.samples(
-                phase = phase.floatValue,
-                amplitude = WaterSurface.amplitudeFor(fastLevel.floatValue),
-            ),
-            color = color,
-            strokeWidth = CardLayout.WAVEFORM_STROKE_DP.dp,
-            glowAlpha = 0f,
-        )
-    }
-}
-
-/**
  * The settings side of the card: the active-profile switcher and the first quick settings. It fills
  * exactly the card's fixed size and scrolls, because a user can create many profiles (and more quick
  * settings are coming). Rendered inside the pill's own window, not a `ModalBottomSheet` — a real
@@ -1660,115 +1514,4 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/**
- * The recording waveform, driven by its own frame clock. [audioLevel] and the phase are read
- * inside the `Canvas` draw lambda, so a frame invalidates the draw pass only — the composition
- * never runs per frame. That is what keeps the ripple at display rate (120 Hz) instead of
- * recomposition rate.
- */
-@Composable
-fun WaterSurfaceWave(
-    audioLevel: () -> Float,
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    val phase = remember { mutableFloatStateOf(0f) }
-    val stagedLevel = remember { mutableFloatStateOf(0f) }
-    val fastLevel = remember { mutableFloatStateOf(0f) }
-    val swellLevel = remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(Unit) {
-        var lastNanos = withFrameNanos { it }
-        while (true) {
-            val nowNanos = withFrameNanos { it }
-            val dtSeconds = ((nowNanos - lastNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-            lastNanos = nowNanos
-
-            // Perceptual level (dB window), then two cascaded one-poles for a soft, damped swell...
-            val target = VoiceLevel.perceptual(audioLevel())
-            val tau = (if (target > stagedLevel.floatValue) LEVEL_ATTACK_SECONDS else LEVEL_RELEASE_SECONDS) *
-                TWO_POLE_CORRECTION
-            val follow = 1f - exp(-dtSeconds / tau)
-            stagedLevel.floatValue += (target - stagedLevel.floatValue) * follow
-            fastLevel.floatValue += (stagedLevel.floatValue - fastLevel.floatValue) * follow
-
-            // ...plus a much slower follower that the visual mixes in, so the wave breathes.
-            val swellFollow = 1f - exp(-dtSeconds / SWELL_SECONDS)
-            swellLevel.floatValue += (fastLevel.floatValue - swellLevel.floatValue) * swellFollow
-
-            // Constant speed: the wave's tempo never reacts to the voice, only its height does.
-            phase.floatValue = (phase.floatValue + dtSeconds * RIPPLE_RADIANS_PER_SECOND) % TWO_PI
-        }
-    }
-
-    Canvas(modifier) {
-        // Read the states inside the draw lambda so a frame invalidates drawing only.
-        val level = fastLevel.floatValue * (1f - SWELL_MIX) + swellLevel.floatValue * SWELL_MIX
-        drawWaterSurface(
-            values = WaterSurface.samples(
-                phase = phase.floatValue,
-                amplitude = WaterSurface.amplitudeFor(level),
-            ),
-            color = color,
-            // The halo follows the slow swell, so it breathes rather than flickers.
-            glowAlpha = swellLevel.floatValue * 0.9f,
-        )
-    }
-}
-
-/**
- * Draws a water surface as one smooth cubic-bezier line through the sampled offsets, using
- * Catmull-Rom (Cardinal) control points so the joints have no visible corners. [values] are the
- * vertical offsets from the centre line, so the same drawing serves the travelling recording
- * surface and the resting pill's static sine.
- */
-private fun DrawScope.drawWaterSurface(
-    values: FloatArray,
-    color: Color,
-    strokeWidth: Dp = 2.5.dp,
-    glowAlpha: Float = 0f,
-) {
-    val segments = values.size - 1
-    val centreY = size.height / 2f
-    val halfHeight = size.height / 2f
-    val stepX = size.width / segments
-
-    fun xAt(index: Int) = index * stepX
-    fun yAt(index: Int) = centreY - values[index] * halfHeight
-
-    val path = Path().apply {
-        moveTo(xAt(0), yAt(0))
-        for (i in 0 until segments) {
-            val previous = values[(i - 1).coerceAtLeast(0)]
-            val next = values[(i + 2).coerceAtMost(segments)]
-            val control1Y = centreY - (values[i] + (values[i + 1] - previous) / 6f) * halfHeight
-            val control2Y = centreY - (values[i + 1] - (next - values[i]) / 6f) * halfHeight
-            cubicTo(
-                xAt(i) + stepX / 3f,
-                control1Y,
-                xAt(i + 1) - stepX / 3f,
-                control2Y,
-                xAt(i + 1),
-                yAt(i + 1),
-            )
-        }
-    }
-
-    // Soft additive halo behind the stroke: the "modern assistant glow" without a blur pass.
-    if (glowAlpha > 0.01f) {
-        for ((widthMultiple, alpha) in GLOW_PASSES) {
-            drawPath(
-                path = path,
-                color = color.copy(alpha = (glowAlpha * alpha).coerceIn(0f, 1f)),
-                style = Stroke(width = strokeWidth.toPx() * widthMultiple, cap = StrokeCap.Round),
-                blendMode = BlendMode.Plus,
-            )
-        }
-    }
-
-    drawPath(
-        path = path,
-        color = color,
-        style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round),
-    )
-}
