@@ -510,7 +510,7 @@ private fun ClientRowItem(
             .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PresenceDot(color = dotColor, pulsing = row.connected)
+        PresenceDot(color = dotColor)
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

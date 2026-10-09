@@ -250,22 +250,18 @@ private fun StatusChip(
 ) {
     val label: String
     val dotColor: Color
-    val pulsing: Boolean
     when {
         !error.isNullOrBlank() -> {
             label = error
             dotColor = errorColor
-            pulsing = false
         }
         starting -> {
             label = "Starting…"
             dotColor = accent
-            pulsing = true
         }
         running && clients.isEmpty() -> {
             label = "Ready · waiting for a client"
             dotColor = accent
-            pulsing = true
         }
         running -> {
             label = if (clients.size == 1) {
@@ -274,12 +270,10 @@ private fun StatusChip(
                 "Serving · ${clients.size} clients"
             }
             dotColor = okColor
-            pulsing = true
         }
         else -> {
             label = "Server off"
             dotColor = onSurfaceVariant
-            pulsing = false
         }
     }
 
@@ -287,7 +281,7 @@ private fun StatusChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PresenceDot(color = dotColor, pulsing = pulsing)
+        PresenceDot(color = dotColor)
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,

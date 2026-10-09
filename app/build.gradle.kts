@@ -13,8 +13,8 @@ android {
         targetSdk = 36
         // versionName says which slice this is, because APKs are installed by hand on the phone and
         // "which build is on there?" has to be answerable from Android's own app info screen.
-        versionCode = 32
-        versionName = "1.30-sovereign"
+        versionCode = 33
+        versionName = "1.31-sovereign"
 
         // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
         // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the
