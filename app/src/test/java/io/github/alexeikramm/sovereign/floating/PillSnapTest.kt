@@ -315,4 +315,10 @@ class PillSnapTest {
         // 2000 / 20 * 0.5 = 50px delta -> y = 550
         assertEquals(550, snappedHalf.y)
     }
+
+    @Test
+    fun `DRAG_MARGIN_DP is one third tighter than the original 8dp`() {
+        // 8dp reduced by one third = 16/3dp = 5.333dp.
+        assertEquals(8f * 2f / 3f, PillDock.DRAG_MARGIN_DP, 0.001f)
+    }
 }
