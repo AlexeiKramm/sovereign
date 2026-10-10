@@ -66,17 +66,31 @@ class SovereignServerService : Service() {
     /** The auto-stop the current session was started with; surfaced in the dashboard snapshot. */
     private var timeoutMinutes = AppSettings.DEFAULT_SERVER_TIMEOUT_MIN
 
+    /** The absolute auto-stop deadline in the elapsedRealtime domain, or null for a manual session. */
+    private var endsAtRealtimeMs: Long? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // A command on a live server (D-133), not a start: close a client that was just switched off in
-        // Server settings. Delivered with startService while the service is already foreground.
-        if (intent?.action == ACTION_DISCONNECT_CLIENT) {
-            intent.getStringExtra(EXTRA_DEVICE_ID)?.let { id ->
-                Log.i(TAG, "Disconnect requested for client $id")
-                server?.disconnectDevice(id)
+        // Commands on a live server (D-133/D-136), not starts: delivered with startService while the
+        // service is already foreground.
+        when (intent?.action) {
+            ACTION_DISCONNECT_CLIENT -> {
+                intent.getStringExtra(EXTRA_DEVICE_ID)?.let { id ->
+                    Log.i(TAG, "Disconnect requested for client $id")
+                    server?.disconnectDevice(id)
+                }
+                return START_NOT_STICKY
             }
-            return START_NOT_STICKY
+            ACTION_STOP -> {
+                Log.i(TAG, "Stop requested from the notification")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_EXTEND -> {
+                if (running) extendSession(ServerSessionTiming.EXTEND_MINUTES) else stopSelf()
+                return START_NOT_STICKY
+            }
         }
         if (running) {
             Log.i(TAG, "Already serving; ignoring repeat start")
@@ -85,15 +99,19 @@ class SovereignServerService : Service() {
         running = true
         ServerRuntime.shared.onStarting()
 
+        timeoutMinutes = intent?.getIntExtra(EXTRA_TIMEOUT_MINUTES, AppSettings(this).serverTimeoutMinutes)
+            ?: AppSettings(this).serverTimeoutMinutes
+        // The deadline is known before the notification is built, so the countdown is right from the
+        // first frame (and the same value the runtime publishes for the Home row).
+        endsAtRealtimeMs = ServerSessionTiming.deadlineFrom(SystemClock.elapsedRealtime(), timeoutMinutes)
+
         createNotificationChannel()
         if (!startInForeground()) {
             running = false
             ServerRuntime.shared.onFailed("Could not start the foreground service")
             return START_NOT_STICKY
         }
-        timeoutMinutes = intent?.getIntExtra(EXTRA_TIMEOUT_MINUTES, AppSettings(this).serverTimeoutMinutes)
-            ?: AppSettings(this).serverTimeoutMinutes
-        startTimeout(timeoutMinutes)
+        startTimeout()
         startServer()
         return START_NOT_STICKY
     }
@@ -193,17 +211,43 @@ class SovereignServerService : Service() {
         }
     }
 
-    private fun startTimeout(minutes: Int) {
-        if (minutes <= 0) {
+    private fun startTimeout() {
+        val endsAt = endsAtRealtimeMs
+        if (endsAt == null) {
             Log.i(TAG, "Session timeout disabled (manual stop)")
             return
         }
-        Log.i(TAG, "Auto-stop armed for $minutes min (not persisted across process death)")
+        Log.i(TAG, "Auto-stop armed for $timeoutMinutes min (not persisted across process death)")
+        scheduleStopAt(endsAt)
+    }
+
+    private fun scheduleStopAt(endsAtRealtimeMs: Long) {
+        timeoutJob?.cancel()
+        val delayMs = maxOf(0L, endsAtRealtimeMs - SystemClock.elapsedRealtime())
         timeoutJob = scope.launch {
-            delay(minutes.toLong() * 60_000L)
-            Log.i(TAG, "Session timeout reached after $minutes min; stopping")
+            delay(delayMs)
+            Log.i(TAG, "Session timeout reached; stopping")
             stopSelf()
         }
+    }
+
+    /** `＋ 30 min` from the notification: move the deadline, reschedule, and refresh the countdown. */
+    private fun extendSession(minutes: Int) {
+        val current = endsAtRealtimeMs
+        if (current == null) {
+            Log.i(TAG, "Ignoring extend: the session is manual")
+            return
+        }
+        val newEndsAt = ServerSessionTiming.extendedDeadline(current, SystemClock.elapsedRealtime(), minutes)
+        endsAtRealtimeMs = newEndsAt
+        ServerRuntime.shared.onDeadlineMoved(newEndsAt)
+        Log.i(TAG, "Session extended by $minutes min")
+        scheduleStopAt(newEndsAt)
+        updateNotification()
+    }
+
+    private fun updateNotification() {
+        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification())
     }
 
     // --- mDNS (PROTOCOL.md §2) ---------------------------------------------------------------------
@@ -292,26 +336,50 @@ class SovereignServerService : Service() {
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
-    /** The ongoing notification; tapping it returns to the Server screen (Chunk 2a deep-link). */
+    /**
+     * The ongoing notification (Chunk 2a deep-link; D-136 countdown + actions). Tapping it returns to
+     * the Server screen; the actions talk to this running service, so the app is never needed. The
+     * countdown is the **system chronometer** — it ticks itself, so nothing re-notifies per second.
+     */
     private fun buildNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-            .setAction(ACTION_OPEN_SERVER)
-            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pending = PendingIntent.getActivity(
             this,
             0,
-            intent,
+            Intent(this, MainActivity::class.java)
+                .setAction(ACTION_OPEN_SERVER)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Sovereign Server Active")
-            .setContentText("Ready to dictate")
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Sovereign Server")
             .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setContentIntent(pending)
-            .build()
+            .addAction(0, "Stop", servicePendingIntent(ACTION_STOP, REQ_STOP))
+
+        val endsAt = endsAtRealtimeMs
+        if (endsAt != null) {
+            builder
+                .setContentText("Ready to dictate")
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+                // NotificationCompat wants a wall-clock target; convert from the elapsedRealtime deadline.
+                .setWhen(System.currentTimeMillis() + (endsAt - SystemClock.elapsedRealtime()))
+                .addAction(0, "＋ 30 min", servicePendingIntent(ACTION_EXTEND, REQ_EXTEND))
+        } else {
+            builder.setContentText("On until stopped")
+        }
+        return builder.build()
     }
+
+    private fun servicePendingIntent(action: String, requestCode: Int): PendingIntent =
+        PendingIntent.getService(
+            this,
+            requestCode,
+            Intent(this, SovereignServerService::class.java).setAction(action),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     // --- Identity --------------------------------------------------------------------------------
 
@@ -349,5 +417,14 @@ class SovereignServerService : Service() {
 
         /** The client to drop, for [ACTION_DISCONNECT_CLIENT]. */
         const val EXTRA_DEVICE_ID = "device_id"
+
+        /** Notification action (D-136): stop the server now. */
+        const val ACTION_STOP = "io.github.alexeikramm.sovereign.action.SERVER_STOP"
+
+        /** Notification action (D-136): add [ServerSessionTiming.EXTEND_MINUTES] to the auto-stop. */
+        const val ACTION_EXTEND = "io.github.alexeikramm.sovereign.action.SERVER_EXTEND"
+
+        private const val REQ_STOP = 1
+        private const val REQ_EXTEND = 2
     }
 }
