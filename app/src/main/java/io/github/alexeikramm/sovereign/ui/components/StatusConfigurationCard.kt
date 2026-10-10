@@ -280,12 +280,13 @@ fun StatusConfigurationCard(
                             badgeColor = if (cleanupEnabled) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
+                                // Off reads as the Voice-Model tint, not a grey well (D-136).
+                                MaterialTheme.colorScheme.primaryContainer
                             },
                             iconTint = if (cleanupEnabled) {
                                 MaterialTheme.colorScheme.onPrimary
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                MaterialTheme.colorScheme.onPrimaryContainer
                             },
                             size = 30.dp,
                             iconSize = 16.dp,
@@ -353,12 +354,12 @@ fun StatusConfigurationCard(
                         SettingsIconBadge(
                             icon = Icons.Default.Tune,
                             badgeColor = if (cleanupEnabled) {
-                                MaterialTheme.colorScheme.tertiaryContainer
+                                MaterialTheme.colorScheme.primaryContainer
                             } else {
                                 MaterialTheme.colorScheme.surfaceContainerHighest
                             },
                             iconTint = if (cleanupEnabled) {
-                                MaterialTheme.colorScheme.onTertiaryContainer
+                                MaterialTheme.colorScheme.onPrimaryContainer
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             },
