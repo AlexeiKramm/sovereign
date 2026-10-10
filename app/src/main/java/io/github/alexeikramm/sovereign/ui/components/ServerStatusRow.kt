@@ -93,7 +93,9 @@ fun ServerStatusRow(
                 badgeColor = if (running) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
-                    MaterialTheme.colorScheme.surfaceContainerHighest
+                    // A tone *darker* than the surfaceContainerHigh row so the off badge does not fuse
+                    // with it (device feedback 2026-10-10).
+                    MaterialTheme.colorScheme.surfaceContainer
                 },
                 iconTint = if (running) {
                     MaterialTheme.colorScheme.onPrimaryContainer
@@ -106,7 +108,7 @@ fun ServerStatusRow(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Sovereign Server",
+                    text = "SOVEREIGN SERVER",
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.5.sp,
