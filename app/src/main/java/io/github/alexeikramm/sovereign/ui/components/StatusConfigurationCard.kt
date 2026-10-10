@@ -78,6 +78,8 @@ fun StatusConfigurationCard(
     onNavigateToProfiles: () -> Unit,
     modifier: Modifier = Modifier,
     statusSubtitle: String? = null,
+    /** Optional trailing row (D-136): the Home tab's Server control. */
+    serverRow: (@Composable () -> Unit)? = null,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
 
@@ -466,6 +468,10 @@ fun StatusConfigurationCard(
                         }
                     }
                 }
+            }
+
+            if (serverRow != null) {
+                serverRow()
             }
         }
     }

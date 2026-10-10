@@ -46,6 +46,11 @@ data class ServerSnapshot(
     val startedAtRealtimeMs: Long? = null,
     /** 0 means the session never auto-stops (manual). */
     val timeoutMinutes: Int? = null,
+    /**
+     * The absolute auto-stop deadline in the `SystemClock.elapsedRealtime()` domain, or null for a
+     * manual session (D-136). The one value the Home row counts down from; an extension moves it.
+     */
+    val endsAtRealtimeMs: Long? = null,
     val clients: List<ServerClient> = emptyList(),
     /**
      * The capture phase; exclusive. `CLEANING` is never a phase — an LLM pass overlaps ASR, so it is
@@ -100,14 +105,21 @@ class ServerRuntime {
 
     /** The WebSocket endpoint is up. */
     fun onRunning(endpoint: String?, startedAtRealtimeMs: Long, timeoutMinutes: Int) {
-        _state.update {
-            ServerSnapshot(
-                lifecycle = ServerLifecycle.RUNNING,
-                endpoint = endpoint,
-                startedAtRealtimeMs = startedAtRealtimeMs,
-                timeoutMinutes = timeoutMinutes,
-            )
-        }
+        _state.value = ServerSnapshot(
+            lifecycle = ServerLifecycle.RUNNING,
+            endpoint = endpoint,
+            startedAtRealtimeMs = startedAtRealtimeMs,
+            timeoutMinutes = timeoutMinutes,
+            endsAtRealtimeMs = ServerSessionTiming.deadlineFrom(startedAtRealtimeMs, timeoutMinutes),
+        )
+    }
+
+    /**
+     * The auto-stop deadline moved (a `＋ 30 min` from the notification). Null returns the session to
+     * "manual" (never auto-stops).
+     */
+    fun onDeadlineMoved(endsAtRealtimeMs: Long?) {
+        _state.update { it.copy(endsAtRealtimeMs = endsAtRealtimeMs) }
     }
 
     /**

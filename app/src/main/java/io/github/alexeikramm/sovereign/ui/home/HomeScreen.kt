@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
@@ -64,11 +63,14 @@ import androidx.compose.material3.TextButton
 import io.github.alexeikramm.sovereign.asr.AsrModelSpec
 import io.github.alexeikramm.sovereign.asr.AsrModelType
 import io.github.alexeikramm.sovereign.ui.components.PermissionItem
+import io.github.alexeikramm.sovereign.ui.components.ServerStatusRow
 import io.github.alexeikramm.sovereign.ui.components.SovereignWordmark
 import io.github.alexeikramm.sovereign.ui.components.StatusConfigurationCard
 import io.github.alexeikramm.sovereign.ui.components.openSettings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -95,10 +97,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.asr.AsrModels
+import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.DictationRecord
+import io.github.alexeikramm.sovereign.data.PairedDeviceStore
 import io.github.alexeikramm.sovereign.data.UsageStatsData
 import io.github.alexeikramm.sovereign.data.WordDiffCalculator
-import io.github.alexeikramm.sovereign.server.ServerLifecycle
+import io.github.alexeikramm.sovereign.server.ServerController
 import io.github.alexeikramm.sovereign.server.ServerRuntime
 import io.github.alexeikramm.sovereign.theme.Spacing
 import io.github.alexeikramm.sovereign.ui.DictationUiState
@@ -144,6 +148,13 @@ fun HomeScreen(
     val dictationState by viewModel.state.collectAsStateWithLifecycle()
     val stats by viewModel.usageStats.collectAsStateWithLifecycle()
     val historyData by viewModel.dictationHistory.collectAsStateWithLifecycle()
+
+    val serverSnapshot by ServerRuntime.shared.state.collectAsStateWithLifecycle()
+    val settings = remember { AppSettings(context) }
+    val pairedStore = remember { PairedDeviceStore(context) }
+    var pairedCount by remember { mutableIntStateOf(pairedStore.load().size) }
+    // Pairing happens on the Server screen; refresh the count when the live client set changes.
+    LaunchedEffect(serverSnapshot.clients) { pairedCount = pairedStore.load().size }
 
     var showTimeSavedDialog by remember { mutableStateOf(false) }
 
@@ -199,6 +210,20 @@ fun HomeScreen(
             profiles = profiles,
             onSelectProfile = { viewModel.setActiveProfile(it.id) },
             onNavigateToProfiles = onNavigateToProfiles,
+            serverRow = {
+                ServerStatusRow(
+                    snapshot = serverSnapshot,
+                    pairedCount = pairedCount,
+                    onOpen = onOpenServer,
+                    onToggle = { enabled ->
+                        if (enabled) {
+                            ServerController.start(context, settings.serverTimeoutMinutes)
+                        } else {
+                            ServerController.stop(context)
+                        }
+                    },
+                )
+            },
         )
 
         // Card 2: Usage Statistics
@@ -224,9 +249,6 @@ fun HomeScreen(
             selectedAsrModel = selectedAsrModel,
             cleanupEnabled = cleanupEnabled,
         )
-
-        // Card 5: Desktop Server
-        DesktopServerCard(onOpenServer = onOpenServer)
 
         Spacer(modifier = Modifier.height(Spacing.xl))
     }
@@ -853,106 +875,6 @@ private fun LastDictationCard(
     }
 }
 
-// ----------------------------------------------------------------------------
-// F. Card 5: Desktop Server
-// ----------------------------------------------------------------------------
-
-@Composable
-private fun DesktopServerCard(onOpenServer: () -> Unit) {
-    val snapshot by ServerRuntime.shared.state.collectAsStateWithLifecycle()
-
-    val statusLabel: String
-    val statusColor: Color
-    when {
-        snapshot.lifecycle == ServerLifecycle.STARTING -> {
-            statusLabel = "Starting"
-            statusColor = MaterialTheme.colorScheme.tertiary
-        }
-        snapshot.lifecycle == ServerLifecycle.RUNNING && snapshot.clients.isNotEmpty() -> {
-            statusLabel = "Connected"
-            statusColor = MaterialTheme.colorScheme.primary
-        }
-        snapshot.lifecycle == ServerLifecycle.RUNNING -> {
-            statusLabel = "Ready"
-            statusColor = MaterialTheme.colorScheme.primary
-        }
-        else -> {
-            statusLabel = "Off"
-            statusColor = MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    }
-
-    val subtitle = when {
-        !snapshot.error.isNullOrBlank() -> snapshot.error ?: ""
-        snapshot.lifecycle == ServerLifecycle.STARTING -> "Starting the server…"
-        snapshot.lifecycle == ServerLifecycle.RUNNING ->
-            snapshot.endpoint ?: "Serving on your local network"
-        else -> "Dictate on your PC using this phone's mic and models"
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenServer),
-        shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier.size(40.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.Computer,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Server",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 11.5.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            ) {
-                Text(
-                    text = statusLabel,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = statusColor,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                )
-            }
-        }
-    }
-}
 
 // ----------------------------------------------------------------------------
 // Helpers & Dialogs
