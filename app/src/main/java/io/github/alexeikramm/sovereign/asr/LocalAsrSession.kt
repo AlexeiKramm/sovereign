@@ -1,6 +1,7 @@
 package io.github.alexeikramm.sovereign.asr
 
 import io.github.alexeikramm.sovereign.engine.MonotonicClock
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -51,6 +52,14 @@ class LocalAsrSession(
     private var feedJob: Job? = null
 
     /**
+     * Frames enqueued but not yet handed to the engine. The live queue is **unbounded** (D-139): a
+     * frame the recogniser has not consumed must wait, never be thrown away, because the raw capture
+     * is never re-decoded and a dropped frame is a lost word. This counter only feeds the backlog
+     * high-water mark below.
+     */
+    private val backlog = AtomicInteger(0)
+
+    /**
      * Units emitted so far, so [finish] can hand the whole utterance to callers that display it
      * rather than committing it (the settings screen). Mutated only on [dispatcher].
      */
@@ -95,6 +104,15 @@ class LocalAsrSession(
     var droppedFrames: Int = 0
         private set
 
+    /**
+     * The deepest the frame queue got this utterance. With an unbounded queue nothing is dropped, so
+     * this is the number that says "the recogniser fell behind" — the one signal that would otherwise
+     * be a silent loss. A healthy phone stays in the single digits.
+     */
+    @Volatile
+    var maxBacklogFrames: Int = 0
+        private set
+
     /** Total active ASR computation milliseconds spent processing audio frames in this session. */
     var totalActiveAsrMs: Long = 0L
         private set
@@ -102,7 +120,12 @@ class LocalAsrSession(
     /** Opens an utterance: a fresh queue, ready to receive frames before the model is loaded. */
     fun begin() {
         abort()
-        queue = Channel(capacity = FRAME_QUEUE_CAPACITY)
+        // Unbounded: the capture thread must never block (that would overflow `AudioRecord` and the
+        // OS would drop audio), and a frame must never be discarded to bound memory. A 10-minute take
+        // is ~38 MB of float frames at worst, and the service caps recording at 10 minutes.
+        queue = Channel(capacity = Channel.UNLIMITED)
+        backlog.set(0)
+        maxBacklogFrames = 0
         droppedFrames = 0
         totalActiveAsrMs = 0L
         utterance.clear()
@@ -133,6 +156,7 @@ class LocalAsrSession(
             engine.startSession(language, "")
             var lastText = ""
             for (frames in queue) {
+                backlog.decrementAndGet()
                 val acceptStart = MonotonicClock.nowMs()
                 val text = engine.accept(frames, frames.size).orEmpty()
                 // The recogniser keeps returning the just-cut segment's text until the next segment's
@@ -172,12 +196,19 @@ class LocalAsrSession(
     }
 
     /**
-     * Capture-thread entry point. `trySend` rather than `send`: blocking here drops microphone
-     * frames at the source, and a counter the UI can show beats a silent stall.
+     * Capture-thread entry point. It only converts and enqueues, so it can never block the mic. The
+     * queue is unbounded, so a frame is only "dropped" if the utterance has already ended.
      */
     fun onFrames(bytes: ByteArray, count: Int) {
         val queue = this.queue ?: return
-        if (queue.trySend(AudioFrames.toFloat(bytes, count)).isFailure) droppedFrames++
+        backlog.incrementAndGet()
+        if (queue.trySend(AudioFrames.toFloat(bytes, count)).isFailure) {
+            backlog.decrementAndGet()
+            droppedFrames++
+        } else {
+            val depth = backlog.get()
+            if (depth > maxBacklogFrames) maxBacklogFrames = depth
+        }
     }
 
     /**
@@ -245,6 +276,7 @@ class LocalAsrSession(
     fun abort() {
         queue?.close()
         queue = null
+        backlog.set(0)
         feedJob?.cancel()
         feedJob = null
         scope.launch(dispatcher) { engine.abort() }
@@ -258,6 +290,7 @@ class LocalAsrSession(
     suspend fun abortAndJoin() {
         queue?.close()
         queue = null
+        backlog.set(0)
         val job = feedJob
         feedJob = null
         if (job != null) {
@@ -265,13 +298,5 @@ class LocalAsrSession(
             job.join()
         }
         withContext(dispatcher) { engine.abort() }
-    }
-
-    companion object {
-        /**
-         * Buffering capacity for incoming frames (~51.2 seconds @ 100ms frames) to prevent microphone dropouts
-         * even when an offline model decodes a large segment while capture continues uninterrupted.
-         */
-        private const val FRAME_QUEUE_CAPACITY = 512
     }
 }

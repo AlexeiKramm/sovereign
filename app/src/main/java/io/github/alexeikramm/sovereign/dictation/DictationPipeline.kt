@@ -173,6 +173,9 @@ class DictationPipeline(
     /** Frames the ASR queue dropped this utterance; 0 for a backpressured replay. */
     val droppedFrames: Int get() = session.droppedFrames
 
+    /** Deepest the ASR frame queue got this utterance; 0 when the recogniser kept up (D-139). */
+    val asrBacklogHighWater: Int get() = session.maxBacklogFrames
+
     /**
      * Ends the utterance: flush the ASR tail, drain cleanup, apply terminal punctuation. Returns the
      * settled text. The service's `finalizeUtterance` is now just this plus the recorder stop.
