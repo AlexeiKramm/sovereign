@@ -291,24 +291,30 @@ fun MainScreen(
                         }
                     }
 
-                    // Subtle top gradient scrim to maintain status bar icon legibility as content scrolls underneath
-                    val statusBarHeight = with(LocalDensity.current) {
-                        WindowInsets.statusBars.getTop(this).toDp()
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(statusBarHeight + 14.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        (if (isDark) surface else surfaceContainerLow).copy(alpha = 0.72f),
-                                        (if (isDark) surface else surfaceContainerLow).copy(alpha = 0.35f),
-                                        Color.Transparent,
+                    // Subtle top gradient scrim to maintain status bar icon legibility as content
+                    // scrolls underneath. Skipped on the Server route: it is a full-bleed, immersive
+                    // true-black canvas, and this scrim would paint a light bar across its top — a
+                    // bright band in the light theme and a burn-in risk in the dark one
+                    // (user request, 2026-10-11).
+                    if (!showServer) {
+                        val statusBarHeight = with(LocalDensity.current) {
+                            WindowInsets.statusBars.getTop(this).toDp()
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(statusBarHeight + 14.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            (if (isDark) surface else surfaceContainerLow).copy(alpha = 0.72f),
+                                            (if (isDark) surface else surfaceContainerLow).copy(alpha = 0.35f),
+                                            Color.Transparent,
+                                        ),
                                     ),
                                 ),
-                            ),
-                    )
+                        )
+                    }
                 }
             }
         }

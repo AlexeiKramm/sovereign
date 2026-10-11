@@ -82,6 +82,14 @@ private const val GLOW_FALL_MS = 300
 /** The trough of the breath, as a fraction of its peak: the glow dims but never quite dies mid-cycle. */
 private const val GLOW_FLOOR = 0.35f
 
+/**
+ * After the panel brightness changes, wait this long before the glow starts or stops. The dim/brighten
+ * is applied to the window instantly; letting it settle first stops the glow from being cut while the
+ * screen is still bright (on dim) or snapping in before the screen has brightened (on wake). Either
+ * overlap reads as a sudden, ugly cut — the whole point of ordering the two.
+ */
+private const val GLOW_SETTLE_MS = 300L
+
 /** Fraction of the tap box the glyph itself occupies, leaving the rest for the glow to spread. */
 private const val GLYPH_FRACTION = 0.34f
 
@@ -91,7 +99,7 @@ private val GLOW_BOX_DP = 820.dp
 /**
  * The Server route's full-bleed surface (server-active-screen CHUNK-1, reworked by CHUNK-5): the ON
  * dashboard while serving and the OFF "tap to start" affordance otherwise. Both are one screen in two
- * moods on the same near-black canvas.
+ * moods on the same **true-black** (AMOLED pixel-off) canvas.
  *
  * The design was settled against a static mock-up (the user's pick: the **bare power glyph** as the
  * centre control, the **SOVEREIGN / Server** header, and a **minimal status pill** — no box, no
@@ -170,15 +178,23 @@ internal fun ServerHubBody(
     val okColor = if (isDark) ColorRoles.OkDark else ColorRoles.OkLight
     val errorColor = ColorRoles.BadDark
 
-    // The glow state for the whole screen. Inactive (frozen) whenever the server is off or the screen
-    // is dimmed, so no animation runs and no frames are scheduled in the idle case (D-132).
-    val live = running && !dimmed
-    val glow = rememberServerGlow(active = live)
+    // The glow's own on-screen gate. It lags [dimmed] deliberately: the panel brightness changes
+    // first and the glow follows once that has settled, so the glow never starts rising while the
+    // screen is still darkening, nor cuts out while it is still bright. Inactive (frozen) whenever the
+    // server is off or the screen is dimmed, so no animation runs and no frames are scheduled in the
+    // idle case (D-132).
+    var glowOn by remember { mutableStateOf(false) }
+    LaunchedEffect(dimmed, running) {
+        val target = running && !dimmed
+        if (target != glowOn) delay(GLOW_SETTLE_MS)
+        glowOn = target
+    }
+    val glow = rememberServerGlow(active = glowOn)
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF07090B))
+            .background(Color.Black)
             // Any touch anywhere wakes the dimmed screen; the glyph's own tap resets too.
             .pointerInput(Unit) { detectTapGestures { onInteract() } },
     ) {

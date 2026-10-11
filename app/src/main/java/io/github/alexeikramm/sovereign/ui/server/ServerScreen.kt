@@ -195,7 +195,10 @@ private fun ServerSettingsPanel(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = Color.Transparent,
+        // True black rather than transparent: the route's hub canvas is pure black (AMOLED
+        // pixel-off), and the settings panel must not let the app's violet background gradient show
+        // through. Same pixel-off black as the hub (user request, 2026-10-11).
+        containerColor = Color.Black,
         topBar = {
             TopAppBarWithScrollShadow(scrollBehavior = scrollBehavior) {
                 TopAppBar(
