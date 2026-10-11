@@ -2,6 +2,7 @@ package io.github.alexeikramm.sovereign.asr
 
 import android.content.res.AssetManager
 import android.os.SystemClock
+import android.util.Log
 import com.k2fsa.sherpa.onnx.EndpointConfig
 import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -108,6 +109,28 @@ class LocalAsrEngine(
     private var pendingEndpoint: Boolean = false
     private var failure: String? = null
 
+    /**
+     * The streaming transcript as of the last cut — the boundary between committed and live text
+     * (D-140). The recogniser is **not** reset at a cut; the tail is computed against this snapshot,
+     * so the model keeps its acoustic context across pauses. `@Volatile` because `applyModel` (a
+     * lifecycle call from the session) can clear it off the ASR worker.
+     */
+    @Volatile
+    private var committedText: String = ""
+
+    /**
+     * Revision counters for the utterance in progress (D-140). A revision is the committed snapshot
+     * ceasing to be a prefix of the live transcript: detected and reported, never repaired. Should be
+     * 0 for a well-behaved greedy transducer.
+     */
+    @Volatile
+    var revisionEvents: Int = 0
+        private set
+
+    @Volatile
+    var revisionDivergedChars: Int = 0
+        private set
+
     @Volatile
     private var streamingLoadMillis: Long = 0L
 
@@ -198,6 +221,12 @@ class LocalAsrEngine(
     }
 
     override fun startSession(language: String, hotwords: String) {
+        // A fresh utterance starts a fresh boundary and clean counters (D-140) for **every** model
+        // type, so a previous streaming utterance's revisions cannot leak into an offline one (the
+        // counters are read unconditionally at finish).
+        committedText = ""
+        revisionEvents = 0
+        revisionDivergedChars = 0
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             getOrCreateOfflineEngine().startSession(language, hotwords)
             return
@@ -231,15 +260,37 @@ class LocalAsrEngine(
             }
         }
 
-        return recognizer?.getResult(active)?.text
+        return streamingTail(countRevision = false)
+    }
+
+    /**
+     * The live tail of the streaming transcript relative to the committed snapshot (D-140). The
+     * recogniser is never reset between cuts, so this is the text the pipeline treats as the current
+     * unit — identical in shape to what a reset used to hand back, but with the model's context kept.
+     *
+     * [countRevision] is set only where a boundary is settled (a cut, or the final flush) so a
+     * revision is counted once rather than on every frame.
+     */
+    private fun streamingTail(countRevision: Boolean): String {
+        val active = stream ?: return ""
+        val transcript = recognizer?.getResult(active)?.text.orEmpty()
+        val split = TranscriptTail.split(transcript, committedText)
+        if (split.revised && countRevision) {
+            revisionEvents++
+            revisionDivergedChars += split.divergedChars
+            Log.w(
+                TAG,
+                "ASR revision at the segment boundary: ${split.divergedChars} char(s) of committed text changed",
+            )
+        }
+        return split.tail
     }
 
     override fun result(): String {
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             return getOrCreateOfflineEngine().result()
         }
-        val active = stream ?: return ""
-        return recognizer?.getResult(active)?.text.orEmpty()
+        return streamingTail(countRevision = true)
     }
 
     override fun resetSegment() {
@@ -248,7 +299,9 @@ class LocalAsrEngine(
             return
         }
         val active = stream ?: return
-        recognizer?.reset(active)
+        // Do NOT reset the recogniser (D-140): its acoustic context must survive the pause. Advance
+        // the committed boundary instead, so the next tail begins a fresh unit with the model warm.
+        committedText = recognizer?.getResult(active)?.text.orEmpty()
         pendingEndpoint = false
     }
 
@@ -293,9 +346,10 @@ class LocalAsrEngine(
             engine.decode(active)
             decodes++
         }
-        val text = engine.getResult(active).text
+        val text = streamingTail(countRevision = true)
         active.release()
         stream = null
+        committedText = ""
         return text
     }
 
@@ -386,6 +440,7 @@ class LocalAsrEngine(
         stream = null
         vad?.clear()
         pendingEndpoint = false
+        committedText = ""
     }
 
     fun unload() {
@@ -409,6 +464,7 @@ class LocalAsrEngine(
     }
 
     companion object {
+        private const val TAG = "LocalAsrEngine"
         const val DEFAULT_THREADS = 4
         private const val FEATURE_DIM = 80
         const val DEFAULT_PAUSE_SILENCE_SECONDS = 2.0f

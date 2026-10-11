@@ -1,10 +1,12 @@
 package io.github.alexeikramm.sovereign.asr
 
 import io.github.alexeikramm.sovereign.engine.MonotonicClock
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -51,6 +53,14 @@ class LocalAsrSession(
     private var feedJob: Job? = null
 
     /**
+     * Frames enqueued but not yet handed to the engine. The live queue is **unbounded** (D-139): a
+     * frame the recogniser has not consumed must wait, never be thrown away, because the raw capture
+     * is never re-decoded and a dropped frame is a lost word. This counter only feeds the backlog
+     * high-water mark below.
+     */
+    private val backlog = AtomicInteger(0)
+
+    /**
      * Units emitted so far, so [finish] can hand the whole utterance to callers that display it
      * rather than committing it (the settings screen). Mutated only on [dispatcher].
      */
@@ -91,8 +101,21 @@ class LocalAsrSession(
     var boundaryState: BoundaryState = boundary.snapshot(audioQuietFor = 0.0, heardAudio = false)
         private set
 
-    /** Frames the queue could not take because the engine is behind. Reported, never ignored. */
+    /**
+     * Frames that arrived after the utterance had already ended. The queue is unbounded (D-139), so a
+     * live frame is never dropped for being behind; this is a should-always-be-zero alarm.
+     */
+    @Volatile
     var droppedFrames: Int = 0
+        private set
+
+    /**
+     * The deepest the frame queue got this utterance. With an unbounded queue nothing is dropped, so
+     * this is the number that says "the recogniser fell behind" — the one signal that would otherwise
+     * be a silent loss. A healthy phone stays in the single digits.
+     */
+    @Volatile
+    var maxBacklogFrames: Int = 0
         private set
 
     /** Total active ASR computation milliseconds spent processing audio frames in this session. */
@@ -102,7 +125,12 @@ class LocalAsrSession(
     /** Opens an utterance: a fresh queue, ready to receive frames before the model is loaded. */
     fun begin() {
         abort()
-        queue = Channel(capacity = FRAME_QUEUE_CAPACITY)
+        // Unbounded: the capture thread must never block (that would overflow `AudioRecord` and the
+        // OS would drop audio), and a frame must never be discarded to bound memory. A 10-minute take
+        // is ~38 MB of float frames at worst, and the service caps recording at 10 minutes.
+        queue = Channel(capacity = Channel.UNLIMITED)
+        backlog.set(0)
+        maxBacklogFrames = 0
         droppedFrames = 0
         totalActiveAsrMs = 0L
         utterance.clear()
@@ -133,6 +161,7 @@ class LocalAsrSession(
             engine.startSession(language, "")
             var lastText = ""
             for (frames in queue) {
+                backlog.decrementAndGet()
                 val acceptStart = MonotonicClock.nowMs()
                 val text = engine.accept(frames, frames.size).orEmpty()
                 // The recogniser keeps returning the just-cut segment's text until the next segment's
@@ -172,21 +201,29 @@ class LocalAsrSession(
     }
 
     /**
-     * Capture-thread entry point. `trySend` rather than `send`: blocking here drops microphone
-     * frames at the source, and a counter the UI can show beats a silent stall.
+     * Capture-thread entry point. It only converts and enqueues, so it can never block the mic. The
+     * queue is unbounded, so a frame is only "dropped" if the utterance has already ended.
      */
     fun onFrames(bytes: ByteArray, count: Int) {
         val queue = this.queue ?: return
-        if (queue.trySend(AudioFrames.toFloat(bytes, count)).isFailure) droppedFrames++
+        backlog.incrementAndGet()
+        if (queue.trySend(AudioFrames.toFloat(bytes, count)).isFailure) {
+            backlog.decrementAndGet()
+            droppedFrames++
+        } else {
+            val depth = backlog.get()
+            if (depth > maxBacklogFrames) maxBacklogFrames = depth
+        }
     }
 
     /**
      * Suspending variant of [onFrames] for **offline replay**: the caller is not a real-time capture
-     * thread and can afford backpressure, so a frame waits for queue space instead of being dropped.
+     * thread and can afford backpressure, so it waits for the recogniser instead of running ahead.
      *
-     * Live capture must never block (hence `trySend`), but an unpaced replay through [onFrames] would
-     * overflow the bounded queue (512 frames ≈ 51 s) the moment the ASR worker falls behind — which is
-     * exactly what silently truncated a 33-minute Cleanup Lab run to ~51 s of audio.
+     * Live capture must never block (hence `trySend` on an unbounded queue), but an unpaced replay
+     * through [onFrames] would buffer the whole file in memory — a 33-minute run is ~127 MB of float
+     * frames. Replay backpressure is therefore a bounded backlog (D-139), independent of the
+     * unbounded queue.
      */
     suspend fun onFramesSuspending(bytes: ByteArray, count: Int) {
         if (count <= 0) return
@@ -196,20 +233,27 @@ class LocalAsrSession(
     /**
      * Suspending feed for callers that already hold `FloatArray` samples in `[-1, 1)` — the
      * audio-file replay, whose decoder produces floats and would otherwise pay a float→s16→float
-     * round trip over the whole file. Same backpressure contract as the byte overload: the frame
-     * waits for queue space instead of being dropped.
+     * round trip over the whole file.
+     *
+     * Backpressure (D-139): the replay waits while the recogniser is behind, so a long file is not
+     * buffered whole (a 33-minute run is ~127 MB of float frames). It waits on the same backlog count
+     * the drain loop already decrements, so there is one accounting, not two.
      */
     suspend fun onFramesSuspending(frame: FloatArray) {
         if (frame.isEmpty()) return
         val queue = this.queue ?: return
-        if (queue.trySend(frame).isSuccess) return
-        // Full: wait for the worker. A closed queue means the utterance ended mid-feed; count it so the
-        // loss is visible rather than silent.
-        try {
-            queue.send(frame)
-        } catch (_: Exception) {
-            droppedFrames++
+        while (backlog.get() >= REPLAY_MAX_IN_FLIGHT) {
+            delay(REPLAY_BACKPRESSURE_POLL_MS)
         }
+        backlog.incrementAndGet()
+        if (queue.trySend(frame).isFailure) {
+            // A closed queue means the utterance ended mid-feed; count it so the loss is visible.
+            backlog.decrementAndGet()
+            droppedFrames++
+            return
+        }
+        val depth = backlog.get()
+        if (depth > maxBacklogFrames) maxBacklogFrames = depth
     }
 
     /**
@@ -245,6 +289,7 @@ class LocalAsrSession(
     fun abort() {
         queue?.close()
         queue = null
+        backlog.set(0)
         feedJob?.cancel()
         feedJob = null
         scope.launch(dispatcher) { engine.abort() }
@@ -258,6 +303,7 @@ class LocalAsrSession(
     suspend fun abortAndJoin() {
         queue?.close()
         queue = null
+        backlog.set(0)
         val job = feedJob
         feedJob = null
         if (job != null) {
@@ -269,9 +315,13 @@ class LocalAsrSession(
 
     companion object {
         /**
-         * Buffering capacity for incoming frames (~51.2 seconds @ 100ms frames) to prevent microphone dropouts
-         * even when an offline model decodes a large segment while capture continues uninterrupted.
+         * Frames a **replay** producer may have in flight before it waits (~51 s at 100 ms frames).
+         * Only the replay path is bounded; the live mic path is unbounded so it can never drop a
+         * frame or block the capture thread (D-139).
          */
-        private const val FRAME_QUEUE_CAPACITY = 512
+        private const val REPLAY_MAX_IN_FLIGHT = 512
+
+        /** How often a waiting replay re-checks the backlog. Short enough to stay responsive. */
+        private const val REPLAY_BACKPRESSURE_POLL_MS = 2L
     }
 }

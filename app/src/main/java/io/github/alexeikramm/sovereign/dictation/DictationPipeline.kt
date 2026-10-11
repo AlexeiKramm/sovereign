@@ -159,7 +159,7 @@ class DictationPipeline(
     fun onFrames(bytes: ByteArray, count: Int) = session.onFrames(bytes, count)
 
     /**
-     * Offline-replay capture entry point: suspends when the ASR queue is full instead of dropping the
+     * Offline-replay capture entry point: waits while the recogniser is behind instead of dropping the
      * frame. Used by the Cleanup Lab; the pill keeps the non-blocking [onFrames].
      */
     suspend fun onFramesSuspending(bytes: ByteArray, count: Int) = session.onFramesSuspending(bytes, count)
@@ -172,6 +172,9 @@ class DictationPipeline(
 
     /** Frames the ASR queue dropped this utterance; 0 for a backpressured replay. */
     val droppedFrames: Int get() = session.droppedFrames
+
+    /** Deepest the ASR frame queue got this utterance; 0 when the recogniser kept up (D-139). */
+    val asrBacklogHighWater: Int get() = session.maxBacklogFrames
 
     /**
      * Ends the utterance: flush the ASR tail, drain cleanup, apply terminal punctuation. Returns the
