@@ -56,4 +56,47 @@ class AutoScrollTest {
             ),
         )
     }
+
+    @Test
+    fun `our own follow animation never unpins even far from the bottom`() {
+        // Mid-follow the viewport is far from the (new) bottom. That is our motion, not the user
+        // leaving, so the pin must hold — otherwise the follow cancels itself.
+        assertTrue(
+            AutoScrollRules.pinnedAfterScroll(
+                currentlyPinned = true, scrolling = true, autoScrolling = true,
+                value = 100, maxValue = 900, slopPx = 50,
+            ),
+        )
+    }
+
+    @Test
+    fun `a large content jump during our follow keeps the pin`() {
+        // A committed unit can add several lines, so the follow starts well beyond the slop.
+        assertTrue(
+            AutoScrollRules.pinnedAfterScroll(
+                currentlyPinned = true, scrolling = true, autoScrolling = true,
+                value = 0, maxValue = 5000, slopPx = 50,
+            ),
+        )
+    }
+
+    @Test
+    fun `a user scroll away from the bottom still unpins`() {
+        assertFalse(
+            AutoScrollRules.pinnedAfterScroll(
+                currentlyPinned = true, scrolling = true, autoScrolling = false,
+                value = 100, maxValue = 900, slopPx = 50,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto-scrolling does not resurrect a pin the user already dropped`() {
+        assertFalse(
+            AutoScrollRules.pinnedAfterScroll(
+                currentlyPinned = false, scrolling = true, autoScrolling = true,
+                value = 0, maxValue = 900, slopPx = 50,
+            ),
+        )
+    }
 }

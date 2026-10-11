@@ -1,9 +1,12 @@
 package io.github.alexeikramm.sovereign.floating
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -1059,13 +1062,23 @@ private fun DictationCard(
                 }
             }
 
+            var lastStatusNote by remember { mutableStateOf("") }
             if (statusNote != null) {
-                Spacer(modifier = Modifier.height(Spacing.xs))
-                Text(
-                    text = statusNote,
-                    color = cs.primary,
-                    fontSize = 11.sp,
-                )
+                lastStatusNote = statusNote
+            }
+            AnimatedVisibility(
+                visible = statusNote != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        text = statusNote ?: lastStatusNote,
+                        color = cs.primary,
+                        fontSize = 11.sp,
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(CardLayout.GAP_BOTTOM_DP.dp))

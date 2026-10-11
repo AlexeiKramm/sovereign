@@ -478,6 +478,8 @@ class FloatingOverlayService : Service() {
     private var silenceMonitoringJob: Job? = null
     /** Clears the transient BUSY mark after a refused pill tap (CHUNK-7). */
     private var busyNoticeJob: Job? = null
+    /** Auto-dismisses transient status notes (reprocess, dictionary, errors). */
+    private var statusNoteJob: Job? = null
 
     private var captureStoppedAtMs = 0L
     private var turnaroundLatencyMs = 0L
@@ -732,6 +734,27 @@ class FloatingOverlayService : Service() {
         busyNoticeJob?.cancel()
         busyNoticeJob = null
         pillBusy = false
+    }
+
+    /**
+     * Surfaces a transient status note on the expanded card (e.g. reprocess result, dictionary add,
+     * or an engine failure note) and automatically dismisses it after [durationMs].
+     */
+    private fun showTransientStatus(message: String, durationMs: Long = STATUS_NOTE_DURATION_MS) {
+        statusNoteJob?.cancel()
+        statusNote = message
+        statusNoteJob = scope.launch {
+            delay(durationMs)
+            statusNote = null
+            statusNoteJob = null
+        }
+    }
+
+    /** Clears any active or scheduled transient status note. */
+    private fun clearStatusNote() {
+        statusNoteJob?.cancel()
+        statusNoteJob = null
+        statusNote = null
     }
 
     /**
@@ -1142,7 +1165,7 @@ class FloatingOverlayService : Service() {
                     val fix = WordFix.correction(heard = selection.word, replacement = value)
                     if (fix != null) {
                         dictionaryStore.addCorrection(fix.correct, listOf(fix.incorrect))
-                        statusNote = "Added \u201C${fix.correct}\u201D to the dictionary"
+                        showTransientStatus("Added \u201C${fix.correct}\u201D to the dictionary")
                         Log.i(TAG, "Dictionary correction saved: '${fix.incorrect}' -> '${fix.correct}'")
                     }
                 }
@@ -1796,7 +1819,7 @@ class FloatingOverlayService : Service() {
             uiState = targetState
         }
         audioLevel = 0f
-        statusNote = null
+        clearStatusNote()
         errorMessage = null
         settingsOpen = false
         dismissWordSelection()
@@ -1831,7 +1854,7 @@ class FloatingOverlayService : Service() {
             val availability = session.open(settings.language)
             if (availability !is LocalAsrEngine.Availability.Loaded) {
                 val reason = (availability as? LocalAsrEngine.Availability.Unavailable)?.reason ?: "model not ready"
-                statusNote = "ASR unavailable: $reason"
+                showTransientStatus("ASR unavailable: $reason")
             }
         }
     }
@@ -1983,13 +2006,14 @@ class FloatingOverlayService : Service() {
 
         uiState = FloatingUiState.REVIEW
         isProcessing = true
+        clearStatusNote()
         statusNote = finishingStatus()
 
         inFlightJob = scope.launch {
             finalizeUtterance()
             turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
             isProcessing = false
-            statusNote = null
+            clearStatusNote()
             session.onCaptureFinished()
 
             if (settings.floatingPillAutoCommit) {
@@ -2127,11 +2151,12 @@ class FloatingOverlayService : Service() {
                 stopAudioMetering()
                 stopSilenceMonitoring()
                 isProcessing = true
+                clearStatusNote()
                 statusNote = finishingStatus()
                 finalizeUtterance()
                 turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
                 isProcessing = false
-                statusNote = null
+                clearStatusNote()
                 session.onCaptureFinished()
             } else if (isProcessing) {
                 inFlightJob?.join()
@@ -2198,6 +2223,7 @@ class FloatingOverlayService : Service() {
         // The transcript is about to be rewritten wholesale, so any selected word's range is stale.
         dismissWordSelection()
 
+        clearStatusNote()
         isProcessing = true
         statusNote = "Reprocessing entire text with LLM..."
 
@@ -2207,16 +2233,16 @@ class FloatingOverlayService : Service() {
             if (pass == null) {
                 // Reviews are non-destructive: the text on screen is already safe, so this is an
                 // advisory note rather than the raw-text fallback treatment.
-                statusNote = "Couldn't reload the cleanup model"
+                showTransientStatus("Couldn't reload the cleanup model")
                 return@launch
             }
             if (pass.cleaned) {
                 val costMs = (pass.promptTimeMs + pass.decodeTimeMs).toInt()
                 reprocessActiveLlmMs = if (pass.activeMs > 0L) pass.activeMs else costMs.toLong()
                 session.replaceCommitted(pass.text)
-                statusNote = "Reprocessed full text (${costMs}ms)"
+                showTransientStatus("Reprocessed full text (${costMs}ms)")
             } else {
-                statusNote = "Reprocess failed: ${pass.note.ifBlank { "unknown" }}"
+                showTransientStatus("Reprocess failed: ${pass.note.ifBlank { "unknown" }}")
             }
         }
     }
@@ -2252,7 +2278,7 @@ class FloatingOverlayService : Service() {
         rawText = ""
         provisionalText = ""
         audioLevel = 0f
-        statusNote = null
+        clearStatusNote()
         errorMessage = null
         settingsOpen = false
         dismissWordSelection()
@@ -2348,6 +2374,12 @@ class FloatingOverlayService : Service() {
          * refusal) before returning to rest (~1.7s).
          */
         private const val QUICK_STATUS_MS = 1700L
+
+        /**
+         * How long a transient status note (e.g. reprocess result, dictionary add) holds on the
+         * expanded card before auto-dismissing (~2.5s).
+         */
+        private const val STATUS_NOTE_DURATION_MS = 2500L
 
         /** The error state's user-facing line. Deliberately says nothing about exceptions. */
         const val CLEANUP_UNAVAILABLE = "Cleanup is unavailable — showing your words as spoken."
