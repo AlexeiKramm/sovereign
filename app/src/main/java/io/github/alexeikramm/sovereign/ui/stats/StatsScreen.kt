@@ -54,6 +54,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.alexeikramm.sovereign.data.AsrRevisionData
+import io.github.alexeikramm.sovereign.data.AsrRevisionStore
 import io.github.alexeikramm.sovereign.data.UsageStatsData
 import io.github.alexeikramm.sovereign.data.UsageStatsStore
 import io.github.alexeikramm.sovereign.data.UtteranceRecord
@@ -77,12 +79,15 @@ fun StatsScreen(
 ) {
     val context = LocalContext.current
     val store = remember { UsageStatsStore(context) }
+    val revisionStore = remember { AsrRevisionStore(context) }
     var stats by remember { mutableStateOf(UsageStatsData()) }
+    var revisions by remember { mutableStateOf(AsrRevisionData()) }
     var powerState by remember { mutableStateOf(readDevicePowerState(context)) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     fun refresh() {
         stats = store.load()
+        revisions = revisionStore.load()
         powerState = readDevicePowerState(context)
     }
 
@@ -116,6 +121,7 @@ fun StatsScreen(
                 TextButton(
                     onClick = {
                         store.clear()
+                        revisionStore.clear()
                         refresh()
                         showResetDialog = false
                     }
@@ -307,6 +313,44 @@ fun StatsScreen(
                                 }
                                 Text(
                                     text = ratioText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ASR seam revisions — a raw-pipeline health counter for the continuous-context change
+            // (D-140). It should read zero; anything else is the evidence we need before considering
+            // any revision repair.
+            item {
+                SettingsGroupCard {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SettingsIconBadge(
+                                icon = Icons.Default.Refresh,
+                                badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                contentDescription = "ASR seam revisions",
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "ASR Seam Revisions",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (revisions.revisions == 0L) {
+                                        "No committed words changed across a segment boundary. Healthy."
+                                    } else {
+                                        "${revisions.revisions} utterance(s) with a revised word, " +
+                                            "${revisions.divergedChars} character(s) changed before the boundary."
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
