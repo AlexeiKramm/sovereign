@@ -16,7 +16,7 @@ import java.io.File
  */
 @Serializable
 data class AsrRevisionData(
-    /** Utterances on which at least one committed word was revised. */
+    /** Revision events: one per segment boundary at which committed text changed. */
     val revisions: Long = 0,
     /** Total characters of committed text changed across those revisions. */
     val divergedChars: Long = 0,

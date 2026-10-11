@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -100,7 +101,11 @@ class LocalAsrSession(
     var boundaryState: BoundaryState = boundary.snapshot(audioQuietFor = 0.0, heardAudio = false)
         private set
 
-    /** Frames the queue could not take because the engine is behind. Reported, never ignored. */
+    /**
+     * Frames that arrived after the utterance had already ended. The queue is unbounded (D-139), so a
+     * live frame is never dropped for being behind; this is a should-always-be-zero alarm.
+     */
+    @Volatile
     var droppedFrames: Int = 0
         private set
 
@@ -213,11 +218,12 @@ class LocalAsrSession(
 
     /**
      * Suspending variant of [onFrames] for **offline replay**: the caller is not a real-time capture
-     * thread and can afford backpressure, so a frame waits for queue space instead of being dropped.
+     * thread and can afford backpressure, so it waits for the recogniser instead of running ahead.
      *
-     * Live capture must never block (hence `trySend`), but an unpaced replay through [onFrames] would
-     * overflow the bounded queue (512 frames ≈ 51 s) the moment the ASR worker falls behind — which is
-     * exactly what silently truncated a 33-minute Cleanup Lab run to ~51 s of audio.
+     * Live capture must never block (hence `trySend` on an unbounded queue), but an unpaced replay
+     * through [onFrames] would buffer the whole file in memory — a 33-minute run is ~127 MB of float
+     * frames. Replay backpressure is therefore a bounded backlog (D-139), independent of the
+     * unbounded queue.
      */
     suspend fun onFramesSuspending(bytes: ByteArray, count: Int) {
         if (count <= 0) return
@@ -227,20 +233,27 @@ class LocalAsrSession(
     /**
      * Suspending feed for callers that already hold `FloatArray` samples in `[-1, 1)` — the
      * audio-file replay, whose decoder produces floats and would otherwise pay a float→s16→float
-     * round trip over the whole file. Same backpressure contract as the byte overload: the frame
-     * waits for queue space instead of being dropped.
+     * round trip over the whole file.
+     *
+     * Backpressure (D-139): the replay waits while the recogniser is behind, so a long file is not
+     * buffered whole (a 33-minute run is ~127 MB of float frames). It waits on the same backlog count
+     * the drain loop already decrements, so there is one accounting, not two.
      */
     suspend fun onFramesSuspending(frame: FloatArray) {
         if (frame.isEmpty()) return
         val queue = this.queue ?: return
-        if (queue.trySend(frame).isSuccess) return
-        // Full: wait for the worker. A closed queue means the utterance ended mid-feed; count it so the
-        // loss is visible rather than silent.
-        try {
-            queue.send(frame)
-        } catch (_: Exception) {
-            droppedFrames++
+        while (backlog.get() >= REPLAY_MAX_IN_FLIGHT) {
+            delay(REPLAY_BACKPRESSURE_POLL_MS)
         }
+        backlog.incrementAndGet()
+        if (queue.trySend(frame).isFailure) {
+            // A closed queue means the utterance ended mid-feed; count it so the loss is visible.
+            backlog.decrementAndGet()
+            droppedFrames++
+            return
+        }
+        val depth = backlog.get()
+        if (depth > maxBacklogFrames) maxBacklogFrames = depth
     }
 
     /**
@@ -298,5 +311,17 @@ class LocalAsrSession(
             job.join()
         }
         withContext(dispatcher) { engine.abort() }
+    }
+
+    companion object {
+        /**
+         * Frames a **replay** producer may have in flight before it waits (~51 s at 100 ms frames).
+         * Only the replay path is bounded; the live mic path is unbounded so it can never drop a
+         * frame or block the capture thread (D-139).
+         */
+        private const val REPLAY_MAX_IN_FLIGHT = 512
+
+        /** How often a waiting replay re-checks the backlog. Short enough to stay responsive. */
+        private const val REPLAY_BACKPRESSURE_POLL_MS = 2L
     }
 }

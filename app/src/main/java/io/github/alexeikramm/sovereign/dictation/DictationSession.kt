@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
+import io.github.alexeikramm.sovereign.asr.AsrModelType
 import io.github.alexeikramm.sovereign.audio.WavRecorder
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
@@ -219,8 +220,8 @@ class DictationSession(
 
     /**
      * Feed an already-float frame with backpressure. The audio-file transcribe path decodes to
-     * `FloatArray`, so it replays through here rather than the non-blocking mic entry point, which
-     * would drop frames against a full queue and silently truncate the file.
+     * `FloatArray`, so it replays through here rather than the non-blocking mic entry point: it waits
+     * while the recogniser is behind, so a long file is not fed faster than it can be transcribed.
      */
     suspend fun onFramesSuspending(frame: FloatArray) = pipeline.onFramesSuspending(frame)
 
@@ -244,12 +245,16 @@ class DictationSession(
             // a backlog lags the text but never loses audio; it should be tiny on a healthy phone.
             Log.i(TAG, "ASR frame backlog high-water: ${pipeline.asrBacklogHighWater} frame(s)")
             // Seam revisions: the streaming recogniser ran the whole utterance without a reset
-            // (D-140); count (never repair) any committed text it changed at a boundary.
-            val revisions = localEngine.revisionEvents
-            if (revisions > 0) {
-                val diverged = localEngine.revisionDivergedChars
-                Log.i(TAG, "ASR seam revisions: $revisions event(s), $diverged char(s) diverged")
-                withContext(Dispatchers.IO) { revisionStore.record(revisions.toLong(), diverged.toLong()) }
+            // (D-140); count (never repair) any committed text it changed at a boundary. The engine
+            // zeroes these per utterance for every model type, and this is gated to streaming so an
+            // offline utterance can never record a stale streaming count.
+            if (settings.asrModel.type == AsrModelType.STREAMING_TRANSDUCER) {
+                val revisions = localEngine.revisionEvents
+                if (revisions > 0) {
+                    val diverged = localEngine.revisionDivergedChars
+                    Log.i(TAG, "ASR seam revisions: $revisions event(s), $diverged char(s) diverged")
+                    withContext(Dispatchers.IO) { revisionStore.record(revisions.toLong(), diverged.toLong()) }
+                }
             }
             return settled
         } finally {

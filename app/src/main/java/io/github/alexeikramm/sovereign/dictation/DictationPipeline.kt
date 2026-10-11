@@ -159,7 +159,7 @@ class DictationPipeline(
     fun onFrames(bytes: ByteArray, count: Int) = session.onFrames(bytes, count)
 
     /**
-     * Offline-replay capture entry point: suspends when the ASR queue is full instead of dropping the
+     * Offline-replay capture entry point: waits while the recogniser is behind instead of dropping the
      * frame. Used by the Cleanup Lab; the pill keeps the non-blocking [onFrames].
      */
     suspend fun onFramesSuspending(bytes: ByteArray, count: Int) = session.onFramesSuspending(bytes, count)

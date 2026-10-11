@@ -112,8 +112,10 @@ class LocalAsrEngine(
     /**
      * The streaming transcript as of the last cut — the boundary between committed and live text
      * (D-140). The recogniser is **not** reset at a cut; the tail is computed against this snapshot,
-     * so the model keeps its acoustic context across pauses.
+     * so the model keeps its acoustic context across pauses. `@Volatile` because `applyModel` (a
+     * lifecycle call from the session) can clear it off the ASR worker.
      */
+    @Volatile
     private var committedText: String = ""
 
     /**
@@ -219,6 +221,12 @@ class LocalAsrEngine(
     }
 
     override fun startSession(language: String, hotwords: String) {
+        // A fresh utterance starts a fresh boundary and clean counters (D-140) for **every** model
+        // type, so a previous streaming utterance's revisions cannot leak into an offline one (the
+        // counters are read unconditionally at finish).
+        committedText = ""
+        revisionEvents = 0
+        revisionDivergedChars = 0
         if (modelSpec.type != AsrModelType.STREAMING_TRANSDUCER) {
             getOrCreateOfflineEngine().startSession(language, hotwords)
             return
@@ -232,10 +240,6 @@ class LocalAsrEngine(
         stream = created
         vad?.reset()
         pendingEndpoint = false
-        // A fresh utterance starts a fresh boundary and clean counters (D-140).
-        committedText = ""
-        revisionEvents = 0
-        revisionDivergedChars = 0
     }
 
     override fun accept(samples: FloatArray, count: Int): String? {

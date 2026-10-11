@@ -7,7 +7,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -56,10 +55,15 @@ class LocalAsrSessionTest {
 
             assertEquals("every queued frame must reach the recogniser", count, engine.accepted.get())
             assertEquals("no frame may be dropped", 0, session.droppedFrames)
-            assertTrue(
-                "the backlog high-water must show the recogniser was behind (> the old 512 cap)",
-                session.maxBacklogFrames > 512,
+            assertEquals(
+                "the high-water must be the peak queue depth (the old 512 cap would have dropped)",
+                count,
+                session.maxBacklogFrames,
             )
+
+            // A new utterance starts from zero: the high-water must not be sticky across utterances.
+            session.begin()
+            assertEquals(0, session.maxBacklogFrames)
         } finally {
             dispatcher.close()
         }

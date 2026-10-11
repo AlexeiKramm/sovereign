@@ -171,7 +171,7 @@ fun StatsScreen(
                                     tint = MaterialTheme.colorScheme.onSurface,
                                 )
                             }
-                            if (stats.totalUtterances > 0) {
+                            if (stats.totalUtterances > 0 || revisions.revisions > 0) {
                                 IconButton(onClick = { showResetDialog = true }) {
                                     Icon(
                                         Icons.Default.Delete,
@@ -348,7 +348,7 @@ fun StatsScreen(
                                     text = if (revisions.revisions == 0L) {
                                         "No committed words changed across a segment boundary. Healthy."
                                     } else {
-                                        "${revisions.revisions} utterance(s) with a revised word, " +
+                                        "${revisions.revisions} revision event(s), " +
                                             "${revisions.divergedChars} character(s) changed before the boundary."
                                     },
                                     style = MaterialTheme.typography.bodySmall,
@@ -431,7 +431,7 @@ fun StatsScreen(
                                     contentDescription = "Refresh",
                                 )
                             }
-                            if (stats.totalUtterances > 0) {
+                            if (stats.totalUtterances > 0 || revisions.revisions > 0) {
                                 IconButton(onClick = { showResetDialog = true }) {
                                     Icon(
                                         Icons.Default.Delete,

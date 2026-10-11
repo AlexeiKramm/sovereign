@@ -59,4 +59,31 @@ class TranscriptTailTest {
         assertEquals(3, TranscriptTail.commonPrefixLength("abc", "abc"))
         assertEquals(1, TranscriptTail.commonPrefixLength("a", "abc"))
     }
+
+    @Test
+    fun `an empty transcript against a non-empty snapshot is a full revision`() {
+        // The recogniser can briefly return nothing (e.g. right after a cut); it must not crash and
+        // must be reported as a revision rather than silently treated as an append.
+        val split = TranscriptTail.split(transcript = "", committed = "abc")
+        assertEquals("", split.tail)
+        assertTrue(split.revised)
+        assertEquals(3, split.divergedChars)
+    }
+
+    @Test
+    fun `disjoint strings revise the whole snapshot`() {
+        val split = TranscriptTail.split(transcript = "xyz", committed = "abc")
+        assertEquals("xyz", split.tail)
+        assertTrue(split.revised)
+        assertEquals(3, split.divergedChars)
+    }
+
+    @Test
+    fun `the split never trims whitespace`() {
+        // Trimming happens elsewhere (UtteranceText); the boundary must be exact, so a documenting
+        // test stops a future reader from "helpfully" normalising here.
+        val split = TranscriptTail.split(transcript = "hello  world", committed = "hello ")
+        assertEquals(" world", split.tail)
+        assertFalse(split.revised)
+    }
 }
