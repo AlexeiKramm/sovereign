@@ -3,8 +3,9 @@ package io.github.alexeikramm.sovereign.floating
 /**
  * Resolves dictated text to preserve when the expanded pill collapses or is dismissed.
  *
- * Prioritises settled delivery text (cleaned units or raw fallback), then screen preview text,
- * then any in-flight provisional text from streaming ASR.
+ * Combines settled delivery text (cleaned units or raw fallback) with any in-flight provisional
+ * text from streaming ASR ("gray text" that hasn't undergone cleanup yet), matching what was
+ * visible on screen before collapse.
  */
 object PillSessionPreserver {
 
@@ -13,8 +14,17 @@ object PillSessionPreserver {
         previewText: String,
         provisionalText: String = "",
     ): String {
-        return deliveryText.trim()
-            .ifBlank { previewText.trim() }
-            .ifBlank { provisionalText.trim() }
+        val settled = deliveryText.trim().ifBlank { previewText.trim() }
+        val provisional = provisionalText.trim()
+
+        return when {
+            settled.isNotBlank() && provisional.isNotBlank() -> {
+                val separator = if (settled.lastOrNull()?.isWhitespace() == true) "" else " "
+                "$settled$separator$provisional"
+            }
+            settled.isNotBlank() -> settled
+            provisional.isNotBlank() -> provisional
+            else -> ""
+        }
     }
 }

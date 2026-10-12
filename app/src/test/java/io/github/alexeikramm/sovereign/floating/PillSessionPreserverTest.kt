@@ -6,33 +6,43 @@ import org.junit.Test
 class PillSessionPreserverTest {
 
     @Test
-    fun `prefers deliveryText when non-blank`() {
+    fun `combines settled delivery text with provisional text when both are present`() {
         val text = PillSessionPreserver.resolveTextToPreserve(
             deliveryText = "Cleaned final text.",
-            previewText = "Cleaned preview text.",
-            provisionalText = "extra words",
+            previewText = "Cleaned final text.",
+            provisionalText = "and more words spoken",
         )
-        assertEquals("Cleaned final text.", text)
+        assertEquals("Cleaned final text. and more words spoken", text)
     }
 
     @Test
-    fun `falls back to previewText when deliveryText is blank`() {
+    fun `combines preview text with provisional text when delivery text is blank`() {
         val text = PillSessionPreserver.resolveTextToPreserve(
             deliveryText = "   ",
             previewText = "Preview fallback text.",
-            provisionalText = "extra words",
+            provisionalText = "in flight words",
         )
-        assertEquals("Preview fallback text.", text)
+        assertEquals("Preview fallback text. in flight words", text)
     }
 
     @Test
-    fun `falls back to provisionalText when delivery and preview are blank`() {
+    fun `returns only settled text when provisional text is blank`() {
+        val text = PillSessionPreserver.resolveTextToPreserve(
+            deliveryText = "Just settled text.",
+            previewText = "Just settled text.",
+            provisionalText = "   ",
+        )
+        assertEquals("Just settled text.", text)
+    }
+
+    @Test
+    fun `returns only provisional text when settled text is blank`() {
         val text = PillSessionPreserver.resolveTextToPreserve(
             deliveryText = "",
             previewText = "  ",
-            provisionalText = "in flight words",
+            provisionalText = "first spoken words before cut",
         )
-        assertEquals("in flight words", text)
+        assertEquals("first spoken words before cut", text)
     }
 
     @Test
@@ -46,11 +56,12 @@ class PillSessionPreserverTest {
     }
 
     @Test
-    fun `trims surrounding whitespace`() {
-        val text = PillSessionPreserver.resolveTextToPreserve(
-            deliveryText = "   Hello world!   \n",
+    fun `handles whitespace at seam properly`() {
+        val textWithSpace = PillSessionPreserver.resolveTextToPreserve(
+            deliveryText = "First part ",
             previewText = "",
+            provisionalText = "second part",
         )
-        assertEquals("Hello world!", text)
+        assertEquals("First part second part", textWithSpace)
     }
 }
