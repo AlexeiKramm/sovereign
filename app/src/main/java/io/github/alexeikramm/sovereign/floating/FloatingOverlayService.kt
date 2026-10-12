@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
@@ -2102,10 +2104,47 @@ class FloatingOverlayService : Service() {
         if (quickCaptureActive) releaseQuickCapture() else stopRecording()
     }
 
+    /** Copies [text] to the system clipboard. Returns true if successful. */
+    private fun copyToClipboard(text: String): Boolean {
+        return runCatching {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("Sovereign", text))
+                true
+            } else {
+                Log.w(TAG, "ClipboardManager unavailable")
+                false
+            }
+        }.getOrElse { e ->
+            Log.e(TAG, "Failed to copy text to clipboard", e)
+            false
+        }
+    }
+
+    /**
+     * Saves any accumulated dictated text to the system clipboard when the expanded pill
+     * collapses or is dismissed, preventing accidental loss of progress.
+     */
+    private fun saveSessionTextToClipboard(): Boolean {
+        val text = PillSessionPreserver.resolveTextToPreserve(
+            deliveryText = session.deliveryText,
+            previewText = previewText,
+            provisionalText = provisionalText,
+        )
+        if (text.isBlank()) return false
+
+        val copied = copyToClipboard(text)
+        if (copied) {
+            Toast.makeText(this, "Dictation copied to clipboard", Toast.LENGTH_SHORT).show()
+            Log.i(TAG, "Preserved ${text.length} chars to clipboard on pill collapse")
+        }
+        return copied
+    }
+
     private fun cancelSession(animated: Boolean = false) {
-        // ✕ — the explicit discard. Always throws the session away. The keyboard-close path passes
-        // `true` so a card that is open when the keyboard closes slides out with the pill; the ✕ and
-        // the outside tap keep the default and stay instant.
+        // ✕ — the explicit discard, or keyboard-close dismissal. Saves any accumulated text to
+        // clipboard as a safety net before discarding the in-flight capture.
+        saveSessionTextToClipboard()
         abandonCapture()
         resetToResting(animated)
     }
@@ -2113,12 +2152,11 @@ class FloatingOverlayService : Service() {
     /**
      * The pill's "minimise": an outside tap collapses the expanded card back to resting.
      *
-     * Currently this behaves exactly like [cancelSession] — the user accepted that an outside tap
-     * loses the text for now — but it is deliberately its own call so the parked session-preservation
-     * work has **one** seam to change: keep the text here instead of going through
-     * [resetToResting]'s discard path.
+     * Saves any accumulated dictated text to clipboard so an accidental outside tap does not lose
+     * minutes of speech, then ends the capture and returns to resting.
      */
     private fun collapseSession() {
+        saveSessionTextToClipboard()
         abandonCapture()
         resetToResting()
     }
@@ -2174,7 +2212,8 @@ class FloatingOverlayService : Service() {
                 val toType = UtteranceFinalizer.forInsertion(textToInject)
                 injected = VoiceAccessibilityService.instance?.injectText(toType) ?: false
                 if (!injected) {
-                    // Never fail silently: the words are on the clipboard, so tell the user how to use them.
+                    // Never fail silently: ensure the words are on the clipboard and notify the user.
+                    copyToClipboard(toType)
                     Log.w(TAG, "Text injected via clipboard fallback")
                     Toast.makeText(this@FloatingOverlayService, "Copied — long-press the text field to paste", Toast.LENGTH_LONG).show()
                 }
