@@ -3,6 +3,7 @@ package io.github.alexeikramm.sovereign.asr
 import android.content.res.AssetManager
 import android.os.SystemClock
 import android.util.Log
+import java.util.Locale
 import com.k2fsa.sherpa.onnx.EndpointConfig
 import com.k2fsa.sherpa.onnx.EndpointRule
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -283,7 +284,31 @@ class LocalAsrEngine(
                 "ASR revision at the segment boundary: ${split.divergedChars} char(s) of committed text changed",
             )
         }
+        if (countRevision) Log.i(TAG, "ASR seam unit: ${seamShape(split.tail)}")
         return split.tail
+    }
+
+    /**
+     * Diagnostic for the **shape** of a committed unit at the seam — metadata only, never the
+     * transcript text. With one continuous stream the recogniser can carry a pause's punctuation into
+     * the next unit and can re-emit the last committed word. Neither is a *revision* (the transcript
+     * still appends to the snapshot), so [revisionEvents] does not see them; this records, per seam:
+     * the leading character's class and code point, the unit length, and whether the first word
+     * duplicates the last word of the committed snapshot.
+     */
+    private fun seamShape(tail: String): String {
+        val lead = tail.firstOrNull { !it.isWhitespace() }
+        val cls = when {
+            lead == null -> "EMPTY"
+            lead.isLetter() -> "LETTER"
+            lead.isDigit() -> "DIGIT"
+            else -> "PUNCT"
+        }
+        val strip = charArrayOf(',', '.', '!', '?', ';', ':', '"', '\'', '—', '–')
+        val firstWord = tail.trimStart().takeWhile { !it.isWhitespace() }.trim(*strip)
+        val lastWord = committedText.trimEnd().substringAfterLast(' ').trim(*strip)
+        val dup = firstWord.isNotEmpty() && firstWord.equals(lastWord, ignoreCase = true)
+        return String.format(Locale.US, "lead=%s U+%04X len=%d dup=%b", cls, lead?.code ?: 0, tail.length, dup)
     }
 
     override fun result(): String {

@@ -311,6 +311,38 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun `seam healing replaces the overlap and commits the unified sentence`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("First sentence.", "Second sentence."))
+        val cleaner = FakeCleanupEngine(transform = { unit ->
+            if (unit.contains("First sentence") && unit.contains("Second sentence")) {
+                "First sentence, and second sentence."
+            } else {
+                unit.trim()
+            }
+        })
+        val pipeline = DictationPipeline(
+            asrEngine = engine,
+            asrDispatcher = Dispatchers.Unconfined,
+            cleanupEngine = cleaner,
+            cleanupDispatcher = Dispatchers.Unconfined,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            mainDispatcher = Dispatchers.Unconfined,
+            timings = { ListenerTimings() },
+            cleanupRules = { CleanupPrompt.SMART_CLEAN_RULES },
+            healingSentencesCount = { 1 },
+            onText = { _, _, _ -> },
+        )
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 2)
+        pipeline.finish()
+
+        assertEquals("First sentence, and second sentence.", pipeline.committedText)
+    }
+
+    @Test
     fun `finish flushes the tail as a final unit`() = runBlocking {
         val engine = FakeAsrEngine(units = emptyList(), tail = "Just the tail.")
         val cleaner = FakeCleanupEngine()

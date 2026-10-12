@@ -92,6 +92,17 @@ class UtteranceCleanupStateTest {
     }
 
     @Test
+    fun `an unmatched seam overlap does not blindly truncate carriedTail and sets empty overlapToDelete`() {
+        val state = UtteranceCleanupState()
+        state.seed("The brown fox jumps.")
+        // Seam says overlap was "The white fox jumps." which does NOT match the committed tail
+        val seam = SeamSplit(overlapText = "The white fox jumps.", strippedOverlap = "The white fox jumps")
+        val commit = state.onPass(cleaned("ignored", "Over the lazy dog."), seam)
+        assertEquals("", commit.overlapToDelete)
+        assertEquals("The brown fox jumps. Over the lazy dog.", state.carriedTail)
+    }
+
+    @Test
     fun `reset clears the tail and the counters for the next utterance`() {
         val state = UtteranceCleanupState()
         state.onPass(cleaned("first", "First."))

@@ -51,8 +51,7 @@ class UtteranceCleanupState {
      * cleaned utterance.
      */
     fun seed(text: String) {
-        val trimmed = text.trim()
-        if (trimmed.isNotEmpty()) committed.append(trimmed)
+        if (text.isNotEmpty()) committed.append(text)
     }
 
     fun onPass(pass: CleanupPass, seam: SeamSplit? = null): CleanupCommit {
@@ -67,10 +66,11 @@ class UtteranceCleanupState {
 
         if (pass.cleaned && seam != null && seam.overlapText.isNotEmpty()) {
             val overlapLen = seam.overlapText.length
-            if (committed.endsWith(seam.overlapText)) {
+            val deleted = if (committed.endsWith(seam.overlapText)) {
                 committed.setLength(committed.length - overlapLen)
-            } else if (committed.length >= overlapLen) {
-                committed.setLength(committed.length - overlapLen)
+                true
+            } else {
+                false
             }
             val prefix = if (committed.isEmpty()) "" else PanelText.unitPrefix(committed.toString(), body)
             committed.append(prefix)
@@ -80,7 +80,7 @@ class UtteranceCleanupState {
                 cleaned = true,
                 note = pass.note,
                 prefix = prefix,
-                overlapToDelete = seam.overlapText,
+                overlapToDelete = if (deleted) seam.overlapText else "",
             )
         }
 

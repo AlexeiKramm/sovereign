@@ -138,7 +138,9 @@ class LocalAsrSession(
         heardSpeech = false
         quietSeconds = 0.0
         boundary.reset()
-        boundary.configureFallback(timings().fallbackQuietSeconds)
+        // Silero VAD is the sole pause detector; the legacy text stability fallback is disabled
+        // in production sessions to eliminate race conditions and double-cuts at pause boundaries.
+        boundary.configureFallback(Double.POSITIVE_INFINITY)
         boundaryState = boundary.snapshot(audioQuietFor = 0.0, heardAudio = false)
     }
 

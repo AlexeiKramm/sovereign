@@ -173,9 +173,14 @@ class DictationSession(
 
     /** The local recogniser's install/load state without loading it (for the tier decision). */
     fun asrAvailability(): LocalAsrEngine.Availability {
-        // Point the engine at the currently-selected model before asking: selection is applied lazily
-        // (no eager re-point on change), so a stale spec could otherwise answer for the previous model.
-        localEngine.applyModel(settings.asrModel, appContext.filesDir)
+        val selected = settings.asrModel
+        if (selected.id != localEngine.modelSpec.id) {
+            return if (selected.isInstalled(selected.directory(appContext.filesDir))) {
+                LocalAsrEngine.Availability.NotLoaded
+            } else {
+                LocalAsrEngine.Availability.NotInstalled
+            }
+        }
         return localEngine.availability()
     }
 
@@ -197,11 +202,8 @@ class DictationSession(
 
         pipeline.begin(fresh = fresh, cleanupEnabled = cleanupEnabled)
 
-        localEngine.applyModel(settings.asrModel, appContext.filesDir)
-        localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
-
-        // Warm at capture start and nowhere else. After the two apply calls, because both can unload
-        // a resident model that no longer matches the settings.
+        // Warm at capture start and nowhere else. Model and pause settings are applied on
+        // asrDispatcher so any unload of a stale native recogniser happens off the Main thread.
         warmEngines()
     }
 
@@ -385,8 +387,8 @@ class DictationSession(
      * than a second instance.
      */
     suspend fun probeAsrLoad(): Pair<LocalAsrEngine.Availability, Long> {
-        localEngine.applyModel(settings.asrModel, appContext.filesDir)
         val result = withContext(asrDispatcher) {
+            localEngine.applyModel(settings.asrModel, appContext.filesDir)
             val availability = localEngine.load()
             val loadMs = localEngine.lastLoadMillis
             localEngine.unload()
@@ -452,7 +454,11 @@ class DictationSession(
     private fun warmEngines() {
         scope.launch {
             Log.i(TAG, "Warming engines at capture start")
-            val asrAvailable = withContext(asrDispatcher) { localEngine.load() }
+            val asrAvailable = withContext(asrDispatcher) {
+                localEngine.applyModel(settings.asrModel, appContext.filesDir)
+                localEngine.applyPauseSilence(settings.pauseSilenceSeconds)
+                localEngine.load()
+            }
             setAsrLoaded(asrAvailable is LocalAsrEngine.Availability.Loaded)
             Log.i(TAG, "ASR warm: $asrAvailable in ${localEngine.lastLoadMillis}ms")
             // No ASR means no text, so there is nothing for cleanup to do; skip the allocation.

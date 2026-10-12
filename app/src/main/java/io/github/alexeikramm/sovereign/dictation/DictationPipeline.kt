@@ -297,7 +297,10 @@ class DictationPipeline(
                 committed.setLength(committed.length - commit.overlapToDelete.length)
             }
             committed.append(commit.prefix)
-            commitUnit(commit.text)
+            committed.append(commit.text)
+            clearProvisional()
+            emit()
+            onUnitCommitted(committed.toString())
             if (cleanup.lastPass?.cleaned == false) onCleanupUnavailable()
         }
     }
