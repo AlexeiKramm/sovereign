@@ -883,8 +883,8 @@ private fun DictationCard(
     // flight, appended after the settled text in its own colour. Only while listening — once the
     // unit settles it is promoted into `previewText`; on failure the raw fallback already shows it.
     val provisional = provisionalText.trim()
-    val showLiveTail = uiState == FloatingUiState.RECORDING && !failed && !isProcessing &&
-        provisional.isNotBlank()
+    val showLiveTail = !failed && provisional.isNotBlank() &&
+        (uiState == FloatingUiState.RECORDING || (uiState == FloatingUiState.REVIEW && isProcessing))
     rememberPinnedToBottom(scrollState, displayText + provisional)
     // Long-press-to-fix is offered only on the settled cleaned text: while recording the preview
     // streams and rewrites, so the word under the finger can move, and the raw fallback is not the

@@ -159,6 +159,7 @@ class DictationSession(
     val rawText: String get() = pipeline.rawText
     val committedText: String get() = pipeline.committedText
     val provisionalText: String get() = pipeline.provisionalText
+    val hasPendingClean: Boolean get() = pipeline.hasPendingClean
 
     /** The text to deliver: the settled text, or the raw words if nothing settled. */
     val deliveryText: String get() = pipeline.deliveryText

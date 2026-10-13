@@ -82,12 +82,23 @@ class DictationPipeline(
     private val committed = StringBuilder()
     private var cleanupEngaged = false
 
+    private val textLock = Any()
+    private val pendingClean = ArrayDeque<String>()
+    private var liveProvisional: String = ""
+
     /**
-     * The recogniser's live partial for the unit in flight. Set by [onPartial], retired by
-     * [commitUnit] — the grey/white tail lives exactly as long as its unit has not been committed.
+     * The unified uncommitted tail: cut units currently in-flight in cleanup ([pendingClean])
+     * followed by any live streaming partial from the recogniser ([liveProvisional]).
+     *
+     * Mutated under [textLock]; [provisional] holds the published string for [onText] and
+     * [provisionalText].
      */
     @Volatile
     private var provisional: String = ""
+
+    /** True while one or more cut units are waiting for or undergoing LLM cleanup. */
+    val hasPendingClean: Boolean
+        get() = synchronized(textLock) { pendingClean.isNotEmpty() }
 
     private val session = LocalAsrSession(
         engine = asrEngine,
@@ -202,8 +213,9 @@ class DictationPipeline(
             if (normalized != committed.toString()) {
                 committed.setLength(0)
                 committed.append(normalized)
-                emit()
             }
+            clearProvisional()
+            emit()
         }
         return committed.toString()
     }
@@ -246,18 +258,33 @@ class DictationPipeline(
         clearProvisional()
     }
 
+    private fun updateProvisionalLocked(): String {
+        val pendingJoined = pendingClean.filter { it.isNotBlank() }.joinToString(" ")
+        val live = liveProvisional.trim()
+        val combined = when {
+            pendingJoined.isNotBlank() && live.isNotBlank() -> "$pendingJoined $live"
+            pendingJoined.isNotBlank() -> pendingJoined
+            live.isNotBlank() -> live
+            else -> ""
+        }
+        provisional = combined
+        return combined
+    }
+
     /**
-     * Retires the provisional tail by appending [unit] to the committed text. This is the **one**
-     * place provisional is cleared: the grey tail lives for exactly as long as its unit has not yet
-     * been committed, so it is replaced by the committed text in the *same* update — never cleared at
-     * cut time (which left a blank gap while cleanup ran) and never lingering after a commit.
+     * Retires the provisional tail by appending [unit] to the committed text. Used when cleanup is
+     * disengaged: the unit becomes final immediately on cut.
      */
     private fun commitUnit(unit: String) {
         if (committed.isNotEmpty() && !committed.endsWith(" ") && !unit.startsWith(" ")) {
             committed.append(" ")
         }
         committed.append(unit)
-        clearProvisional()
+        synchronized(textLock) {
+            pendingClean.clear()
+            liveProvisional = ""
+            updateProvisionalLocked()
+        }
         emit()
         onUnitCommitted(committed.toString())
     }
@@ -270,10 +297,17 @@ class DictationPipeline(
             if (raw.isNotEmpty() && !raw.endsWith(" ")) raw.append(" ")
             raw.append(unit)
         }
-        scope.launch(mainDispatcher) { emit() }
 
         if (cleanupEngaged) {
-            // The grey tail stays visible while cleanup runs; `onCleanupCommit` replaces it.
+            // Synchronously stage the unit into pendingClean and clear liveProvisional
+            // BEFORE submitting to cleanup worker so the in-flight unit stays visible in gray
+            // and cannot be lost to an immediate onCleanupCommit or subsequent partial.
+            synchronized(textLock) {
+                pendingClean.addLast(unit.trim())
+                liveProvisional = ""
+                updateProvisionalLocked()
+            }
+            scope.launch(mainDispatcher) { emit() }
             cleanup.submit(unit)
         } else {
             // No cleanup: the unit becomes committed text at once, so the tail is white immediately.
@@ -284,10 +318,11 @@ class DictationPipeline(
     /** Runs on the ASR worker: hand the provisional text to the main thread and surface it. */
     private fun onPartial(text: String) {
         onPartialText(text)
-        scope.launch(mainDispatcher) {
-            provisional = text
-            emit()
+        synchronized(textLock) {
+            liveProvisional = text
+            updateProvisionalLocked()
         }
+        scope.launch(mainDispatcher) { emit() }
     }
 
     /** Runs on the cleanup worker: replace the seam overlap and commit the cleaned unit. */
@@ -298,16 +333,23 @@ class DictationPipeline(
             }
             committed.append(commit.prefix)
             committed.append(commit.text)
-            clearProvisional()
+            synchronized(textLock) {
+                pendingClean.removeFirstOrNull()
+                updateProvisionalLocked()
+            }
             emit()
             onUnitCommitted(committed.toString())
             if (cleanup.lastPass?.cleaned == false) onCleanupUnavailable()
         }
     }
 
-    /** Drops the provisional text carried between the last partial and the unit's cut. */
+    /** Drops any pending cleanup units and live provisional text. */
     private fun clearProvisional() {
-        provisional = ""
+        synchronized(textLock) {
+            pendingClean.clear()
+            liveProvisional = ""
+            provisional = ""
+        }
     }
 
     private fun finalizePunctuation() {

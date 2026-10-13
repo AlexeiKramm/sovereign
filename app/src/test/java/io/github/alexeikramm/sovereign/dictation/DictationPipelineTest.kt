@@ -527,4 +527,176 @@ class DictationPipelineTest {
         )
         assertEquals("", pipeline.provisionalText)
     }
+
+    private class ControllableAsrEngine : AsrEngine {
+        var currentPartial: String? = null
+        var currentCutUnit: String? = null
+
+        override fun load(): LocalAsrEngine.Availability = LocalAsrEngine.Availability.Loaded
+        override fun startSession(language: String, hotwords: String) {}
+        override fun accept(samples: FloatArray, count: Int): String? = currentPartial
+        override fun isSpeechDetected(): Boolean = true
+        override fun isEndpoint(): Boolean = currentCutUnit != null
+        override fun result(): String = currentCutUnit.orEmpty()
+        override fun resetSegment() {
+            currentCutUnit = null
+        }
+        override fun finish(): String = ""
+        override fun abort() {}
+    }
+
+    private class QueueGatedCleanupEngine : CleanupEngine {
+        private val gates = ArrayDeque<CompletableDeferred<Unit>>()
+        override val isLoaded: Boolean = true
+        override val lastLoadMs: Long = 0L
+        override val tokenCount: Int get() = 0
+        override val contextTokens: Int get() = 0
+
+        fun releaseNext() {
+            gates.removeFirstOrNull()?.complete(Unit)
+        }
+
+        override suspend fun load(): Result<Unit> = Result.success(Unit)
+        override fun startSession(rules: String) {}
+        override fun closeSession() {}
+        override fun unload() {}
+
+        override suspend fun clean(unit: String, rules: String): CleanupPass {
+            val gate = CompletableDeferred<Unit>()
+            gates.add(gate)
+            gate.await()
+            return CleanupPass(
+                unit = unit,
+                text = unit.trim().uppercase(),
+                cleaned = true,
+                note = "queue-gated",
+                loadMs = 0L,
+                ttftMs = 0.0,
+                decodeTimeMs = 0.0,
+                generatedTokens = 1L,
+                promptSent = unit,
+            )
+        }
+    }
+
+    @Test
+    fun `speaking during in-flight cleanup does not drop cut unit or wipe new partial`() = runBlocking {
+        val engine = ControllableAsrEngine()
+        val cleaner = QueueGatedCleanupEngine()
+        val emissions = mutableListOf<Triple<String, String, String>>()
+        val pipeline = pipeline(engine, cleaner, onText = { c, r, p -> emissions.add(Triple(c, r, p)) })
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        // 1. First unit cuts and enters cleanup (gated)
+        engine.currentPartial = "Unit 1"
+        engine.currentCutUnit = "Unit 1"
+        feed(pipeline, 1)
+
+        assertEquals("", pipeline.committedText)
+        assertEquals("Unit 1", pipeline.provisionalText)
+        assertTrue(pipeline.hasPendingClean)
+
+        // 2. User starts speaking next unit before cleanup finishes
+        engine.currentCutUnit = null
+        engine.currentPartial = "speaking next unit"
+        feed(pipeline, 1)
+
+        // The cut unit must NOT disappear while cleanup is in-flight: both pendingClean
+        // and liveProvisional are displayed together.
+        assertEquals("", pipeline.committedText)
+        assertEquals("Unit 1 speaking next unit", pipeline.provisionalText)
+
+        // 3. Cleanup pass for Unit 1 completes
+        cleaner.releaseNext()
+
+        // Unit 1 becomes white committed text, while the live partial stays intact (not wiped)
+        assertEquals("UNIT 1", pipeline.committedText)
+        assertEquals("speaking next unit", pipeline.provisionalText)
+        assertTrue(!pipeline.hasPendingClean)
+
+        // 4. Now the second unit cuts and enters cleanup
+        engine.currentCutUnit = "speaking next unit"
+        feed(pipeline, 1)
+        assertEquals("UNIT 1", pipeline.committedText)
+        assertEquals("speaking next unit", pipeline.provisionalText)
+        assertTrue(pipeline.hasPendingClean)
+
+        cleaner.releaseNext()
+        assertEquals("UNIT 1 SPEAKING NEXT UNIT", pipeline.committedText)
+        assertEquals("", pipeline.provisionalText)
+    }
+
+    @Test
+    fun `multiple units queued in cleanup maintain strict FIFO and preserve live partial`() = runBlocking {
+        val engine = ControllableAsrEngine()
+        val cleaner = QueueGatedCleanupEngine()
+        val pipeline = pipeline(engine, cleaner)
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        // Cut unit 1
+        engine.currentPartial = "First"
+        engine.currentCutUnit = "First"
+        feed(pipeline, 1)
+
+        // Cut unit 2 while unit 1 is still in cleanup
+        engine.currentPartial = "Second"
+        engine.currentCutUnit = "Second"
+        feed(pipeline, 1)
+
+        // Live partial for unit 3
+        engine.currentCutUnit = null
+        engine.currentPartial = "Third partial"
+        feed(pipeline, 1)
+
+        // All pending units + live partial stay visible in provisional text
+        assertEquals("", pipeline.committedText)
+        assertEquals("First Second Third partial", pipeline.provisionalText)
+        assertTrue(pipeline.hasPendingClean)
+
+        // Release first unit
+        cleaner.releaseNext()
+        assertEquals("FIRST", pipeline.committedText)
+        assertEquals("Second Third partial", pipeline.provisionalText)
+        assertTrue(pipeline.hasPendingClean)
+
+        // Release second unit
+        cleaner.releaseNext()
+        assertEquals("FIRST SECOND", pipeline.committedText)
+        assertEquals("Third partial", pipeline.provisionalText)
+        assertTrue(!pipeline.hasPendingClean)
+    }
+
+    @Test
+    fun `with cleanup disabled pendingClean stays empty and units commit immediately`() = runBlocking {
+        val engine = ControllableAsrEngine()
+        val cleaner = FakeCleanupEngine()
+        val pipeline = pipeline(engine, cleaner)
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        // Streaming partial before cut
+        engine.currentPartial = "Raw words"
+        engine.currentCutUnit = null
+        feed(pipeline, 1)
+
+        assertEquals("", pipeline.committedText)
+        assertEquals("Raw words", pipeline.provisionalText)
+        assertTrue(!pipeline.hasPendingClean)
+
+        // Cut unit commits immediately without LLM queuing
+        engine.currentCutUnit = "Raw words"
+        feed(pipeline, 1)
+
+        assertEquals("Raw words", pipeline.committedText)
+        assertEquals("", pipeline.provisionalText)
+        assertTrue(!pipeline.hasPendingClean)
+    }
 }

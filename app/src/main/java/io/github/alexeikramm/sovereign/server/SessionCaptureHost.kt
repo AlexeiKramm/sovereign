@@ -254,7 +254,7 @@ class SessionCaptureHost(
             // The commit ends this unit's LLM pass. During the final drain it must stay lit until
             // `finish` clears it, so the terminal Cleaning is not cut short here.
             if (!finalizing && cleaning) {
-                cleaning = false
+                cleaning = session.hasPendingClean
                 publishStage()
             }
         }
