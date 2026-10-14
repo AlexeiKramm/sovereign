@@ -72,9 +72,8 @@ object LiteRtLmModels {
     )
 
     /**
-     * Re-enabled 2026-10-04 for an on-device quality comparison against E2B. D-055 pruned it (roughly
-     * E2B-level quality at ~3x slower throughput and a ~13 s cold load); it is selectable again so the
-     * quality/speed trade-off can be judged with the retuned Smart Clean prompt rather than on paper.
+     * Inactive: Pruned in favor of Gemma4 E2B default for initial release. Kept for backwards compatibility
+     * so saved configs or transcripts naming it still resolve via [byId].
      */
     val GEMMA_4_E4B = LiteRtLmModelSpec(
         id = "gemma-4-e4b",
@@ -109,7 +108,6 @@ object LiteRtLmModels {
      */
     val ALL: List<LiteRtLmModelSpec> = listOf(
         GEMMA_4_E2B,
-        GEMMA_4_E4B,
     )
 
     val DEFAULT: LiteRtLmModelSpec get() = ALL.first()

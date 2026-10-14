@@ -11,10 +11,9 @@ android {
         applicationId = "io.github.alexeikramm.sovereign"
         minSdk = 30
         targetSdk = 36
-        // versionName says which slice this is, because APKs are installed by hand on the phone and
-        // "which build is on there?" has to be answerable from Android's own app info screen.
-        versionCode = 45
-        versionName = "1.43-sovereign"
+        // Initial public release (v0.1.0).
+        versionCode = 1
+        versionName = "0.1.0"
 
         // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
         // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the

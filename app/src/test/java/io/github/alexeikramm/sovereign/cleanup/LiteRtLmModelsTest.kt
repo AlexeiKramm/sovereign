@@ -39,9 +39,15 @@ class LiteRtLmModelsTest {
     }
 
     @Test
-    fun `catalog lists the E2B default first and the re-enabled E4B`() {
+    fun `catalog lists the E2B default as the sole offered cleanup model`() {
         val ids = LiteRtLmModels.ALL.map { it.id }
-        assertEquals(listOf("gemma-4-e2b", "gemma-4-e4b"), ids)
+        assertEquals(listOf("gemma-4-e2b"), ids)
+    }
+
+    @Test
+    fun `legacy models resolve by id`() {
+        assertEquals(LiteRtLmModels.GEMMA_4_E4B, LiteRtLmModels.byId("gemma-4-e4b"))
+        assertEquals(LiteRtLmModels.GEMMA_3_1B_QAT, LiteRtLmModels.byId("gemma-3-1b-it-qat"))
     }
 
     @Test

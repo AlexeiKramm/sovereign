@@ -1,4 +1,6 @@
-<!-- ASSET SLOT: centered brand mark, ~128px. Export from the Sovereign launcher mark. -->
+<p align="center">
+  <img src="assets/logo.png" alt="Sovereign Logo" width="128" height="128" />
+</p>
 
 <h1 align="center">Sovereign</h1>
 <p align="center"><strong>Smart Dictation &amp; Transcription</strong><br/>
@@ -52,12 +54,12 @@ flowchart LR
   B -->|"Local Wi-Fi"| C["💻 3. Desktop Cursor<br/>Polished text typed into your app"]
 ```
 
-<!-- ASSET SLOT: Desktop + Phone pairing illustration / screenshot -->
+<!-- ASSET SLOT: Desktop Server Dashboard & Pairing (ServerActiveScreen showing live Wi-Fi endpoint and connected PC) -->
 
 
 ## Features
 
-<!-- ASSET SLOT: Phone UI Showcase (1. Floating pill docked · 2. Expanded pill with live transcript · 3. Dictation history diff view · 4. Custom profiles & vocabulary) -->
+<!-- ASSET SLOT: Phone UI Showcase (1. Floating pill & transcript card · 2. Home dashboard & statistics · 3. Desktop Server dashboard · 4. Dictation history diff view) -->
 
 **Dictation**
 - Floating pill overlay that works across all apps with clear idle, recording, and cleaning states
@@ -112,10 +114,12 @@ When you first launch Sovereign, the setup wizard walks you through granting per
 
 ### 3. Connect Desktop Client (Optional)
 
-1. Download the desktop client from the [releases page](https://github.com/AlexeiKramm/sovereign/releases/latest) and launch it.
-2. Pair it with your phone over your local network.
-<!-- CHUNK-2 slot: pairing steps and the client's download name, once the client exists. -->
-3. Set your preferred shortcut. Press it, speak toward your phone, and the text types directly into whatever window is focused on your computer.
+Turn your phone into a dictation microphone for your PC:
+
+1. **Start the Phone Server:** In Sovereign on your phone, open the **Home** tab and tap the **Desktop Server** row to view the server dashboard (or toggle it on directly). The server starts listening on your local Wi-Fi.
+2. **Launch the Desktop Client:** Download `sovereign-client.exe` from the [releases page](https://github.com/AlexeiKramm/sovereign/releases/latest) on your Windows PC and open it (it runs in your system tray).
+3. **One-Tap Pairing:** Click the tray icon and choose **Pair with phone…** (or let it auto-discover your phone). An authorization dialog will appear on your phone screen with your PC's name; tap **Allow**.
+4. **Dictate:** Place your cursor into any app on your PC (Word, browser, code editor, chat), press `Ctrl+Alt+Space`, and speak into your phone. The transcribed, cleaned text types directly at your PC cursor.
 
 
 ## Models
@@ -141,12 +145,8 @@ Sovereign bundles **no model weights**. The setup wizard offers three ready-made
 | Model | Size | Hardware Notes |
 |---|---|---|
 | Gemma 4 E2B (default) | ~2.6 GB | Fast on-device cleanup with balanced quality (GPU accelerated; runs well on 8 GB+ RAM) |
-| Gemma 4 E4B | ~3.7 GB | Highest-quality rewriting; slower and uses more RAM (recommended for 12–16 GB devices) |
 
-<!-- CHUNK-2: reconcile Gemma size — the app's own note says "~2.4 GB" while its byte formatter
-     shows 2.6 GB. Fix the source string or this table, not both. -->
-
-> **Hardware & RAM:** Devices with 8 GB RAM (such as older flagships or modern mid-range phones) comfortably run both speech recognition and Gemma 4 E2B concurrently. For devices with 6 GB RAM, running speech recognition without AI cleanup (or paired with Whisper Base) is recommended. High-end devices with 12–16 GB RAM run all models, including Gemma 4 E4B, effortlessly.
+> **Hardware & RAM:** Devices with 8 GB RAM (such as older flagships or modern mid-range phones) comfortably run both speech recognition and Gemma 4 E2B concurrently. For devices with 6 GB RAM, running speech recognition without AI cleanup (or paired with Whisper Base) is recommended. Higher-end devices run recognition and cleanup effortlessly.
 
 > **Languages:** The underlying models and pipeline support multiple languages and automatic language detection. However, development and testing have so far focused on English, so non-English transcription quality has not yet been focused on.
 
