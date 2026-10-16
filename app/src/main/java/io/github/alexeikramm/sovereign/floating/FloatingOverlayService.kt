@@ -12,6 +12,7 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.pm.ServiceInfo
@@ -134,6 +135,17 @@ class FloatingOverlayService : Service() {
     /** Debug override for testing/inspecting the minimized pill's seven states. */
     private var debugPillPhase by mutableStateOf<MinimizedPillPhase?>(null)
 
+    /**
+     * The debug broadcast surface (phase / seed / style / card, see [debugReceiver]) is a
+     * development tool: it lets an agent pin a transient pill state for a screenshot or preview a
+     * theme without navigating the UI. It must not exist in a shipped build — registered as
+     * exported, any other app on the device could drive it, and the `card` action injects arbitrary
+     * text into the pill. `buildConfig` is off in this module, so the flag is read from the package
+     * instead of `BuildConfig.DEBUG`.
+     */
+    private val isDebuggableBuild: Boolean
+        get() = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
     private val debugReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             intent?.getStringExtra("phase")?.let { phaseName ->
@@ -218,6 +230,8 @@ class FloatingOverlayService : Service() {
 
     /** Unregisters the screen-off receiver; set once registration succeeds. */
     private var screenOffReceiverRegistered = false
+    /** Mirrors [screenOffReceiverRegistered]; the debug receiver only exists in debuggable builds. */
+    private var debugReceiverRegistered = false
 
     // Fling: one decaying velocity vector for both axes (see PillFling), stepped per frame.
     private var fling = PillFling()
@@ -549,34 +563,41 @@ class FloatingOverlayService : Service() {
         refreshProfiles()
         setupSession()
         registerScreenOffReceiver()
-        val debugFilter = IntentFilter().apply {
-            addAction("io.github.alexeikramm.sovereign.DEBUG_PILL_PHASE")
-            addAction("io.github.alexeikramm.sovereign.DEBUG_THEME")
+        if (isDebuggableBuild) {
+            val debugFilter = IntentFilter().apply {
+                addAction("io.github.alexeikramm.sovereign.DEBUG_PILL_PHASE")
+                addAction("io.github.alexeikramm.sovereign.DEBUG_THEME")
+            }
+            ContextCompat.registerReceiver(
+                this,
+                debugReceiver,
+                debugFilter,
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+            debugReceiverRegistered = true
+        } else {
+            Log.i(TAG, "Release build: debug broadcast surface not registered")
         }
-        ContextCompat.registerReceiver(
-            this,
-            debugReceiver,
-            debugFilter,
-            ContextCompat.RECEIVER_EXPORTED,
-        )
         setupOverlayView()
         updateOverlayVisibility()
         Log.i(TAG, "FloatingOverlayService initialized")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.getStringExtra("debug_phase")?.let { phaseName ->
-            debugPillPhase = when (phaseName.uppercase()) {
-                "COLD" -> MinimizedPillPhase.COLD
-                "READY" -> MinimizedPillPhase.READY
-                "RECORDING" -> MinimizedPillPhase.RECORDING
-                "CLEANING" -> MinimizedPillPhase.CLEANING
-                "RESULT" -> MinimizedPillPhase.RESULT
-                "ERROR" -> MinimizedPillPhase.ERROR
-                "RESET", "CLEAR", "NONE" -> null
-                else -> null
+        if (isDebuggableBuild) {
+            intent?.getStringExtra("debug_phase")?.let { phaseName ->
+                debugPillPhase = when (phaseName.uppercase()) {
+                    "COLD" -> MinimizedPillPhase.COLD
+                    "READY" -> MinimizedPillPhase.READY
+                    "RECORDING" -> MinimizedPillPhase.RECORDING
+                    "CLEANING" -> MinimizedPillPhase.CLEANING
+                    "RESULT" -> MinimizedPillPhase.RESULT
+                    "ERROR" -> MinimizedPillPhase.ERROR
+                    "RESET", "CLEAR", "NONE" -> null
+                    else -> null
+                }
+                Log.i(TAG, "debug_phase set to: $debugPillPhase")
             }
-            Log.i(TAG, "debug_phase set to: $debugPillPhase")
         }
         updateOverlayVisibility()
         return START_STICKY
@@ -618,7 +639,10 @@ class FloatingOverlayService : Service() {
             runCatching { unregisterReceiver(screenOffReceiver) }
             screenOffReceiverRegistered = false
         }
-        runCatching { unregisterReceiver(debugReceiver) }
+        if (debugReceiverRegistered) {
+            runCatching { unregisterReceiver(debugReceiver) }
+            debugReceiverRegistered = false
+        }
         abandonCapture()
         removeOverlayView()
         scope.cancel()
