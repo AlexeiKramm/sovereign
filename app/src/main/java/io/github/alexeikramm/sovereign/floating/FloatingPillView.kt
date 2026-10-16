@@ -243,8 +243,7 @@ fun FloatingDictationOverlay(
     /**
      * Whether this window renders the expanded card. The card now has its **own window** (the pill
      * window and the card window are both fixed-size, so neither ever resizes mid-motion); the pill
-     * window disables this, the card window disables [hostsPill]. See
-     * `docs/work/archive/card-expand-animation/`.
+     * window disables this, the card window disables [hostsPill].
      */
     hostsCard: Boolean = true,
     /** Whether this window renders the minimized pill. The mirror of [hostsCard]. */

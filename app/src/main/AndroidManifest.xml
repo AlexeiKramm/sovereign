@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- The phone-server holds a foreground service for its whole life; `specialUse` is the idle
-         type (Android 15+ caps `dataSync` at 6h/24h). See docs/work/phone-server-desktop/PLAN.md. -->
+         type (Android 15+ caps `dataSync` at 6h/24h). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Model downloads run as a foreground dataSync worker so they survive leaving the app. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />

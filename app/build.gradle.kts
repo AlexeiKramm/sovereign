@@ -43,7 +43,7 @@ android {
 
         // The local tier's runtime AAR carries four ABIs (arm64-v8a, armeabi-v7a, x86, x86_64)
         // at ~48 MB. The target device is arm64 (D-009) and there is no usable emulator on the
-        // build host (/dev/kvm is root-only, docs/build.md), so the other three are dead weight
+        // build host (/dev/kvm is root-only), so the other three are dead weight
         // in the APK. Re-add x86_64 here if a software-emulated AVD ever becomes useful.
         ndk {
             abiFilters += "arm64-v8a"
@@ -122,7 +122,7 @@ val sherpaOnnxVersion = libs.versions.sherpaOnnx.get()
 val sherpaOnnxAar = layout.projectDirectory.file("libs/sherpa-onnx-$sherpaOnnxVersion.aar")
 require(sherpaOnnxAar.asFile.exists()) {
     "Missing ${sherpaOnnxAar.asFile}. Run tools/fetch_sherpa_aar.sh (downloads sherpa-onnx " +
-        "$sherpaOnnxVersion, ~48 MB, sha256-verified) — see docs/build.md."
+        "$sherpaOnnxVersion, ~48 MB, sha256-verified)."
 }
 
 dependencies {
@@ -139,8 +139,7 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
 
-  // Durable background model downloads (foreground worker + notification + retry). See
-  // docs/work/background-downloads/PLAN.md.
+  // Durable background model downloads (foreground worker + notification + retry).
   implementation(libs.androidx.work.runtime.ktx)
 
   // Compose
@@ -172,7 +171,7 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-  // v1: talking to local-voice-stack (PLAN §14, docs/contract.md).
+  // v1: talking to local-voice-stack (PLAN §14).
   // HTTP itself is java.net.HttpURLConnection on purpose: okhttp-android 5.5.0 requires
   // compileSdk 37, and this project stays on the template's AGP 9.0.1 / compileSdk 36 so that a
   // normal Android Studio can open it. The multipart body is ours (net/MultipartForm.kt), which
@@ -180,8 +179,7 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
 
   // Phone-as-desktop-server transport (Chunk 1b, D-111): Java-WebSocket hosts the pinned wss://
-  // endpoint and bcpkix signs the persisted self-signed server certificate. See
-  // docs/work/phone-server-desktop/PROTOCOL.md.
+  // endpoint and bcpkix signs the persisted self-signed server certificate.
   implementation(libs.java.websocket)
   implementation(libs.bouncycastle.prov)
   implementation(libs.bouncycastle.pkix)

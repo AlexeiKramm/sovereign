@@ -19,9 +19,9 @@ import kotlinx.serialization.json.put
 /**
  * The frozen phone ↔ desktop wire codec, **v1**.
  *
- * Authoritative spec: `docs/work/phone-server-desktop/PROTOCOL.md`. Machine-checked against
- * `docs/work/phone-server-desktop/protocol-vectors/` (see `ServerProtocolTest`). The separate desktop
- * repository re-implements the same contract in C# and runs the same vectors.
+ * Machine-checked against the golden vectors in
+ * `fixtures/phone-server-desktop/protocol-vectors/` (see `ServerProtocolTest`). The separate desktop
+ * repository re-implements the same contract in Go and runs the same vectors.
  *
  * Scope: envelope + message catalogue + parse-time validation only. Transport (TLS, WebSocket, mDNS),
  * session state, and auth enforcement live above this and are Chunk 1's job. Nothing here touches

@@ -277,7 +277,7 @@ class FloatingOverlayService : Service() {
      * The second overlay window: the expanded card. Both windows are **fixed size** — the pill
      * window is always pill-sized, this one always card-sized — so the transition never resizes a
      * window, which is what produced the old swap-frame glitch. The card is shown/hidden and its
-     * content scaled inside the window; see `docs/work/archive/card-expand-animation/`.
+     * content scaled inside the window.
      */
     private var cardView: View? = null
     private var cardParams: WindowManager.LayoutParams? = null
@@ -801,7 +801,7 @@ class FloatingOverlayService : Service() {
      * The Compose content for one of the two overlay windows. Both windows host the same overlay
      * composable and differ only in what they are allowed to render ([hostsCard]/[hostsPill]), so
      * every state and callback is threaded from this one place; the pill window never builds the
-     * card and the card window never builds the pill. See `docs/work/archive/card-expand-animation/`.
+     * card and the card window never builds the pill.
      */
     private fun buildOverlayComposeView(hostsCard: Boolean, hostsPill: Boolean): ComposeView =
         ComposeView(this).apply {
@@ -1886,8 +1886,7 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * Shows the card window and grows the card out of the pill (see
-     * `docs/work/archive/card-expand-animation/`).
+     * Shows the card window and grows the card out of the pill
      *
      * The card lives in its **own, always-card-sized window**, so nothing resizes during the
      * motion: the window is placed at the card's clamped dock and made visible, the pill window is

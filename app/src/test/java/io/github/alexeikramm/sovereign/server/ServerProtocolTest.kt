@@ -14,8 +14,8 @@ import java.io.File
 
 /**
  * Pins [ServerProtocol] to the frozen golden vectors in
- * `docs/work/phone-server-desktop/protocol-vectors/` (PROTOCOL.md §11). The desktop repo runs the
- * same vectors against its C# implementation, so this is the cross-repo contract test.
+ * `fixtures/phone-server-desktop/protocol-vectors/`. The desktop repo runs the same vectors against
+ * its Go implementation, so this is the cross-repo contract test.
  *
  * Pure JVM: no device.
  */
@@ -23,9 +23,9 @@ class ServerProtocolTest {
 
     private val vectorsDir: File by lazy {
         listOf(
-            File("docs/work/phone-server-desktop/protocol-vectors"),
-            File("../docs/work/phone-server-desktop/protocol-vectors"),
-            File("../../docs/work/phone-server-desktop/protocol-vectors"),
+            File("fixtures/phone-server-desktop/protocol-vectors"),
+            File("../fixtures/phone-server-desktop/protocol-vectors"),
+            File("../../fixtures/phone-server-desktop/protocol-vectors"),
         ).firstOrNull { it.isDirectory }
             ?: error("protocol-vectors not found from ${File(".").absolutePath}")
     }

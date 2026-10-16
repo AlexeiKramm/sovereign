@@ -7,7 +7,7 @@ import java.nio.ByteOrder
  * Builds the 44-byte RIFF/WAVE header for 16-bit PCM and prepends it to raw samples.
  *
  * The server (`local-voice-stack`) passes 16 kHz mono s16le through with no ffmpeg step, so
- * this is the one format that costs nothing on either side — see docs/contract.md. Anything
+ * this is the one format that costs nothing on either side. Anything
  * else is normalized server-side on a best-effort basis, which is exactly what we do not want
  * to depend on.
  *

@@ -73,7 +73,7 @@ interface CleanupEngine {
      *
      * **Abstract, deliberately: no interface default.** A default here is inherited by any wrapper
      * that forgets to forward it, and a production wrapper that silently returned 0 made the rebuild
-     * trigger unreachable for months (the KV-overflow bug, `docs/work/raw-preview/DEBUG-kv-overflow.md`).
+     * trigger unreachable for months (the KV-overflow bug).
      * A compiler error beats a silent zero, so every implementation — including delegating ones — must
      * supply this explicitly.
      */

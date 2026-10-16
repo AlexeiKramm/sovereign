@@ -29,8 +29,7 @@ data class PillMotionSample(val value: Float, val velocity: Float)
  * coroutine context, and the overlay service's scope
  * (`CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)`, `FloatingOverlayService.kt:76`)
  * has none. The curve is Compose's (`dampingRatio = 1f` = `Spring.DampingRatioNoBouncy`,
- * `stiffness = 1500f` = `Spring.StiffnessMedium`); the integrator is [PillSpring]. See
- * `docs/work/pill-enter-animation/PLAN.md`, § *Curve*.
+ * `stiffness = 1500f` = `Spring.StiffnessMedium`); the integrator is [PillSpring].
  */
 object PillEnter {
 

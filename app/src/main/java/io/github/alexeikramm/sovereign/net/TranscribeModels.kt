@@ -9,7 +9,7 @@ import kotlin.math.roundToLong
 /**
  * DTOs for the frozen transport contract in `local-voice-stack/docs/CONTRACT.md` (v1).
  *
- * The app consumes that contract and never redefines it — see this repo's `docs/contract.md`.
+ * The app consumes that contract and never redefines it.
  * Keys are always present in the 200 response, but the contract permits additive keys, so the
  * parser ignores unknown ones and tolerates missing optionals.
  */

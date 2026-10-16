@@ -1044,7 +1044,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
                     ServerStatus.Ready(meta.contractVersion)
                 } else {
                     // The contract is pinned: a different version refuses the remote tier rather
-                    // than guessing at field meanings (docs/contract.md).
+                    // than guessing at field meanings.
                     ServerStatus.VersionMismatch(meta.contractVersion)
                 }
             } catch (t: Throwable) {

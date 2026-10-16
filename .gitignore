@@ -56,3 +56,8 @@ __pycache__/
 # Agent local operational notes
 AGENTS.md
 
+# AI scratchpad. Design notes, work logs and the V1 plan live on disk for the agent to
+# work from, but are deliberately not published and have been purged from history.
+/docs/
+V1.md
+

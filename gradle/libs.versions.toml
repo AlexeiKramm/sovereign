@@ -10,7 +10,7 @@ androidxTestRunner = "1.7.0"
 androidxTestEspresso = "3.7.0"
 coroutines = "1.10.2"
 # Durable background model downloads. WorkManager owns the queue, the foreground service and the
-# retry policy (docs/work/background-downloads/PLAN.md).
+# retry policy.
 androidxWork = "2.10.5"
 junit = "4.13.2"
 kotlin = "2.3.20"
