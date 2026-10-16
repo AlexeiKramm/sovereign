@@ -132,7 +132,7 @@ When you first launch Sovereign, the setup wizard walks you through granting per
 Turn your phone into a dictation microphone for your PC:
 
 1. **Start the Phone Server:** In Sovereign on your phone, open the **Home** tab and tap the **Desktop Server** row to view the server dashboard (or toggle it on directly). The server starts listening on your local Wi-Fi.
-2. **Launch the Desktop Client:** Download `sovereign-client.exe` from the [releases page](https://github.com/AlexeiKramm/sovereign/releases/latest) on your Windows PC and open it (it runs in your system tray).
+2. **Launch the Desktop Client:** Download `sovereign-client.exe` from the [releases page](https://github.com/AlexeiKramm/sovereign-client/releases/latest) on your Windows PC and open it (it runs in your system tray).
 3. **One-Tap Pairing:** Click the tray icon and choose **Pair with phone…** (or let it auto-discover your phone). An authorization dialog will appear on your phone screen with your PC's name; tap **Allow**.
 4. **Dictate:** Place your cursor into any app on your PC (Word, browser, code editor, chat), press `Ctrl+Alt+Space`, and speak into your phone. The transcribed, cleaned text types directly at your PC cursor.
 
