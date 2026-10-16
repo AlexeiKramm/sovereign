@@ -220,7 +220,7 @@ class DictationPipeline(
                         "cleanup crashed — ${error.message ?: error::class.java.simpleName}",
                     )
                 }
-                val passMs = MonotonicClock.nowMs() - passStart
+                val passMs = (MonotonicClock.nowMs() - passStart).coerceAtLeast(1L)
                 val passWithActive = if (pass.activeMs <= 0L) pass.copy(activeMs = passMs) else pass
                 utteranceLlmMs = passWithActive.activeMs
 
@@ -233,9 +233,6 @@ class DictationPipeline(
                         committed.append(textToClean)
                         onCleanupUnavailable()
                     }
-                    clearProvisional()
-                    emit()
-                    onUnitCommitted(committed.toString())
                 }
 
                 onCleanupPass(
@@ -260,18 +257,12 @@ class DictationPipeline(
                 withContext(cleanupDispatcher) {
                     cleanupEngine.closeSession()
                 }
-            } else {
-                withContext(mainDispatcher) {
-                    clearProvisional()
-                    emit()
-                }
             }
         } else {
             withContext(mainDispatcher) {
                 if (committed.isBlank() && totalUtterance.isNotBlank()) {
                     committed.clear()
                     committed.append(totalUtterance)
-                    emit()
                 }
             }
         }
@@ -287,6 +278,9 @@ class DictationPipeline(
             }
             clearProvisional()
             emit()
+            if (activeCleanupMode == CleanupMode.PER_UTTERANCE) {
+                onUnitCommitted(committed.toString())
+            }
         }
         return committed.toString()
     }
@@ -443,11 +437,9 @@ class DictationPipeline(
             if (trimLen > 0) {
                 committed.setLength(trimLen - 1)
                 committed.append('.')
-                emit()
             }
         } else if (action == UtteranceFinalizer.Action.APPEND_PERIOD) {
             committed.append('.')
-            emit()
         }
     }
 

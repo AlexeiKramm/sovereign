@@ -140,4 +140,16 @@ class ServerRuntimeTest {
         runtime.onHeartbeat(1_234_567L)
         assertEquals(1_234_567L, runtime.snapshot().lastHeartbeatRealtimeMs)
     }
+
+    @Test
+    fun `zero delta telemetry does not wipe out non-zero timings`() {
+        val runtime = ServerRuntime()
+        runtime.onTelemetry(120L, 300L, "hello")
+        runtime.onTelemetry(0L, 0L, "hello.")
+
+        val snapshot = runtime.snapshot()
+        assertEquals(120L, snapshot.lastAsrMs)
+        assertEquals(300L, snapshot.lastCleanupMs)
+        assertEquals(1, snapshot.committedWords)
+    }
 }

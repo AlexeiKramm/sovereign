@@ -173,8 +173,8 @@ class ServerRuntime {
     fun onTelemetry(asrMs: Long, cleanupMs: Long, committedText: String) {
         _state.update {
             it.copy(
-                lastAsrMs = asrMs,
-                lastCleanupMs = cleanupMs,
+                lastAsrMs = if (asrMs > 0L || it.lastAsrMs == null) asrMs else it.lastAsrMs,
+                lastCleanupMs = if (cleanupMs > 0L || it.lastCleanupMs == null) cleanupMs else it.lastCleanupMs,
                 committedWords = countWords(committedText),
             )
         }

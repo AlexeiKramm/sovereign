@@ -49,6 +49,8 @@ class SessionCaptureHost(
     private var lastProvisional = ""
     private var lastAsrMs = 0L
     private var lastCleanupMs = 0L
+    private var lastAsrDelta = 0L
+    private var lastCleanupDelta = 0L
 
     /** The exclusive capture phase; [cleaning] overlaps it (D-115). */
     private var phase: ServerPipeline = ServerPipeline.IDLE
@@ -105,6 +107,8 @@ class SessionCaptureHost(
         this.listener = listener
         lastCommitted = ""
         lastProvisional = ""
+        lastAsrDelta = 0L
+        lastCleanupDelta = 0L
         finalizing = false
         runtime.onCaptureStarted()
         phase = ServerPipeline.WARMING
@@ -244,8 +248,17 @@ class SessionCaptureHost(
         if (committed != lastCommitted) {
             val asrMs = session.totalActiveAsrMs
             val cleanupMs = session.totalActiveLlmMs
-            val asrDelta = deltaMs(asrMs, lastAsrMs)
-            val cleanupDelta = deltaMs(cleanupMs, lastCleanupMs)
+            val rawAsrDelta = deltaMs(asrMs, lastAsrMs)
+            val rawCleanupDelta = deltaMs(cleanupMs, lastCleanupMs)
+            val (asrDelta, cleanupDelta) = if (rawAsrDelta == 0L && rawCleanupDelta == 0L) {
+                // Post-processing (terminal punctuation / markdown normalization) on already-settled
+                // text: preserve the last unit's compute metrics rather than reporting 0 ms.
+                lastAsrDelta to lastCleanupDelta
+            } else {
+                lastAsrDelta = rawAsrDelta
+                lastCleanupDelta = rawCleanupDelta
+                rawAsrDelta to rawCleanupDelta
+            }
             runtime.onTelemetry(asrDelta, cleanupDelta, committed)
             target.onCommit(committed, CommitPerf(asrDelta, cleanupDelta))
             lastAsrMs = asrMs

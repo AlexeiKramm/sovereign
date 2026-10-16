@@ -709,7 +709,13 @@ class DictationPipelineTest {
     fun `per-utterance cleanup keeps speech provisional in gray and cleans entire transcript on finish`() = runBlocking {
         val engine = ControllableAsrEngine()
         val cleaner = FakeCleanupEngine(transform = { it.trim().uppercase() })
-        val pipeline = pipeline(engine, cleaner, cleanupMode = CleanupMode.PER_UTTERANCE)
+        val textEvents = mutableListOf<String>()
+        val pipeline = pipeline(
+            engine = engine,
+            cleaner = cleaner,
+            cleanupMode = CleanupMode.PER_UTTERANCE,
+            onText = { committed, _, _ -> if (committed.isNotEmpty()) textEvents.add(committed) },
+        )
 
         pipeline.begin(fresh = true, cleanupEnabled = true)
         pipeline.beginSession()
@@ -733,6 +739,7 @@ class DictationPipelineTest {
         assertEquals("hello world how are you", pipeline.provisionalText)
         assertEquals(0, cleaner.cleanCalls)
         assertTrue(pipeline.hasPendingClean)
+        assertTrue(textEvents.isEmpty())
 
         // On finish, cleaner is invoked once with the entire transcript
         val finalSettled = pipeline.finish()
@@ -742,6 +749,9 @@ class DictationPipelineTest {
         assertEquals("", pipeline.provisionalText)
         assertTrue(!pipeline.hasPendingClean)
         assertEquals("HELLO WORLD HOW ARE YOU.", finalSettled)
+        assertTrue(pipeline.totalActiveLlmMs > 0L)
+        // Settled text emitted exactly once with final punctuation; no intermediate unpunctuated emission
+        assertEquals(listOf("HELLO WORLD HOW ARE YOU."), textEvents)
     }
 
     @Test
