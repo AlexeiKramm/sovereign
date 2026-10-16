@@ -61,12 +61,18 @@ flowchart LR
   B -->|"Local Wi-Fi"| C["💻 3. Desktop Cursor<br/>Polished text typed into your app"]
 ```
 
-<!-- ASSET SLOT: Desktop Server Dashboard & Pairing (ServerActiveScreen showing live Wi-Fi endpoint and connected PC) -->
+<p align="center">
+  <img src="assets/pairing-dialog.jpg" width="55%" alt="The pairing request dialog on the phone, showing the fingerprint to check against the desktop client" />
+</p>
+<!-- ASSET SLOT: Desktop Server dashboard, active state (live Wi-Fi endpoint + connected PC) -->
 
 
 ## Features
 
-<!-- ASSET SLOT: Phone UI Showcase (1. Floating pill & transcript card · 2. Home dashboard & statistics · 3. Desktop Server dashboard · 4. Dictation history diff view) -->
+<p align="center">
+  <img src="assets/phone-pill-card.png" width="45%" alt="The floating pill expanded over a note, with settled text in white and in-progress speech in gray" />
+  <img src="assets/phone-history-diff.jpg" width="45%" alt="Dictation history showing the word-level diff between raw and cleaned text" />
+</p>
 
 **Dictation**
 - Floating pill overlay that works across all apps with clear idle, recording, and cleaning states
@@ -116,7 +122,10 @@ When you first launch Sovereign, the setup wizard walks you through granting per
 3. **Accessibility Service** — Needed so Sovereign can detect active text fields and insert your dictation right at your text cursor.
 4. **Choose Model Pack** — Select an initial bundle based on your phone's storage and speed (see [Models](#models)). Notification permission is requested so downloads complete reliably in the background without Android killing the process.
 
-<!-- ASSET SLOT: First-run wizard screenshots (Permissions & Model pack picker) -->
+<p align="center">
+  <img src="assets/wizard-mic.jpg" width="45%" alt="Setup wizard, step 1: granting the microphone permission" />
+  <img src="assets/wizard-models.jpg" width="45%" alt="Setup wizard, step 4: choosing a model pack" />
+</p>
 
 
 ### 3. Connect Desktop Client (Optional)
