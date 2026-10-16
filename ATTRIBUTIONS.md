@@ -46,11 +46,32 @@ Sovereign is built on top of high-quality open-source software, fonts, and open-
 
 ---
 
-## 4. Supported Open-Weight Models (Downloaded on Demand)
+## 4. Networking, Cryptography & UI Libraries
+
+### Java-WebSocket
+- **Description:** WebSocket client and server implementation, used for the phone ↔ desktop transport.
+- **Copyright:** Copyright (c) 2010–2020 Nathan Rajlich and contributors.
+- **License:** MIT License
+- **Homepage:** [https://github.com/TooTallNate/Java-WebSocket](https://github.com/TooTallNate/Java-WebSocket)
+
+### Bouncy Castle
+- **Description:** Cryptographic APIs; signs and validates the phone server's self-signed TLS certificate.
+- **Copyright:** Copyright (c) The Legion of the Bouncy Castle Inc.
+- **License:** Bouncy Castle Licence (MIT-style)
+- **Homepage:** [https://www.bouncycastle.org/](https://www.bouncycastle.org/)
+
+### MaterialKolor
+- **Description:** Material You dynamic colour generation, used for the brand palette.
+- **Copyright:** Copyright (c) the MaterialKolor authors and contributors.
+- **License:** MIT License
+- **Homepage:** [https://github.com/jordond/materialkolor](https://github.com/jordond/materialkolor)
+
+---
+
+## 5. Supported Open-Weight Models (Downloaded on Demand)
 
 Sovereign does not bundle or redistribute model weights within the application package. Users may download compatible pre-trained model weights on demand directly to their device under the respective author licenses:
 
 - **NVIDIA Nemotron & Parakeet (FastConformer):** Developed by NVIDIA Corporation under the NVIDIA Open Model License / CC-BY-4.0 ([https://github.com/NVIDIA/NeMo](https://github.com/NVIDIA/NeMo)).
 - **OpenAI Whisper:** Developed by OpenAI under the MIT License ([https://github.com/openai/whisper](https://github.com/openai/whisper)).
-- **Gemma 4 Models:** Developed by Google LLC under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
-- **Qwen Models:** Developed by Alibaba Cloud under the Apache 2.0 / Qwen Community License ([https://github.com/QwenLM/Qwen2.5](https://github.com/QwenLM/Qwen2.5)).
+- **Google Gemma Models (Gemma 3 & 4):** Developed by Google LLC under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).

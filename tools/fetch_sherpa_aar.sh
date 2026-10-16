@@ -6,8 +6,8 @@
 # only current source. Why not committed: it is a 48 MB binary that changes only when we move
 # the engine version deliberately.
 #
-# Why pinned by sha256: the runtime version decides which models load at all, and the model
-# files in app/src/main/java/fi/ak/smartvoice/asr/AsrModels.kt are pinned to a specific
+# Why pinned by sha256: the runtime version decides which models load at all, and the model specs
+# in app/src/main/java/io/github/alexeikramm/sovereign/asr/AsrModels.kt are pinned to a specific
 # artifact revision. An unverified download would let the runtime drift away from the model
 # without anything failing loudly.
 #
