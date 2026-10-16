@@ -1,8 +1,34 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
 }
+
+/**
+ * Release signing. The key material never lives in the repository:
+ * `keystore.properties` (gitignored) is read when present, otherwise the same
+ * four values are taken from the environment so a CI runner can sign without a
+ * file. With neither, the release build still succeeds and produces an
+ * *unsigned* APK, so a fresh clone always builds.
+ *
+ * Generate the key once, outside the repository, and keep a backup:
+ *   keytool -genkeypair -v -keystore sovereign-release.jks \
+ *     -alias sovereign -keyalg RSA -keysize 4096 -validity 10000
+ * then create keystore.properties (see RELEASE-CHECKLIST.md) with
+ * storeFile / storePassword / keyAlias / keyPassword.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingValue(key: String, env: String): String? =
+    keystoreProperties.getProperty(key) ?: System.getenv(env)
+
+val releaseStoreFile = signingValue("storeFile", "SOVEREIGN_STORE_FILE")
+val hasReleaseKey = releaseStoreFile != null && rootProject.file(releaseStoreFile).exists()
 
 android {
     namespace = "io.github.alexeikramm.sovereign"
@@ -24,10 +50,29 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile!!)
+                storePassword = signingValue("storePassword", "SOVEREIGN_STORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "SOVEREIGN_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "SOVEREIGN_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseKey) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.lifecycle(
+                    "No keystore.properties and no SOVEREIGN_STORE_FILE: " +
+                        "building an UNSIGNED release APK."
+                )
+            }
         }
     }
     compileOptions {

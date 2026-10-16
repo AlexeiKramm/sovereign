@@ -6,6 +6,9 @@ local.properties
 *.aab
 *.keystore
 !debug.keystore
+# Release signing: the key itself and the file naming it never enter the repo.
+*.jks
+keystore.properties
 captures/
 .externalNativeBuild
 .cxx
