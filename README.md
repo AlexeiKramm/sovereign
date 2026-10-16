@@ -12,7 +12,9 @@ Speech-to-text that runs on your own devices — no cloud, no account.</p>
 
 Everything runs on your hardware. Zero cloud, zero subscriptions, zero audio leaving your devices.
 
-<!-- ASSET SLOT: Hero Demo GIF (Phone: Obsidian dictation · live streaming · cursor insertion) -->
+<p align="center">
+  <img src="assets/hero-demo.gif" alt="Dictating with the Sovereign floating pill: live streaming text, then insertion at the cursor" width="320" />
+</p>
 <!-- ASSET SLOT: Desktop Demo GIF (Desktop client hotkey · speech sent to cursor) -->
 
 ## Why Sovereign
