@@ -18,9 +18,8 @@ Speech-to-text that runs on your own devices — no cloud, no account.</p>
 Everything runs on your hardware. Zero cloud, zero subscriptions, zero audio leaving your devices.
 
 <p align="center">
-  <img src="assets/hero-demo.gif" alt="Dictating with the Sovereign floating pill: live streaming text, then insertion at the cursor" width="320" />
+  <img src="assets/hero-demo.gif" alt="The Sovereign transcript card filling with live streaming text: settled words in white, in-progress words in gray" width="560" />
 </p>
-<!-- ASSET SLOT: Desktop Demo GIF (Desktop client hotkey · speech sent to cursor) -->
 
 ## Why Sovereign
 
@@ -62,16 +61,16 @@ flowchart LR
 ```
 
 <p align="center">
-  <img src="assets/pairing-dialog.jpg" width="55%" alt="The pairing request dialog on the phone, showing the fingerprint to check against the desktop client" />
+  <img src="assets/phone-server.jpg" width="40%" alt="The Sovereign server dashboard: a large power control, with the connected desktop client listed at the bottom" />
+  <img src="assets/phone-home.jpg" width="40%" alt="Home dashboard: server status, voice model, cleanup profile and dictation statistics" />
 </p>
-<!-- ASSET SLOT: Desktop Server dashboard, active state (live Wi-Fi endpoint + connected PC) -->
 
 
 ## Features
 
 <p align="center">
-  <img src="assets/phone-pill-card.png" width="45%" alt="The floating pill expanded over a note, with settled text in white and in-progress speech in gray" />
-  <img src="assets/phone-history-diff.jpg" width="45%" alt="Dictation history showing the word-level diff between raw and cleaned text" />
+  <img src="assets/phone-pill-card.png" width="60%" alt="The floating pill expanded over a note, with settled text in white and in-progress speech in gray" />
+  <img src="assets/phone-history-diff.jpg" width="33%" alt="Dictation history showing the word-level diff between raw and cleaned text" />
 </p>
 
 **Dictation**
@@ -123,8 +122,8 @@ When you first launch Sovereign, the setup wizard walks you through granting per
 4. **Choose Model Pack** — Select an initial bundle based on your phone's storage and speed (see [Models](#models)). Notification permission is requested so downloads complete reliably in the background without Android killing the process.
 
 <p align="center">
-  <img src="assets/wizard-mic.jpg" width="45%" alt="Setup wizard, step 1: granting the microphone permission" />
-  <img src="assets/wizard-models.jpg" width="45%" alt="Setup wizard, step 4: choosing a model pack" />
+  <img src="assets/wizard-mic.jpg" width="42%" alt="Setup wizard, step 1: granting the microphone permission" />
+  <img src="assets/wizard-models.jpg" width="42%" alt="Setup wizard, step 4: choosing a model pack" />
 </p>
 
 
@@ -136,6 +135,16 @@ Turn your phone into a dictation microphone for your PC:
 2. **Launch the Desktop Client:** Download `sovereign-client.exe` from the [releases page](https://github.com/AlexeiKramm/sovereign/releases/latest) on your Windows PC and open it (it runs in your system tray).
 3. **One-Tap Pairing:** Click the tray icon and choose **Pair with phone…** (or let it auto-discover your phone). An authorization dialog will appear on your phone screen with your PC's name; tap **Allow**.
 4. **Dictate:** Place your cursor into any app on your PC (Word, browser, code editor, chat), press `Ctrl+Alt+Space`, and speak into your phone. The transcribed, cleaned text types directly at your PC cursor.
+
+<p align="center">
+  <img src="assets/phone-pairing.jpg" width="38%" alt="The pairing request dialog on the phone, showing the fingerprint to compare against the desktop client" />
+</p>
+
+The desktop client shows the same live state as the pill on your phone, and confirms how many words landed:
+
+<p align="center">
+  <img src="assets/desktop-pill.gif" width="72%" alt="The desktop client's floating pill: Listening, then the green Inserted state reporting the word count" />
+</p>
 
 
 ## Models
