@@ -45,7 +45,7 @@ class LiteRtLmCleanupEngine(
     /**
      * KV-cache size requested from the runtime. The rebuild trigger uses this as its denominator.
      *
-     * **4096 is device-verified** (OnePlus Android, 2026-10-03): the cache held up to 3380 tokens with
+     * **4096 is device-verified** (test device, 2026-10-03): the cache held up to 3380 tokens with
      * no `FAILED_PRECONDITION`, and the 80% rebuild fired three times at ~3276 with a ~270 ms preface
      * re-prefill each time. This overturns D-086's "hard 2048 ceiling" reading — that crash happened
      * while the rebuild was silently disabled (the `CurrentCleanupEngine` wrapper bug), so 4096 was

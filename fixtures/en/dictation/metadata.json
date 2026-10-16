@@ -1,6 +1,6 @@
 {
   "language": "en",
-  "source": "Recorded on the Android for the streaming dictation benchmark; converted to 16 kHz mono s16le and trimmed to 100 ms margins.",
+  "source": "Recorded on an Android phone for the streaming dictation benchmark; converted to 16 kHz mono s16le and trimmed to 100 ms margins.",
   "audio_format": {
     "codec": "pcm_s16le",
     "sample_rate_hz": 16000,

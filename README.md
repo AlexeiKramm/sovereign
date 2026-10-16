@@ -10,8 +10,8 @@ Speech-to-text that runs on your own devices — no cloud, no account.</p>
   <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" />
   <img src="https://img.shields.io/badge/Android-11%2B_(API_30)-3DDC84?logo=android&amp;logoColor=white" alt="Android 11+ (API 30)" />
   <img src="https://img.shields.io/badge/ABI-arm64--v8a-informational" alt="ABI: arm64-v8a" />
+  <img src="https://img.shields.io/github/v/release/AlexeiKramm/sovereign" alt="Latest release" />
 </p>
-<!-- RELEASE BADGE (S20): add https://img.shields.io/github/v/release/AlexeiKramm/sovereign once v0.1.0 is tagged. -->
 
 **Sovereign** is an on-device, private speech-to-text dictation tool for Android and your desktop. A floating pill sits over any app—tap or hold to speak, and your words appear at your cursor, cleaned and formatted in real time by local AI.
 
@@ -103,9 +103,6 @@ flowchart LR
 
 ## Getting Started
 
-> **No official build has been published yet.** Until the first release, [build from source](#build-from-source).
-> <!-- CHUNK-3: delete this note once S20 attaches the signed APK to a release. -->
-
 ### 1. Install on Android
 
 1. Download the latest `sovereign-*.apk` from the [releases page](https://github.com/AlexeiKramm/sovereign/releases/latest).
@@ -155,7 +152,7 @@ Sovereign bundles **no model weights**. The setup wizard offers three ready-made
 |---|---|---|---|---|
 | **Best for dictation** | Nemotron 3.5 Streaming (560 ms, ~682 MB) | Gemma 4 E2B (~2.6 GB) | ≈ 3.3 GB | Live streaming dictation with on-device AI cleanup (8 GB+ RAM recommended) |
 | **High accuracy** | Parakeet v3 (offline, ~670 MB) | Gemma 4 E2B (~2.6 GB) | ≈ 3.3 GB | High-accuracy transcription with AI cleanup (8 GB+ RAM recommended) |
-| **Low system requirements** | Whisper Base (offline, ~160 MB) | None | ≈ 160 MB | Lowest RAM and storage usage; runs smoothly on 6 GB devices |
+| **Low storage &amp; battery** | Whisper Base (offline, ~160 MB) | None | ≈ 160 MB | Lowest RAM and storage usage; runs smoothly on 6 GB devices |
 
 **Speech recognition models:**
 
@@ -193,7 +190,7 @@ All models are downloaded directly from their original publishers (Hugging Face 
 | **Android OS** | Android 11 (API 30) or newer | Supported on essentially all modern Android devices |
 | **Device Tier** | Mid-range to flagship recommended | Older flagships (e.g. OnePlus 7 Pro) and modern mid-rangers handle live dictation and AI cleanup comfortably |
 | **Phone RAM** | 6 GB minimum; 8 GB+ recommended | 6 GB devices run transcription-only models smoothly; 8 GB+ allows concurrent on-device AI cleanup |
-| **Storage** | ~300 MB to ~3.5 GB | ~300 MB for app + compact model; ~3.5 GB for recommended pack; up to ~8 GB if storing all catalog models |
+| **Storage** | ~300 MB to ~3.5 GB | ~300 MB for app + compact model; ~3.5 GB for recommended pack; up to ~4 GB if storing all offered models |
 | **Permissions** | Microphone, Overlay, Accessibility | Required for voice capture, floating pill UI, and inserting text at your cursor |
 | **Network** | None for phone; Local Wi-Fi for PC | Phone dictation is 100% offline. Desktop companion requires both devices on the same local network |
 | **Desktop Companion** | Windows 10 / 11 | Other desktop operating systems may follow based on community demand |
@@ -257,7 +254,8 @@ app/src/main/java/io/github/alexeikramm/sovereign/
   cleanup/    on-device LLM cleanup via LiteRT-LM (Gemma models & prompt core)
   download/   background model downloader via Android WorkManager
   data/       local settings, custom dictionary, profiles, and dictation history
-  ui/         Compose screens (Home · Models · Profiles · Settings) and setup wizard
+  server/     phone-as-desktop-server: wss:// endpoint, TLS identity, and pairing
+  ui/         Compose screens (Home · Profiles · Models · Settings) and setup wizard
   theme/      Material 3 color, typography, and motion tokens
   text/ audio/ device/   text finalisation, PCM audio capture, hardware info
 ```

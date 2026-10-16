@@ -510,7 +510,7 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_ONBOARDING_COMPLETED, value) }
 
     companion object {
-        /** Placeholder only — the real address is the home PC's LAN/Tailscale address and port. */
+        /** Placeholder only — set the server's real LAN/Tailscale address and port in Settings. */
         const val DEFAULT_SERVER_URL = "http://192.0.2.100:8000"
 
         const val LANGUAGE_AUTO = "auto"
