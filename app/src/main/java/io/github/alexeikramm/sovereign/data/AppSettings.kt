@@ -15,6 +15,18 @@ enum class LiteRtProcessor(val id: String, val label: String, val note: String) 
     CPU("cpu", "CPU", "Standard processor fallback"),
 }
 
+enum class CleanupMode(val id: String, val label: String) {
+    PER_SEGMENT("per_segment", "Per segment"),
+    PER_UTTERANCE("per_utterance", "Per utterance");
+
+    companion object {
+        val DEFAULT = PER_SEGMENT
+
+        fun fromStored(id: String?): CleanupMode =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: DEFAULT
+    }
+}
+
 enum class AppThemeMode(val id: String, val label: String) {
     SYSTEM("system", "System"),
     LIGHT("light", "Light"),
@@ -67,6 +79,15 @@ class AppSettings(context: Context) {
     var cleanupEnabled: Boolean
         get() = prefs.getBoolean(KEY_CLEANUP, true)
         set(value) = prefs.edit { putBoolean(KEY_CLEANUP, value) }
+
+    /**
+     * Whether LLM cleanup runs incrementally per speech pause (`PER_SEGMENT`), or accumulates raw
+     * speech in provisional gray text and cleans the entire transcript in a single pass at the end
+     * of the utterance (`PER_UTTERANCE`).
+     */
+    var cleanupMode: CleanupMode
+        get() = CleanupMode.fromStored(prefs.getString(KEY_CLEANUP_MODE, null))
+        set(value) = prefs.edit { putString(KEY_CLEANUP_MODE, value.id) }
 
     /** "auto" or an ISO-639-1 code. Auto is right until language detection proves otherwise. */
     var language: String
@@ -271,7 +292,7 @@ class AppSettings(context: Context) {
     fun observeCleanupEnabled(onChange: () -> Unit) {
         removeCleanupEnabledObserver()
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_CLEANUP) onChange()
+            if (key == KEY_CLEANUP || key == KEY_CLEANUP_MODE) onChange()
         }
         cleanupEnabledObserver = listener
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -497,6 +518,7 @@ class AppSettings(context: Context) {
         private const val PREFS_NAME = "smart_voice"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_CLEANUP = "cleanup_enabled"
+        private const val KEY_CLEANUP_MODE = "cleanup_mode"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_ENGINE = "engine_preference"
         private const val KEY_ASR_MODEL = "asr_model_id"

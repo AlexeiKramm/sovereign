@@ -7,9 +7,12 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.asr.LocalAsrSession
 import io.github.alexeikramm.sovereign.cleanup.CleanupCommit
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
+import io.github.alexeikramm.sovereign.cleanup.CleanupPass
 import io.github.alexeikramm.sovereign.cleanup.CleanupPassTelemetry
 import io.github.alexeikramm.sovereign.cleanup.CleanupPipeline
 import io.github.alexeikramm.sovereign.cleanup.ConversationRebuildPolicy
+import io.github.alexeikramm.sovereign.data.CleanupMode
+import io.github.alexeikramm.sovereign.engine.MonotonicClock
 import io.github.alexeikramm.sovereign.text.MarkdownLists
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineDispatcher
@@ -41,18 +44,19 @@ import kotlinx.coroutines.withContext
 class DictationPipeline(
     asrEngine: AsrEngine,
     asrDispatcher: CoroutineDispatcher,
-    cleanupEngine: CleanupEngine,
-    cleanupDispatcher: CoroutineDispatcher,
+    private val cleanupEngine: CleanupEngine,
+    private val cleanupDispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
     private val mainDispatcher: CoroutineDispatcher,
     timings: () -> ListenerTimings,
-    cleanupRules: () -> String,
+    private val cleanupRules: () -> String,
     healingSentencesCount: () -> Int,
     /**
      * Rebuild the cleanup conversation after this many segments, even when the cache is not full
      * (0 = no turn limit). Read per unit; the pill leaves it at 0, the Cleanup Lab varies it.
      */
     maxTurns: () -> Int = { ConversationRebuildPolicy.NO_TURN_LIMIT },
+    private val cleanupMode: () -> CleanupMode = { CleanupMode.PER_SEGMENT },
     /**
      * Called on [mainDispatcher] whenever the utterance's text changes — committed, raw, **or
      * provisional**. Provisional is part of the same contract on purpose: the service mirrors these
@@ -81,6 +85,8 @@ class DictationPipeline(
     private val raw = StringBuilder()
     private val committed = StringBuilder()
     private var cleanupEngaged = false
+    private var activeCleanupMode = CleanupMode.PER_SEGMENT
+    private var utteranceLlmMs = 0L
 
     private val textLock = Any()
     private val pendingClean = ArrayDeque<String>()
@@ -142,7 +148,7 @@ class DictationPipeline(
     val deliveryText: String get() = committed.toString().ifBlank { raw.toString() }
 
     val totalActiveAsrMs: Long get() = session.totalActiveAsrMs
-    val totalActiveLlmMs: Long get() = cleanup.totalActiveLlmMs
+    val totalActiveLlmMs: Long get() = if (activeCleanupMode == CleanupMode.PER_UTTERANCE) utteranceLlmMs else cleanup.totalActiveLlmMs
     val boundaryState: BoundaryState get() = session.boundaryState
 
     /**
@@ -155,9 +161,13 @@ class DictationPipeline(
             raw.clear()
             committed.clear()
             clearProvisional()
+            utteranceLlmMs = 0L
         }
         cleanupEngaged = cleanupEnabled
-        if (cleanupEnabled) cleanup.begin(committed.toString())
+        activeCleanupMode = if (cleanupEnabled) cleanupMode() else CleanupMode.PER_SEGMENT
+        if (cleanupEnabled && activeCleanupMode == CleanupMode.PER_SEGMENT) {
+            cleanup.begin(committed.toString())
+        }
     }
 
     /** Starts the ASR worker. Separate from [begin] so the service can warm the engines in between. */
@@ -193,8 +203,69 @@ class DictationPipeline(
      */
     suspend fun finish(): String {
         val totalUtterance = session.finish()
-        if (cleanupEngaged) {
+        if (cleanupEngaged && activeCleanupMode == CleanupMode.PER_SEGMENT) {
             cleanup.drain()
+        } else if (cleanupEngaged && activeCleanupMode == CleanupMode.PER_UTTERANCE) {
+            val textToClean = synchronized(raw) { raw.toString().trim() }
+                .ifBlank { totalUtterance.trim() }
+            if (textToClean.isNotBlank()) {
+                val passStart = MonotonicClock.nowMs()
+                val pass = runCatching {
+                    withContext(cleanupDispatcher) {
+                        cleanupEngine.clean(unit = textToClean, rules = cleanupRules())
+                    }
+                }.getOrElse { error ->
+                    CleanupPass.failed(
+                        textToClean,
+                        "cleanup crashed — ${error.message ?: error::class.java.simpleName}",
+                    )
+                }
+                val passMs = MonotonicClock.nowMs() - passStart
+                val passWithActive = if (pass.activeMs <= 0L) pass.copy(activeMs = passMs) else pass
+                utteranceLlmMs = passWithActive.activeMs
+
+                withContext(mainDispatcher) {
+                    if (passWithActive.cleaned && passWithActive.text.isNotBlank()) {
+                        committed.clear()
+                        committed.append(passWithActive.text.trim())
+                    } else {
+                        committed.clear()
+                        committed.append(textToClean)
+                        onCleanupUnavailable()
+                    }
+                    clearProvisional()
+                    emit()
+                    onUnitCommitted(committed.toString())
+                }
+
+                onCleanupPass(
+                    CleanupPassTelemetry(
+                        index = 1,
+                        unit = textToClean,
+                        cleanedText = if (passWithActive.cleaned) passWithActive.text else textToClean,
+                        cleaned = passWithActive.cleaned,
+                        tokensBefore = 0,
+                        tokensAfter = cleanupEngine.tokenCount,
+                        turnsInConversation = 0,
+                        rebuiltAfter = false,
+                        rebuildReason = null,
+                        activeMs = passWithActive.activeMs,
+                        ttftMs = passWithActive.ttftMs,
+                        decodeTimeMs = passWithActive.decodeTimeMs,
+                        promptTokens = passWithActive.promptTokens,
+                        generatedTokens = passWithActive.generatedTokens,
+                        note = passWithActive.note,
+                    ),
+                )
+                withContext(cleanupDispatcher) {
+                    cleanupEngine.closeSession()
+                }
+            } else {
+                withContext(mainDispatcher) {
+                    clearProvisional()
+                    emit()
+                }
+            }
         } else {
             withContext(mainDispatcher) {
                 if (committed.isBlank() && totalUtterance.isNotBlank()) {
@@ -225,7 +296,9 @@ class DictationPipeline(
         session.abort()
         clearProvisional()
         if (cleanupEngaged) {
-            cleanup.abort()
+            if (activeCleanupMode == CleanupMode.PER_SEGMENT) {
+                cleanup.abort()
+            }
             cleanupEngaged = false
         }
     }
@@ -238,7 +311,9 @@ class DictationPipeline(
         session.abortAndJoin()
         clearProvisional()
         if (cleanupEngaged) {
-            cleanup.abortAndJoin()
+            if (activeCleanupMode == CleanupMode.PER_SEGMENT) {
+                cleanup.abortAndJoin()
+            }
             cleanupEngaged = false
         }
     }
@@ -255,6 +330,7 @@ class DictationPipeline(
         raw.clear()
         committed.clear()
         cleanupEngaged = false
+        utteranceLlmMs = 0L
         clearProvisional()
     }
 
@@ -298,7 +374,7 @@ class DictationPipeline(
             raw.append(unit)
         }
 
-        if (cleanupEngaged) {
+        if (cleanupEngaged && activeCleanupMode == CleanupMode.PER_SEGMENT) {
             // Synchronously stage the unit into pendingClean and clear liveProvisional
             // BEFORE submitting to cleanup worker so the in-flight unit stays visible in gray
             // and cannot be lost to an immediate onCleanupCommit or subsequent partial.
@@ -309,6 +385,14 @@ class DictationPipeline(
             }
             scope.launch(mainDispatcher) { emit() }
             cleanup.submit(unit)
+        } else if (cleanupEngaged && activeCleanupMode == CleanupMode.PER_UTTERANCE) {
+            // Keep in provisional (gray) until the whole utterance finishes and is cleaned in one pass.
+            synchronized(textLock) {
+                pendingClean.addLast(unit.trim())
+                liveProvisional = ""
+                updateProvisionalLocked()
+            }
+            scope.launch(mainDispatcher) { emit() }
         } else {
             // No cleanup: the unit becomes committed text at once, so the tail is white immediately.
             scope.launch(mainDispatcher) { commitUnit(unit) }

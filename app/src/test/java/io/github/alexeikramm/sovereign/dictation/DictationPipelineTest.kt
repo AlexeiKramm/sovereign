@@ -6,6 +6,7 @@ import io.github.alexeikramm.sovereign.asr.LocalAsrEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupEngine
 import io.github.alexeikramm.sovereign.cleanup.CleanupPass
 import io.github.alexeikramm.sovereign.cleanup.CleanupPrompt
+import io.github.alexeikramm.sovereign.data.CleanupMode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -226,8 +227,10 @@ class DictationPipelineTest {
     private fun pipeline(
         engine: AsrEngine,
         cleaner: CleanupEngine,
+        cleanupMode: CleanupMode = CleanupMode.PER_SEGMENT,
         onText: (String, String, String) -> Unit = { _, _, _ -> },
         onPartialText: (String) -> Unit = {},
+        onCleanupUnavailable: () -> Unit = {},
     ): DictationPipeline = DictationPipeline(
         asrEngine = engine,
         asrDispatcher = Dispatchers.Unconfined,
@@ -238,7 +241,9 @@ class DictationPipelineTest {
         timings = { ListenerTimings() },
         cleanupRules = { CleanupPrompt.SMART_CLEAN_RULES },
         healingSentencesCount = { 0 },
+        cleanupMode = { cleanupMode },
         onText = onText,
+        onCleanupUnavailable = onCleanupUnavailable,
         onPartialText = onPartialText,
     )
 
@@ -698,5 +703,93 @@ class DictationPipelineTest {
         assertEquals("Raw words", pipeline.committedText)
         assertEquals("", pipeline.provisionalText)
         assertTrue(!pipeline.hasPendingClean)
+    }
+
+    @Test
+    fun `per-utterance cleanup keeps speech provisional in gray and cleans entire transcript on finish`() = runBlocking {
+        val engine = ControllableAsrEngine()
+        val cleaner = FakeCleanupEngine(transform = { it.trim().uppercase() })
+        val pipeline = pipeline(engine, cleaner, cleanupMode = CleanupMode.PER_UTTERANCE)
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        // First unit cut
+        engine.currentCutUnit = "hello world"
+        feed(pipeline, 1)
+
+        // Staged in provisional (gray), committed is empty, cleaner NOT yet called
+        assertEquals("", pipeline.committedText)
+        assertEquals("hello world", pipeline.provisionalText)
+        assertEquals(0, cleaner.cleanCalls)
+        assertTrue(pipeline.hasPendingClean)
+
+        // Second unit cut
+        engine.currentCutUnit = "how are you"
+        feed(pipeline, 1)
+
+        assertEquals("", pipeline.committedText)
+        assertEquals("hello world how are you", pipeline.provisionalText)
+        assertEquals(0, cleaner.cleanCalls)
+        assertTrue(pipeline.hasPendingClean)
+
+        // On finish, cleaner is invoked once with the entire transcript
+        val finalSettled = pipeline.finish()
+
+        assertEquals(1, cleaner.cleanCalls)
+        assertEquals("HELLO WORLD HOW ARE YOU.", pipeline.committedText)
+        assertEquals("", pipeline.provisionalText)
+        assertTrue(!pipeline.hasPendingClean)
+        assertEquals("HELLO WORLD HOW ARE YOU.", finalSettled)
+    }
+
+    @Test
+    fun `per-utterance cleanup fails closed to raw words when cleaner crashes`() = runBlocking {
+        val engine = ControllableAsrEngine()
+        val cleaner = FakeCleanupEngine(transform = { throw RuntimeException("NPU OOM") })
+        var unavailableCalled = false
+        val pipeline = pipeline(
+            engine = engine,
+            cleaner = cleaner,
+            cleanupMode = CleanupMode.PER_UTTERANCE,
+            onCleanupUnavailable = { unavailableCalled = true },
+        )
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        engine.currentCutUnit = "important words"
+        feed(pipeline, 1)
+
+        assertEquals("", pipeline.committedText)
+        assertEquals("important words", pipeline.provisionalText)
+
+        val finalSettled = pipeline.finish()
+
+        // Fails closed to raw words (with final punctuation) and surfaces failure advisory
+        assertEquals("important words.", pipeline.committedText)
+        assertEquals("", pipeline.provisionalText)
+        assertTrue(unavailableCalled)
+        assertEquals("important words.", finalSettled)
+    }
+
+    @Test
+    fun `per-utterance cleanup on blank utterance returns empty text without calling cleaner`() = runBlocking {
+        val engine = ControllableAsrEngine()
+        val cleaner = FakeCleanupEngine()
+        val pipeline = pipeline(engine, cleaner, cleanupMode = CleanupMode.PER_UTTERANCE)
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        val finalSettled = pipeline.finish()
+
+        assertEquals(0, cleaner.cleanCalls)
+        assertEquals("", pipeline.committedText)
+        assertEquals("", pipeline.provisionalText)
+        assertEquals("", finalSettled)
     }
 }

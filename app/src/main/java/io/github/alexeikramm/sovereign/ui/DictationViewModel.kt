@@ -18,6 +18,7 @@ import io.github.alexeikramm.sovereign.cleanup.LiteRtCompatibilityTester
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.CleaningProfile
+import io.github.alexeikramm.sovereign.data.CleanupMode
 import io.github.alexeikramm.sovereign.data.DictationHistoryData
 import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.FinalizedUtterance
@@ -634,6 +635,9 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     private val _cleanupEnabled = MutableStateFlow(settings.cleanupEnabled)
     val cleanupEnabled: StateFlow<Boolean> = _cleanupEnabled.asStateFlow()
 
+    private val _cleanupMode = MutableStateFlow(settings.cleanupMode)
+    val cleanupMode: StateFlow<CleanupMode> = _cleanupMode.asStateFlow()
+
     fun activeProfileRules(): String = profileStore.activeProfile().rules
 
     fun toggleCleanupEnabled() {
@@ -645,6 +649,11 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setCleanupEnabled(enabled: Boolean) {
         settings.cleanupEnabled = enabled
         _cleanupEnabled.value = enabled
+    }
+
+    fun setCleanupMode(mode: CleanupMode) {
+        settings.cleanupMode = mode
+        _cleanupMode.value = mode
     }
 
     /** The shared dictionary, exposed reactively so Profiles and the pill never disagree. */
@@ -666,6 +675,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         refreshDictionary()
         refreshHistory()
         _cleanupEnabled.value = settings.cleanupEnabled
+        _cleanupMode.value = settings.cleanupMode
     }
 
     fun refreshHistory() {

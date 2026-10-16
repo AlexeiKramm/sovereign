@@ -275,7 +275,7 @@ class SessionCaptureHost(
      * cleaning is happening — and it runs *alongside* transcribing, hence a flag rather than a phase.
      */
     private fun onUnitCut() {
-        if (settings.cleanupEnabled && !finalizing) {
+        if (settings.cleanupEnabled && settings.cleanupMode == io.github.alexeikramm.sovereign.data.CleanupMode.PER_SEGMENT && !finalizing) {
             cleaning = true
             publishStage()
         }

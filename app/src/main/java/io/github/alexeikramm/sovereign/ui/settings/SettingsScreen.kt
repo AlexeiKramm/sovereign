@@ -106,6 +106,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.alexeikramm.sovereign.R
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
+import io.github.alexeikramm.sovereign.data.CleanupMode
 import io.github.alexeikramm.sovereign.data.LiteRtProcessor
 import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.engine.EnginePreference
@@ -262,6 +263,7 @@ fun SettingsScreen(
     val streamingPreviewEnabled by viewModel.streamingPreviewEnabled.collectAsStateWithLifecycle()
 
     val cleanupEnabled by viewModel.cleanupEnabled.collectAsStateWithLifecycle()
+    val cleanupMode by viewModel.cleanupMode.collectAsStateWithLifecycle()
     val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
     val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
@@ -630,6 +632,38 @@ fun SettingsScreen(
                         checked = cleanupEnabled,
                         onCheckedChange = viewModel::setCleanupEnabled,
                     )
+
+                    if (cleanupEnabled) {
+                        SettingsDivider(startIndent = 0.dp)
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Cleanup mode",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Per segment cleans incrementally as you speak. Per utterance keeps text raw and cleans the entire transcript at once when speech ends.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                CleanupMode.entries.forEachIndexed { index, mode ->
+                                    SegmentedButton(
+                                        selected = cleanupMode == mode,
+                                        onClick = { viewModel.setCleanupMode(mode) },
+                                        shape = SegmentedButtonDefaults.itemShape(
+                                            index = index,
+                                            count = CleanupMode.entries.size,
+                                        ),
+                                        label = { Text(mode.label) },
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     SettingsDivider(startIndent = 0.dp)
 

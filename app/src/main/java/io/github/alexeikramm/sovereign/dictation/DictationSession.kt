@@ -122,6 +122,7 @@ class DictationSession(
         cleanupRules = { profileStore.activeProfile().rules },
         healingSentencesCount = { settings.healingSentencesCount },
         maxTurns = { settings.maxTurns },
+        cleanupMode = { settings.cleanupMode },
         onText = onText,
         onCleanupUnavailable = onCleanupUnavailable,
         onPartialText = onPartialText,
