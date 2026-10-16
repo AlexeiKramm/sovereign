@@ -6,7 +6,12 @@
 <p align="center"><strong>Smart Dictation &amp; Transcription</strong><br/>
 Speech-to-text that runs on your own devices — no cloud, no account.</p>
 
-<!-- BADGE SLOT: License · Android 11+ · arm64-v8a · latest release. -->
+<p align="center">
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" />
+  <img src="https://img.shields.io/badge/Android-11%2B_(API_30)-3DDC84?logo=android&amp;logoColor=white" alt="Android 11+ (API 30)" />
+  <img src="https://img.shields.io/badge/ABI-arm64--v8a-informational" alt="ABI: arm64-v8a" />
+</p>
+<!-- RELEASE BADGE (S20): add https://img.shields.io/github/v/release/AlexeiKramm/sovereign once v0.1.0 is tagged. -->
 
 **Sovereign** is an on-device, private speech-to-text dictation tool for Android and your desktop. A floating pill sits over any app—tap or hold to speak, and your words appear at your cursor, cleaned and formatted in real time by local AI.
 
