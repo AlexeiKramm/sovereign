@@ -15,6 +15,32 @@ enum class LiteRtProcessor(val id: String, val label: String, val note: String) 
     CPU("cpu", "CPU", "Standard processor fallback"),
 }
 
+/**
+ * The KV-cache size the cleanup engine requests from LiteRT-LM on its next load.
+ *
+ * 4096 is the **device-verified default** (D-088): the shipped Gemma 4 E2B bundle served a 10-minute
+ * dictation to 3380 tokens with clean rebuilds and no native error. 8192 is offered because
+ * per-utterance cleanup must hold the *whole* transcript in the cache, so a long dictation can
+ * exhaust 4K. It is a request only — the SDK exposes no getter for the effective value, so the
+ * `Cleanup engine ready … maxNumTokens=` log line is the only ground truth for what a build serves.
+ */
+enum class LiteRtContextWindow(val tokens: Int, val label: String) {
+    K4(tokens = 4096, label = "4K"),
+    K8(tokens = 8192, label = "8K");
+
+    companion object {
+        val DEFAULT: LiteRtContextWindow = K4
+
+        /**
+         * Maps a stored token count back to a known window, falling back to [DEFAULT]. Reading
+         * through this normalises a corrupt or outdated preference instead of passing it to the
+         * runtime.
+         */
+        fun fromTokens(tokens: Int): LiteRtContextWindow =
+            entries.firstOrNull { it.tokens == tokens } ?: DEFAULT
+    }
+}
+
 enum class CleanupMode(val id: String, val label: String) {
     PER_SEGMENT("per_segment", "Per segment"),
     PER_UTTERANCE("per_utterance", "Per utterance");
@@ -182,6 +208,19 @@ class AppSettings(context: Context) {
     var litertSpeculativeDecoding: Boolean
         get() = prefs.getBoolean(KEY_LITERT_SPECULATIVE_DECODING, DEFAULT_LITERT_SPECULATIVE_DECODING)
         set(value) = prefs.edit { putBoolean(KEY_LITERT_SPECULATIVE_DECODING, value) }
+
+    /**
+     * KV-cache size (tokens) the cleanup engine requests on its next load. Read once at engine
+     * construction — the native runtime only honours it in `initialize()` — so changing it takes
+     * effect on the next model load. Values are normalised through [LiteRtContextWindow]: a stored
+     * value that is not one of the offered windows falls back to the default rather than reaching
+     * the runtime.
+     */
+    var litertContextTokens: Int
+        get() = LiteRtContextWindow.fromTokens(
+            prefs.getInt(KEY_LITERT_CONTEXT_TOKENS, LiteRtContextWindow.DEFAULT.tokens),
+        ).tokens
+        set(value) = prefs.edit { putInt(KEY_LITERT_CONTEXT_TOKENS, LiteRtContextWindow.fromTokens(value).tokens) }
 
     /**
      * Theme preference: System default, Light theme, or Dark theme.
@@ -527,6 +566,7 @@ class AppSettings(context: Context) {
         private const val KEY_LITERT_GPU_SUPPORTED = "litert_gpu_supported"
         private const val KEY_LITERT_COMPAT_NOTE = "litert_compat_note"
         private const val KEY_LITERT_SPECULATIVE_DECODING = "litert_speculative_decoding"
+        private const val KEY_LITERT_CONTEXT_TOKENS = "litert_context_tokens"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_THEME_SEED_COLOR = "theme_seed_color"
         private const val KEY_THEME_PALETTE_STYLE = "theme_palette_style"

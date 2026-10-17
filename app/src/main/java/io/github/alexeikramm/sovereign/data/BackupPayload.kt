@@ -21,6 +21,7 @@ data class SettingsBackup(
     val litertModelId: String = LiteRtLmModels.DEFAULT.id,
     val litertProcessor: String = LiteRtProcessor.GPU.id,
     val litertSpeculativeDecoding: Boolean = AppSettings.DEFAULT_LITERT_SPECULATIVE_DECODING,
+    val litertContextTokens: Int = LiteRtContextWindow.DEFAULT.tokens,
     val themeMode: String = AppThemeMode.SYSTEM.id,
     val themeSeedColor: Int = AppSettings.DEFAULT_THEME_SEED_COLOR,
     val themePaletteStyle: String = AppSettings.DEFAULT_THEME_PALETTE_STYLE,

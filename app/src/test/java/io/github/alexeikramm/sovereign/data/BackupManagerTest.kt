@@ -176,12 +176,17 @@ class BackupManagerTest {
         val json = BackupManager.serialize(backup)
         assertFalse("the pairing token must never be exported", json.contains(device.token))
 
-        // Structural guard: no exported model may grow a token/pairing field.
+        // Structural guard: no exported model may grow a token/pairing field. A "token" **count** —
+        // the cleanup cache size — is not a secret, so it is the one named exception; anything else
+        // whose name contains "token" or "pair" still fails.
+        val nonSecretTokenCounts = setOf("litertcontexttokens")
         val exportedFields = (SettingsBackup::class.java.declaredFields + AppBackup::class.java.declaredFields)
             .map { it.name.lowercase() }
         assertTrue(
             "exported models must not carry pairing secrets: $exportedFields",
-            exportedFields.none { it.contains("token") || it.contains("pair") },
+            exportedFields.none {
+                (it.contains("token") || it.contains("pair")) && it !in nonSecretTokenCounts
+            },
         )
     }
 

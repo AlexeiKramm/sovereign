@@ -38,6 +38,13 @@ class LiteRtLmCleanupEngine(
      * `CleanupPipeline`'s live `rules` lambda: a dependency that can change is a function.
      */
     private val vocabulary: () -> List<DictionaryEntry> = { emptyList() },
+    /**
+     * The KV-cache size requested from the runtime (`EngineConfig.maxNumTokens`). Captured at
+     * construction because the value is only read by the native engine at `initialize()`, so a
+     * change takes effect on the next model load — which is why `isServing` compares it and the
+     * Settings control unloads the engine.
+     */
+    val contextWindowTokens: Int = CONTEXT_TOKENS,
 ) : CleanupEngine {
 
     private val lock = Mutex()
@@ -52,6 +59,12 @@ class LiteRtLmCleanupEngine(
      * never actually exercised. Kept at the bundle's nominal 4096 with the 80% trigger.
      */
     companion object {
+        /**
+         * The default KV-cache size — [LiteRtContextWindow.DEFAULT] as a compile-time constant (the
+         * enum's value cannot be used directly here). Kept in sync by a unit test. The user-facing
+         * choice lives in [LiteRtContextWindow]; this is only the fallback for callers that do not
+         * pass one (the benchmark harnesses).
+         */
         const val CONTEXT_TOKENS = 4096
         private const val TAG = "LiteRtLmCleanup"
     }
@@ -84,7 +97,8 @@ class LiteRtLmCleanupEngine(
         }
         return uses(settings.litertModel) &&
             effectiveProcessor == expectedProcessor &&
-            speculativeDecoding == settings.litertSpeculativeDecoding
+            speculativeDecoding == settings.litertSpeculativeDecoding &&
+            contextWindowTokens == settings.litertContextTokens
     }
 
     private suspend fun ensureLoaded(): Result<Engine> = withContext(Dispatchers.IO) {
@@ -125,7 +139,7 @@ class LiteRtLmCleanupEngine(
                 // engine is up, because the *effective* ceiling is not queryable and the shipped
                 // Gemma 4 E2B bundle has been reported to ignore this and hold only ~2048
                 // (LiteRT-LM issue #3444). The log tells us what this device/bundle really serves.
-                maxNumTokens = CONTEXT_TOKENS,
+                maxNumTokens = contextWindowTokens,
             )
             val created = Engine(config)
             try {
@@ -139,7 +153,7 @@ class LiteRtLmCleanupEngine(
             }
             engine = created
             lastLoadMs = SystemClock.elapsedRealtime() - started
-            Log.i(TAG, "Cleanup engine ready: ${modelSpec.label} · maxNumTokens=$CONTEXT_TOKENS · load=${lastLoadMs}ms")
+            Log.i(TAG, "Cleanup engine ready: ${modelSpec.label} · maxNumTokens=$contextWindowTokens · load=${lastLoadMs}ms")
             created
         }
     }
@@ -202,7 +216,7 @@ class LiteRtLmCleanupEngine(
         get() = sessionConversation?.getTokenCount() ?: 0
 
     /** The KV-cache size this engine loaded with — the rebuild trigger's denominator. */
-    override val contextTokens: Int get() = CONTEXT_TOKENS
+    override val contextTokens: Int get() = contextWindowTokens
 
     /** Reports and logs a rebuild: the figures are the only ground truth for the effective ceiling. */
     override fun onConversationRebuilt(usedTokens: Int, capTokens: Int) {

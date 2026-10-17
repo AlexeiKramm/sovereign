@@ -22,11 +22,19 @@ import io.github.alexeikramm.sovereign.data.DictionaryEntry
 object CleanupPrompt {
 
     /**
-     * Generation guard, not a limit on how much may be cleaned (D-032 rule 3). It exists so that a
-     * looping model stops instead of running until the context is full; a pass that *hits* it is a
-     * failure, and the caller fails closed rather than committing a truncated sentence.
+     * The maximum tokens one pass may generate — a runway, not a length limit (D-032 rule 3).
+     *
+     * It was 512, which silently truncated long per-utterance dictations: the runtime stopped at the
+     * cap and the pipeline committed the partial text as if it were complete (the model emitting a
+     * "finished" line, not an error). 4096 equals the default context window, so within a 4K window
+     * the cap can no longer cut a pass short — the KV cache is the real ceiling, and exhausting it
+     * fails *loudly* and fails closed to the raw words rather than trimming them.
+     *
+     * Note: the cap is a hard stop at the runtime, but nothing here *detects* that it was hit — a
+     * pass that reaches it is currently indistinguishable from one that finished. That detection is
+     * deliberately not added yet (see the decision log); at 4096 it is very hard to reach.
      */
-    const val MAX_TOKENS = 512
+    const val MAX_TOKENS = 4096
 
     /**
      * The non-overridable contract shared by every profile (D-022, D-098). It **names the role** —

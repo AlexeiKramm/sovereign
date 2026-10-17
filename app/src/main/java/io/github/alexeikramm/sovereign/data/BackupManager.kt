@@ -66,6 +66,7 @@ object BackupManager {
             litertModelId = settings.litertModelId,
             litertProcessor = settings.litertProcessor.id,
             litertSpeculativeDecoding = settings.litertSpeculativeDecoding,
+            litertContextTokens = settings.litertContextTokens,
             themeMode = settings.themeMode.id,
             themeSeedColor = settings.themeSeedColor,
             themePaletteStyle = settings.themePaletteStyle,
@@ -158,6 +159,7 @@ object BackupManager {
             else -> LiteRtProcessor.GPU
         }
         settings.litertSpeculativeDecoding = s.litertSpeculativeDecoding
+        settings.litertContextTokens = s.litertContextTokens
         settings.themeMode = when (s.themeMode) {
             AppThemeMode.LIGHT.id -> AppThemeMode.LIGHT
             AppThemeMode.DARK.id -> AppThemeMode.DARK

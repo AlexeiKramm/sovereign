@@ -14,6 +14,7 @@ import io.github.alexeikramm.sovereign.cleanup.ConversationRebuildPolicy
 import io.github.alexeikramm.sovereign.data.CleanupMode
 import io.github.alexeikramm.sovereign.engine.MonotonicClock
 import io.github.alexeikramm.sovereign.text.MarkdownLists
+import io.github.alexeikramm.sovereign.text.PanelText
 import io.github.alexeikramm.sovereign.text.UtteranceFinalizer
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -329,10 +330,11 @@ class DictationPipeline(
     }
 
     private fun updateProvisionalLocked(): String {
-        val pendingJoined = pendingClean.filter { it.isNotBlank() }.joinToString(" ")
+        val pendingJoined = PanelText.joinUnits(pendingClean.filter { it.isNotBlank() })
         val live = liveProvisional.trim()
         val combined = when {
-            pendingJoined.isNotBlank() && live.isNotBlank() -> "$pendingJoined $live"
+            pendingJoined.isNotBlank() && live.isNotBlank() ->
+                pendingJoined + PanelText.joinSeparator(pendingJoined, live) + live
             pendingJoined.isNotBlank() -> pendingJoined
             live.isNotBlank() -> live
             else -> ""
@@ -346,9 +348,9 @@ class DictationPipeline(
      * disengaged: the unit becomes final immediately on cut.
      */
     private fun commitUnit(unit: String) {
-        if (committed.isNotEmpty() && !committed.endsWith(" ") && !unit.startsWith(" ")) {
-            committed.append(" ")
-        }
+        // The separator comes from the shared rule, not a hardcoded space: a unit that starts with
+        // punctuation attaches to the previous word instead of being pushed away from it.
+        committed.append(PanelText.joinSeparator(committed.toString(), unit))
         committed.append(unit)
         synchronized(textLock) {
             pendingClean.clear()

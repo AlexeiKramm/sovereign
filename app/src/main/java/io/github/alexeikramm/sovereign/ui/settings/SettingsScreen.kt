@@ -107,6 +107,7 @@ import io.github.alexeikramm.sovereign.R
 import io.github.alexeikramm.sovereign.data.AppSettings
 import io.github.alexeikramm.sovereign.data.AppThemeMode
 import io.github.alexeikramm.sovereign.data.CleanupMode
+import io.github.alexeikramm.sovereign.data.LiteRtContextWindow
 import io.github.alexeikramm.sovereign.data.LiteRtProcessor
 import io.github.alexeikramm.sovereign.data.RawTextColorRole
 import io.github.alexeikramm.sovereign.engine.EnginePreference
@@ -267,6 +268,7 @@ fun SettingsScreen(
     val litertProcessor by viewModel.litertProcessor.collectAsStateWithLifecycle()
     val litertGpuSupported by viewModel.litertGpuSupported.collectAsStateWithLifecycle()
     val litertSpeculativeDecoding by viewModel.litertSpeculativeDecoding.collectAsStateWithLifecycle()
+    val litertContextWindow by viewModel.litertContextWindow.collectAsStateWithLifecycle()
     val healingSentencesCount by viewModel.healingSentencesCount.collectAsStateWithLifecycle()
     val maxTurns by viewModel.maxTurns.collectAsStateWithLifecycle()
     val idleTimeoutMinutes by viewModel.modelIdleTimeoutMinutes.collectAsStateWithLifecycle()
@@ -661,6 +663,38 @@ fun SettingsScreen(
                                         label = { Text(mode.label) },
                                     )
                                 }
+                            }
+                        }
+                    }
+
+                    SettingsDivider(startIndent = 0.dp)
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Context window",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "4K is the safe default for most dictation. 8K leaves more room, which " +
+                                "helps long dictations — especially per-utterance cleanup, where the whole " +
+                                "transcript has to fit in the model's context. Takes effect on the next model load.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            LiteRtContextWindow.entries.forEachIndexed { index, window ->
+                                SegmentedButton(
+                                    selected = litertContextWindow == window,
+                                    onClick = { viewModel.setLitertContextWindow(window) },
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = LiteRtContextWindow.entries.size,
+                                    ),
+                                    label = { Text(window.label) },
+                                )
                             }
                         }
                     }

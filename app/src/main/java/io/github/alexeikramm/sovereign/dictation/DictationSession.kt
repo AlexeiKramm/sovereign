@@ -505,6 +505,7 @@ class DictationSession(
             processor = settings.litertProcessor,
             speculativeDecoding = settings.litertSpeculativeDecoding,
             vocabulary = dictionaryStore::getEntries,
+            contextWindowTokens = settings.litertContextTokens,
         ).also { cleanupEngine = it }
     }
 

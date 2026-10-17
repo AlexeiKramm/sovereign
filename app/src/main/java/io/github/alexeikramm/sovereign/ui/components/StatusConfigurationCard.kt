@@ -56,6 +56,7 @@ fun asrModelTierTitle(modelId: String, fallbackLabel: String = ""): String {
 
 fun asrModelTierSubtitle(modelId: String): String = when (modelId) {
     AsrModels.DEFAULT_MODEL_ID -> "Nemotron 3.5 · Real-time"
+    AsrModels.NEMOTRON_320MS.id -> "Nemotron 3.5 (320ms) · Ultra-low latency"
     AsrModels.PARAKEET_TDT_V3.id -> "Parakeet TDT v3 · Chunked"
     AsrModels.WHISPER_BASE.id -> "Whisper Base · Chunked"
     else -> "Speech recognition"

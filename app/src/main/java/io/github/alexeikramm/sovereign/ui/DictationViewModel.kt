@@ -24,6 +24,7 @@ import io.github.alexeikramm.sovereign.data.DictationHistoryStore
 import io.github.alexeikramm.sovereign.data.FinalizedUtterance
 import io.github.alexeikramm.sovereign.data.FinalizedUtteranceRecorder
 import io.github.alexeikramm.sovereign.data.LiteRtProcessor
+import io.github.alexeikramm.sovereign.data.LiteRtContextWindow
 import io.github.alexeikramm.sovereign.data.DictionaryEntry
 import io.github.alexeikramm.sovereign.data.DictionaryStore
 import io.github.alexeikramm.sovereign.data.AppBackup
@@ -304,6 +305,18 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
     fun setLitertSpeculativeDecoding(enabled: Boolean) {
         settings.litertSpeculativeDecoding = enabled
         _litertSpeculativeDecoding.value = enabled
+        cleanupEngine?.unload()
+        cleanupEngine = null
+    }
+
+    private val _litertContextWindow = MutableStateFlow(LiteRtContextWindow.fromTokens(settings.litertContextTokens))
+    val litertContextWindow: StateFlow<LiteRtContextWindow> = _litertContextWindow.asStateFlow()
+
+    fun setLitertContextWindow(window: LiteRtContextWindow) {
+        settings.litertContextTokens = window.tokens
+        _litertContextWindow.value = window
+        // The cache size is only honoured at engine construction, so a resident engine with the old
+        // size has to go; the next load picks up the new window (mirrors the processor switch).
         cleanupEngine?.unload()
         cleanupEngine = null
     }
@@ -810,6 +823,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
         _serverUrl.value = settings.serverUrl
         _litertProcessor.value = settings.litertProcessor
         _litertSpeculativeDecoding.value = settings.litertSpeculativeDecoding
+        _litertContextWindow.value = LiteRtContextWindow.fromTokens(settings.litertContextTokens)
         _selectedAsrModel.value = settings.asrModel
         _selectedLitertModel.value = settings.litertModel
         _unloadOnScreenOff.value = settings.unloadOnScreenOff
@@ -1176,6 +1190,7 @@ class DictationViewModel(application: Application) : AndroidViewModel(applicatio
             processor = settings.litertProcessor,
             speculativeDecoding = settings.litertSpeculativeDecoding,
             vocabulary = dictionaryStore::getEntries,
+            contextWindowTokens = settings.litertContextTokens,
         ).also { cleanupEngine = it }
     }
 

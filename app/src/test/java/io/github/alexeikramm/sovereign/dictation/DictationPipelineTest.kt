@@ -296,6 +296,46 @@ class DictationPipelineTest {
         assertTrue(!pipeline.isCleanupEngaged)
     }
 
+    /**
+     * The pause's punctuation arrives at the *start* of the next unit, so the pipeline must not insert
+     * a space and push it off the word it punctuates. Regression for "word , and more".
+     */
+    @Test
+    fun `cleanup off does not insert a space before a punctuation-led unit`() = runBlocking {
+        val engine = FakeAsrEngine(listOf("I think", ", and more"))
+        val pipeline = pipeline(engine, FakeCleanupEngine())
+
+        pipeline.begin(fresh = true, cleanupEnabled = false)
+        pipeline.beginSession()
+        pipeline.open("en")
+        feed(pipeline, 2)
+        pipeline.finish()
+
+        assertEquals("I think, and more.", pipeline.committedText)
+    }
+
+    @Test
+    fun `the live provisional tail does not insert a space before leading punctuation`() = runBlocking {
+        // Per-segment cleanup, gated, so both units sit in pendingClean at once — the grey preview
+        // the user watches while speaking.
+        val engine = ControllableAsrEngine()
+        val cleaner = QueueGatedCleanupEngine()
+        val pipeline = pipeline(engine, cleaner)
+
+        pipeline.begin(fresh = true, cleanupEnabled = true)
+        pipeline.beginSession()
+        pipeline.open("en")
+
+        engine.currentPartial = "I think"
+        engine.currentCutUnit = "I think"
+        feed(pipeline, 1)
+        engine.currentPartial = ", and more"
+        engine.currentCutUnit = ", and more"
+        feed(pipeline, 1)
+
+        assertEquals("I think, and more", pipeline.provisionalText)
+    }
+
     @Test
     fun `cleanup on routes every unit through the cleaner`() = runBlocking {
         val engine = FakeAsrEngine(listOf("Hello.", "World."))

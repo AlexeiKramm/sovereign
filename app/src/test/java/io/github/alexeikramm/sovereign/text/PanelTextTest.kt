@@ -57,4 +57,42 @@ class PanelTextTest {
         assertEquals("", PanelText.unitPrefix("", "- First item", isFirstUnit = true))
         assertEquals("", PanelText.unitPrefix(null, "Hello"))
     }
+
+    /**
+     * The pause's punctuation lands at the start of the next unit, so the rule must not push it away
+     * from the word it punctuates. Regression for "word , and more" in the live and committed text.
+     */
+    @Test
+    fun `no space is inserted before leading punctuation`() {
+        assertFalse(PanelText.shouldPrependSpace('d', ", and more"))
+        assertFalse(PanelText.shouldPrependSpace('d', "."))
+        assertFalse(PanelText.shouldPrependSpace('d', "?"))
+        assertFalse(PanelText.shouldPrependSpace('d', ")"))
+        assertFalse(PanelText.shouldPrependSpace('d', " — dash"))
+        // A word, or an opening quote/bracket, still takes the space.
+        assertTrue(PanelText.shouldPrependSpace('d', "next"))
+        assertTrue(PanelText.shouldPrependSpace('d', "\"quoted\""))
+        assertTrue(PanelText.shouldPrependSpace('d', "(parenthetical)"))
+        // An incoming unit that already carries its own boundary is never double-spaced.
+        assertFalse(PanelText.shouldPrependSpace('d', " next"))
+
+        assertEquals("", PanelText.joinSeparator("I think", ", and more"))
+        assertEquals("I think, and more", "I think" + PanelText.joinSeparator("I think", ", and more") + ", and more")
+        assertEquals(" ", PanelText.joinSeparator("I think", "and more"))
+    }
+
+    @Test
+    fun `unitPrefix does not push leading punctuation off the preceding word`() {
+        assertEquals("", PanelText.unitPrefix("I think", ", and more"))
+        assertEquals("", PanelText.unitPrefix("Hello there.", ". Next"))
+        assertEquals(" ", PanelText.unitPrefix("I think", "and more"))
+    }
+
+    @Test
+    fun `joinUnits separates words but not punctuation`() {
+        assertEquals("hello world", PanelText.joinUnits(listOf("hello", "world")))
+        assertEquals("hello, world", PanelText.joinUnits(listOf("hello", ", world")))
+        assertEquals("", PanelText.joinUnits(emptyList()))
+        assertEquals("solo", PanelText.joinUnits(listOf("", "solo")))
+    }
 }
