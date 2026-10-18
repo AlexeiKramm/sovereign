@@ -594,6 +594,26 @@ class PillGeometryTest {
         assertEquals(8f, CardLayout.CAPSULE_MARGIN_DP, 0f)
         assertEquals(1f, CardLayout.CAPSULE_OUTLINE_WIDTH_DP, 0f)
 
+        // Middle capsule: a stadium of height ACTION_ROW_HEIGHT_DP sitting between the three 41dp
+        // circles (with one trailing CAPSULE_MARGIN_DP spacer before the commit button), inset by its
+        // own CAPSULE_MARGIN_DP on both sides.
+        val capsuleWidth = CardLayout.WIDTH_DP -
+            (2f * CardLayout.PADDING_DP) -
+            (3f * CardLayout.ACTION_CIRCLE_SIZE_DP) -
+            CardLayout.CAPSULE_MARGIN_DP -
+            (2f * CardLayout.CAPSULE_MARGIN_DP)
+        assertEquals(161f, capsuleWidth, 0.01f)
+
+        // Marquee status text is inset by the stadium's end radius, so the scrolling run stays on the
+        // straight middle and is not cut by the curve. That leaves ~78% of the capsule's width.
+        assertEquals(18f, CardLayout.CAPSULE_TEXT_INSET_DP, 0f)
+        val capsuleTextWidth = capsuleWidth - (2f * CardLayout.CAPSULE_TEXT_INSET_DP)
+        assertEquals(125f, capsuleTextWidth, 0.01f)
+        assertTrue(
+            "status text keeps 70-85% of the capsule width",
+            capsuleTextWidth in 0.70f * capsuleWidth..0.85f * capsuleWidth,
+        )
+
         // Vertical space calculation:
         // total (210) - padding (2 * 16) - header (20) - gapTop (8) - gapBot (14) - actionRow (36) = 100dp
         val availableBodyHeight = CardLayout.HEIGHT_DP -

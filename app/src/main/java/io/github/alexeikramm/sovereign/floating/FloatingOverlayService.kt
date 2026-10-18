@@ -2016,13 +2016,11 @@ class FloatingOverlayService : Service() {
     }
 
     /**
-     * The status shown while a capture is finalised (recorder stop + ASR tail flush + cleanup drain).
-     * "Polishing" only when an LLM pass will actually run; with cleanup off the same work happens but
-     * there is no AI in it, and claiming otherwise makes an ordinary stop look like a stray step.
+     * Ends a capture started from the expanded card: stops the recorder, flushes the ASR tail and
+     * drains the cleanup pass, then hands the result to REVIEW. There is no separate "finishing" note
+     * — the header and the action capsule already carry that status, and the capsule is the pill's
+     * only transient-note slot (see [showTransientStatus]).
      */
-    private fun finishingStatus(): String =
-        if (settings.cleanupEnabled) "Polishing with AI..." else "Finishing..."
-
     private fun stopRecording() {
         if (!pillRecording) return
         captureStoppedAtMs = SystemClock.elapsedRealtime()
@@ -2032,7 +2030,6 @@ class FloatingOverlayService : Service() {
         uiState = FloatingUiState.REVIEW
         isProcessing = true
         clearStatusNote()
-        statusNote = finishingStatus()
 
         inFlightJob = scope.launch {
             finalizeUtterance()
@@ -2213,7 +2210,6 @@ class FloatingOverlayService : Service() {
                 stopSilenceMonitoring()
                 isProcessing = true
                 clearStatusNote()
-                statusNote = finishingStatus()
                 finalizeUtterance()
                 turnaroundLatencyMs = if (captureStoppedAtMs > 0L) SystemClock.elapsedRealtime() - captureStoppedAtMs else 0L
                 isProcessing = false

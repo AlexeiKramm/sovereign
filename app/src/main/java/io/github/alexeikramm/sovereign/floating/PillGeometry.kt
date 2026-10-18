@@ -173,6 +173,16 @@ object CardLayout {
     /** Outline border width of the middle capsule and outline action buttons in dp. */
     const val CAPSULE_OUTLINE_WIDTH_DP = 1f
 
+    /**
+     * Horizontal inset for text that scrolls inside the middle capsule in dp.
+     *
+     * The capsule is a stadium of height [ACTION_ROW_HEIGHT_DP], so each end is a quarter-circle of
+     * radius `ACTION_ROW_HEIGHT_DP / 2`. A marquee that reaches the capsule's outer edge is cut by
+     * that curve and reads as clipped text; insetting by the radius keeps the whole scrolling run on
+     * the straight middle section. Derived, so it cannot drift if the capsule height changes.
+     */
+    const val CAPSULE_TEXT_INSET_DP = ACTION_ROW_HEIGHT_DP / 2f
+
     /** Width of the card waveform canvas in dp (44dp * 2.6). */
     const val WAVEFORM_WIDTH_DP = 114.4f
 

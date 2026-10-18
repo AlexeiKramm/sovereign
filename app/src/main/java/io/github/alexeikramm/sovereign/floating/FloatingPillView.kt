@@ -1,18 +1,16 @@
 package io.github.alexeikramm.sovereign.floating
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -876,6 +874,9 @@ private fun DictationCard(
 ) {
     val scrollState = rememberScrollState()
     val failed = errorMessage != null
+    // The one transient-note slot. It is rendered inside the action capsule (below), not in its own
+    // row under the transcript, so the header, the capsule and the transcript never say it twice.
+    val statusMsg = statusNote
     // The fallback: on an LLM failure we show what was actually heard so no words are lost.
     val displayText = if (failed) rawText else previewText
     // The live raw tail (raw-preview): the recognised-but-not-yet-committed text for the unit in
@@ -1061,25 +1062,6 @@ private fun DictationCard(
                 }
             }
 
-            var lastStatusNote by remember { mutableStateOf("") }
-            if (statusNote != null) {
-                lastStatusNote = statusNote
-            }
-            AnimatedVisibility(
-                visible = statusNote != null,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-            ) {
-                Column {
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Text(
-                        text = statusNote ?: lastStatusNote,
-                        color = cs.primary,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(CardLayout.GAP_BOTTOM_DP.dp))
 
             // Action row: cancel · waveform/state · reprocess · commit.
@@ -1119,10 +1101,19 @@ private fun DictationCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         when {
+                            // Processing owns the capsule: a spinner plus the reason. The default label
+                            // is the header's "Polishing…"/"Finishing…". A caller-supplied note (the
+                            // reprocess pass) overrides it, so a manual re-run is not mislabelled as an
+                            // ordinary finish; it scrolls rather than truncating.
                             isProcessing -> {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.Center,
+                                    // Inset off the capsule's curved ends, or the scrolling label is
+                                    // cut by the stadium curve (CardLayout.CAPSULE_TEXT_INSET_DP).
+                                    modifier = Modifier.padding(
+                                        horizontal = CardLayout.CAPSULE_TEXT_INSET_DP.dp,
+                                    ),
                                 ) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),
@@ -1131,10 +1122,38 @@ private fun DictationCard(
                                     )
                                     Spacer(modifier = Modifier.width(Spacing.sm))
                                     Text(
-                                        text = if (cleanupEnabled) "Polishing…" else "Finishing…",
+                                        text = statusMsg
+                                            ?: if (cleanupEnabled) "Polishing…" else "Finishing…",
                                         color = cs.onSurface,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        modifier = Modifier.basicMarquee(),
+                                    )
+                                }
+                            }
+
+                            // A transient note (dictionary add, engine failure, reprocess result). It
+                            // takes the capsule's place — over the waveform too, so an "ASR
+                            // unavailable" note is never hidden behind a waveform that is hearing
+                            // nothing. A note longer than the pill scrolls inside it, never truncated.
+                            statusMsg != null -> {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    // Same inset as the processing label: a long note scrolls inside
+                                    // the capsule's straight middle, never through its curved ends.
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = CardLayout.CAPSULE_TEXT_INSET_DP.dp),
+                                ) {
+                                    Text(
+                                        text = statusMsg,
+                                        color = cs.primary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        modifier = Modifier.basicMarquee(),
                                     )
                                 }
                             }
