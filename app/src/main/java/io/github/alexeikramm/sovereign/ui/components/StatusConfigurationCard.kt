@@ -54,12 +54,18 @@ fun asrModelTierTitle(modelId: String, fallbackLabel: String = ""): String {
     return if (tier == modelId && fallbackLabel.isNotBlank()) fallbackLabel else tier
 }
 
-fun asrModelTierSubtitle(modelId: String): String = when (modelId) {
-    AsrModels.DEFAULT_MODEL_ID -> "Nemotron 3.5 · Real-time"
-    AsrModels.NEMOTRON_320MS.id -> "Nemotron 3.5 (320ms) · Ultra-low latency"
-    AsrModels.PARAKEET_TDT_V3.id -> "Parakeet TDT v3 · Chunked"
-    AsrModels.WHISPER_BASE.id -> "Whisper Base · Chunked"
-    else -> "Speech recognition"
+/**
+ * One-line description of what is actually selected. The Nemotron streaming variants are told apart
+ * by chunk size, which is the only thing that differs between them (D-145).
+ */
+fun asrModelTierSubtitle(modelId: String): String {
+    val spec = AsrModels.byId(modelId)
+    return when {
+        spec.chunkMs != null -> "Nemotron 3.5 · ${spec.chunkMs} ms chunks"
+        spec.id == AsrModels.PARAKEET_TDT_V3.id -> "Parakeet TDT v3 · Chunked"
+        spec.id == AsrModels.WHISPER_BASE.id -> "Whisper Base · Chunked"
+        else -> "Speech recognition"
+    }
 }
 
 @Composable

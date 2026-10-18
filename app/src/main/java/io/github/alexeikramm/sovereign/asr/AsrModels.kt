@@ -31,9 +31,15 @@ data class AsrModelSpec(
     val joinerFileName: String = "",
     val modelFileName: String = "",
     val tokensFileName: String = "tokens.txt",
-    val tierTitle: String = "Lowest Latency",
+    val tierTitle: String = "",
     /** Compact name for tight UI such as filter chips; the full [label] is the default. */
     val shortLabel: String = label,
+    /**
+     * Streaming chunk size in milliseconds for the transducer models whose variants differ only in
+     * the encoder export (D-145) — the axis the Models card's variant selector is built from.
+     * `null` for offline models.
+     */
+    val chunkMs: Int? = null,
 ) {
     val totalBytes: Long = files.sumOf { it.bytes }
 
@@ -57,11 +63,24 @@ object AsrModels {
 
     const val DEFAULT_MODEL_ID = "nemotron-3.5-streaming"
 
+    /**
+     * The streaming variant a fresh install starts on: the balanced 320 ms chunk (D-145). Deliberately
+     * separate from [DEFAULT_MODEL_ID] so the family's *identity* and the *default variant* stay
+     * decoupled — repointing one must not silently move the other. Computed, so it cannot drift from
+     * the spec's own id.
+     */
+    val DEFAULT_VARIANT_ID: String get() = NEMOTRON_320MS.id
+
+    /** Card title for the streaming family. The variants are named by chunk size, not by this. */
+    private const val TIER_MOST_RESPONSIVE = "Most Responsive"
+
     val NEMOTRON = AsrModelSpec(
         id = DEFAULT_MODEL_ID,
         label = "Nemotron 3.5",
         shortLabel = "Nemotron",
-        description = "Recommended streaming • Transcribes while speaking with lowest latency (~682 MB)",
+        tierTitle = TIER_MOST_RESPONSIVE,
+        chunkMs = 560,
+        description = "Recommended streaming • Transcribes while speaking; 560 ms chunks (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11",
         revision = "ab43d895f5985b1bbab8b6eac8607fcdc05343f3",
@@ -98,8 +117,9 @@ object AsrModels {
         id = "nemotron-3.5-streaming-320ms",
         label = "Nemotron 3.5 (320ms)",
         shortLabel = "Nemotron 320",
-        tierTitle = "Ultra-Low Latency",
-        description = "Ultra-fast streaming • Lowest dictation latency (~682 MB)",
+        tierTitle = TIER_MOST_RESPONSIVE,
+        chunkMs = 320,
+        description = "Balanced streaming • 320 ms chunks update the live text more often (~682 MB)",
         type = AsrModelType.STREAMING_TRANSDUCER,
         repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-320ms-int8-2026-06-11",
         revision = "424ce58898995b713f84341f2e1492f9207a26aa",
@@ -113,6 +133,50 @@ object AsrModels {
                 name = "encoder.int8.onnx",
                 bytes = 657_601_518L,
                 sha256 = "f79c3fcc149f268b54b7d5754bdc2ba5c47c16b1fc70d15728a56f6efbf60ca5",
+            ),
+            AsrModelFile(
+                name = "decoder.int8.onnx",
+                bytes = 14_978_075L,
+                sha256 = "19f9c98fc6d0a2c33a65a43b36fdb2e914c26c0aa9764be3aebc502a1e982fb0",
+            ),
+            AsrModelFile(
+                name = "joiner.int8.onnx",
+                bytes = 9_504_438L,
+                sha256 = "4101c7c679a0bc30483794b27a059e34e79232aa2068d78d51231a22c8b0d7ce",
+            ),
+            AsrModelFile(
+                name = "tokens.txt",
+                bytes = 131_440L,
+                sha256 = "729cc103155bafa785f9cd45746cd41cabe97eab7182fc04d594129587958f8a",
+            ),
+        ),
+    )
+
+    /**
+     * The 160 ms export (D-145). Same architecture, engine and 40-language coverage as the other
+     * streaming variants; the only differing artifact is the encoder, so this is one catalog line
+     * like the 320 ms one.
+     */
+    val NEMOTRON_160MS = AsrModelSpec(
+        id = "nemotron-3.5-streaming-160ms",
+        label = "Nemotron 3.5 (160ms)",
+        shortLabel = "Nemotron 160",
+        tierTitle = TIER_MOST_RESPONSIVE,
+        chunkMs = 160,
+        description = "Most responsive streaming • 160 ms chunks update the live text fastest (~682 MB)",
+        type = AsrModelType.STREAMING_TRANSDUCER,
+        repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-160ms-int8-2026-06-11",
+        revision = "b3a4dbde84fba1a13cb4270e6730b525ac6a2db6",
+        directoryName = "nemotron-3.5-streaming-0.6b-160ms-int8",
+        encoderFileName = "encoder.int8.onnx",
+        decoderFileName = "decoder.int8.onnx",
+        joinerFileName = "joiner.int8.onnx",
+        tokensFileName = "tokens.txt",
+        files = listOf(
+            AsrModelFile(
+                name = "encoder.int8.onnx",
+                bytes = 657_601_518L,
+                sha256 = "e1b39e5e16bef578a54ed2fba5f031438e000cc36c3ea2ca49d55699d5baebd4",
             ),
             AsrModelFile(
                 name = "decoder.int8.onnx",
@@ -266,21 +330,38 @@ object AsrModels {
     )
 
     /**
-     * The active ASR catalog offered to users: the two streaming Nemotron variants and the two
+     * The active ASR catalog offered to users: the three streaming Nemotron variants and the two
      * offline models.
      *
-     * The 320 ms variant is **listed again** (D-090 unlisted it; D-144 re-listed it): the streaming
-     * matrix judged it on cleanup quality and ASR cost only, and found no gain — but it is chosen here
-     * for *responsiveness*, which that matrix did not measure. Its finer frames update the live text
-     * more often, and its files are identical for the encoder/decoder/joiner/tokens set except the
-     * encoder, so re-offering costs one catalog line.
+     * The streaming variants are one model whose encoder export sets the chunk size, so they are
+     * offered as one card with a selector (D-145) rather than N cards. The 320 ms variant is listed
+     * (D-090 unlisted it; D-144 re-listed it): the streaming matrix judged it on cleanup quality and
+     * ASR cost only, and found no gain — but it is chosen here for *responsiveness*, which that matrix
+     * did not measure. Its finer frames update the live text more often; every variant differs from
+     * the 560 ms default in the encoder alone, so re-offering one costs a single catalog line.
      */
     val CATALOG: List<AsrModelSpec> = listOf(
         NEMOTRON,
         NEMOTRON_320MS,
+        NEMOTRON_160MS,
         PARAKEET_TDT_V3,
         WHISPER_BASE,
     )
+
+    /**
+     * The Nemotron 3.5 streaming variants, coarsest chunk first — the display order of the Models
+     * card's variant selector. They share decoder/joiner/tokens and differ only in the encoder, so
+     * they are one model with three points on the latency axis.
+     */
+    val NEMOTRON_VARIANTS: List<AsrModelSpec> = listOf(NEMOTRON, NEMOTRON_320MS, NEMOTRON_160MS)
+
+    /**
+     * The offered models grouped for display: the streaming variants share one card, every other
+     * model is a family of one. Derived from [CATALOG] so a newly offered model cannot be forgotten
+     * here.
+     */
+    val FAMILIES: List<List<AsrModelSpec>> = listOf(NEMOTRON_VARIANTS) +
+        CATALOG.filter { spec -> NEMOTRON_VARIANTS.none { it.id == spec.id } }.map { listOf(it) }
 
     /**
      * Models removed from the catalog (D-055, D-090) that must still resolve: a saved selection, a

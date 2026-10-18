@@ -605,24 +605,21 @@ fun ModelsScreen(
             )
         }
 
-        viewModel.asrCatalog.forEach { model ->
-            val isSelected = model.id == selectedAsrModel.id
-            val isInstalled = model.isInstalled(model.directory(context.filesDir))
-            val downloadState = asrDownloads[model.id]
+        AsrModels.FAMILIES.forEach { family ->
+            val familyIsActive = family.any { it.id == selectedAsrModel.id }
 
             AsrTierCard(
-                model = model,
-                isSelected = isSelected,
-                isInstalled = isInstalled,
-                downloadStatus = downloadState,
+                variants = family,
+                selectedModel = selectedAsrModel,
+                installedOnDevice = { it.isInstalled(it.directory(context.filesDir)) },
+                downloadStatusOf = { asrDownloads[it.id] },
                 notificationsAllowed = notificationsAllowed,
-                loadProbe = if (isSelected) loadProbe else null,
-                onSelect = { viewModel.selectAsrModel(model) },
-                onDownload = { pendingAsrDownload = model },
+                loadProbe = if (familyIsActive) loadProbe else null,
+                onSelect = { viewModel.selectAsrModel(it) },
+                onDownload = { pendingAsrDownload = it },
                 onCancelDownload = { viewModel.cancelModelDownload() },
                 onAllowMobileData = { viewModel.allowDownloadOverMobileData() },
-                onDelete = { pendingAsrDelete = model },
-                onVerify = { viewModel.probeLocalEngine() },
+                onDelete = { pendingAsrDelete = it },
                 onOpenInfo = { key -> selectedInfoKey = key },
             )
         }
@@ -681,87 +678,45 @@ fun ModelsScreen(
 
 @Composable
 private fun AsrTierCard(
-    model: AsrModelSpec,
-    isSelected: Boolean,
-    isInstalled: Boolean,
-    downloadStatus: ModelStatus.Downloading?,
+    variants: List<AsrModelSpec>,
+    selectedModel: AsrModelSpec,
+    installedOnDevice: (AsrModelSpec) -> Boolean,
+    downloadStatusOf: (AsrModelSpec) -> ModelStatus.Downloading?,
     notificationsAllowed: Boolean,
     loadProbe: String?,
-    onSelect: () -> Unit,
-    onDownload: () -> Unit,
+    onSelect: (AsrModelSpec) -> Unit,
+    onDownload: (AsrModelSpec) -> Unit,
     onCancelDownload: () -> Unit,
     onAllowMobileData: () -> Unit,
-    onDelete: () -> Unit,
-    onVerify: () -> Unit,
+    onDelete: (AsrModelSpec) -> Unit,
     onOpenInfo: (String) -> Unit,
 ) {
-    // Model metadata resolution
-    val (tierTitle, badgeText, badgeBg, badgeTextColor, description, latencyVal, qualityVal, ramVal, infoKey) = when (model.id) {
-        AsrModels.DEFAULT_MODEL_ID -> ModelMetadata(
-            title = "Lowest Latency",
-            badge = "Recommended",
-            badgeBg = MaterialTheme.colorScheme.primaryContainer,
-            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            description = "Transcribes speech in real time as you speak. Lowest latency · Good quality · High RAM requirement.",
-            latency = "Real-time",
-            quality = "Good",
-            ram = "High (${model.totalBytes / 1_000_000} MB)",
-            infoKey = "nemotron",
-        )
-        AsrModels.NEMOTRON_320MS.id -> ModelMetadata(
-            title = "Ultra-Low Latency",
-            badge = "Experimental",
-            badgeBg = MaterialTheme.colorScheme.tertiaryContainer,
-            badgeColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            description = "Transcribes speech in real time using 320 ms audio frames. Starts showing text sooner, but can be less accurate than the default streaming model. High RAM requirement.",
-            latency = "Real-time",
-            quality = "Good",
-            ram = "High (${model.totalBytes / 1_000_000} MB)",
-            infoKey = "nemotron-320",
-        )
-        AsrModels.WHISPER_BASE.id -> ModelMetadata(
-            title = "Lightweight",
-            badge = null,
-            badgeBg = MaterialTheme.colorScheme.primaryContainer,
-            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            description = "Transcribes speech in audio chunks after you pause. High latency · Medium quality · Lowest RAM requirement.",
-            latency = "Chunked",
-            quality = "Standard",
-            ram = "Low (${model.totalBytes / 1_000_000} MB)",
-            infoKey = "whisper",
-        )
-        AsrModels.PARAKEET_TDT_V3.id -> ModelMetadata(
-            title = "Highest Accuracy",
-            badge = null,
-            badgeBg = MaterialTheme.colorScheme.primaryContainer,
-            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            description = "Transcribes speech in audio chunks after you pause. Medium latency · Best quality · High RAM requirement.",
-            latency = "Chunked",
-            quality = "Highest",
-            ram = "Medium (${model.totalBytes / 1_000_000} MB)",
-            infoKey = "parakeet",
-        )
-        else -> ModelMetadata(
-            title = model.label,
-            badge = null,
-            badgeBg = MaterialTheme.colorScheme.primaryContainer,
-            badgeColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            description = model.description,
-            latency = if (model.type == AsrModelType.STREAMING_TRANSDUCER) "Real-time" else "Chunked",
-            quality = "Standard",
-            ram = "${model.totalBytes / 1_000_000} MB",
-            infoKey = model.id,
-        )
-    }
+    // The variant this card speaks for: the selected one when it belongs to this family, otherwise
+    // the family's first. A family of one (Parakeet, Whisper) behaves exactly as its lone card did.
+    val activeVariant = variants.firstOrNull { it.id == selectedModel.id } ?: variants.first()
+    val isSelected = activeVariant.id == selectedModel.id
+    val activeInstalled = installedOnDevice(activeVariant)
+    val activeDownload = downloadStatusOf(activeVariant)
+
+    val meta = asrCardMeta(variants)
+    val tierTitle = meta.title
+    val badgeText = meta.badge
+    val badgeBg = meta.badgeBg
+    val badgeTextColor = meta.badgeTextColor
+    val description = meta.description
+    val infoKey = meta.infoKey
+
+    // Cadence copy for the streaming family; null for a single-variant card.
+    val variantNote = if (variants.size > 1) asrVariantNote(activeVariant) else null
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = downloadStatus == null) {
-                if (isInstalled) {
-                    onSelect()
+            .clickable(enabled = activeDownload == null) {
+                if (activeInstalled) {
+                    onSelect(activeVariant)
                 } else {
-                    onDownload()
+                    onDownload(activeVariant)
                 }
             },
         shape = RoundedCornerShape(26.dp),
@@ -818,7 +773,7 @@ private fun AsrTierCard(
                         }
                     }
 
-                    if (isSelected && isInstalled) {
+                    if (isSelected && activeInstalled) {
                         Surface(
                             color = MaterialTheme.colorScheme.primary,
                             shape = CircleShape,
@@ -838,9 +793,9 @@ private fun AsrTierCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (isInstalled && downloadStatus == null) {
+                    if (activeInstalled && activeDownload == null) {
                         Surface(
-                            onClick = onDelete,
+                            onClick = { onDelete(activeVariant) },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
                             modifier = Modifier.size(28.dp),
@@ -882,29 +837,49 @@ private fun AsrTierCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            // Variant selector — only the streaming family carries more than one chunk size.
+            if (variants.size > 1) {
+                AsrVariantSelector(
+                    variants = variants,
+                    activeId = activeVariant.id,
+                    installedOnDevice = installedOnDevice,
+                    onPick = { picked ->
+                        if (installedOnDevice(picked)) onSelect(picked) else onDownload(picked)
+                    },
+                )
+                if (variantNote != null) {
+                    Text(
+                        text = variantNote,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             // Action / Download / Diagnostics Area
-            if (downloadStatus != null) {
+            if (activeDownload != null) {
                 DownloadProgressBlock(
-                    downloadStatus = downloadStatus,
+                    downloadStatus = activeDownload,
                     notificationsAllowed = notificationsAllowed,
                     tintColor = MaterialTheme.colorScheme.primary,
                     onCancelDownload = onCancelDownload,
                     onAllowMobileData = onAllowMobileData,
                 )
-            } else if (!isInstalled) {
+            } else if (!activeInstalled) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Not downloaded (~${model.totalBytes / 1_000_000} MB)",
+                        text = "Not downloaded (~${activeVariant.totalBytes / 1_000_000} MB)",
                         fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     Button(
-                        onClick = onDownload,
+                        onClick = { onDownload(activeVariant) },
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
@@ -936,6 +911,146 @@ private fun AsrTierCard(
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Display copy for one ASR card. The streaming variants share one title and description (D-145);
+ * the per-chunk detail lives in [asrVariantNote] and the selector.
+ */
+private data class AsrCardMeta(
+    val title: String,
+    val badge: String? = null,
+    val badgeBg: Color,
+    val badgeTextColor: Color,
+    val description: String,
+    val infoKey: String,
+)
+
+@Composable
+private fun asrCardMeta(variants: List<AsrModelSpec>): AsrCardMeta {
+    val first = variants.first()
+    val badgeBg = MaterialTheme.colorScheme.primaryContainer
+    val badgeFg = MaterialTheme.colorScheme.onPrimaryContainer
+    return when {
+        // Every Nemotron streaming variant is the same model with a different encoder export, so the
+        // family gets the practical takeaway as its title rather than the codename.
+        first.type == AsrModelType.STREAMING_TRANSDUCER -> AsrCardMeta(
+            title = "Most Responsive",
+            badge = "Recommended",
+            badgeBg = badgeBg,
+            badgeTextColor = badgeFg,
+            description = "Transcribes speech in real time. Lowest latency · Good quality · High RAM requirement.",
+            infoKey = "nemotron",
+        )
+        first.id == AsrModels.PARAKEET_TDT_V3.id -> AsrCardMeta(
+            title = "Highest Accuracy",
+            badgeBg = badgeBg,
+            badgeTextColor = badgeFg,
+            description = "Transcribes speech in audio chunks after you pause. Medium latency · Best quality · High RAM requirement.",
+            infoKey = "parakeet",
+        )
+        first.id == AsrModels.WHISPER_BASE.id -> AsrCardMeta(
+            title = "Lightweight",
+            badgeBg = badgeBg,
+            badgeTextColor = badgeFg,
+            description = "Transcribes speech in audio chunks after you pause. High latency · Medium quality · Lowest RAM requirement.",
+            infoKey = "whisper",
+        )
+        else -> AsrCardMeta(
+            title = first.label,
+            badgeBg = badgeBg,
+            badgeTextColor = badgeFg,
+            description = first.description,
+            infoKey = first.id,
+        )
+    }
+}
+
+/**
+ * The cadence copy for a streaming variant. The chunk size is deliberately *not* repeated — the
+ * selector already states it.
+ */
+private fun asrVariantNote(spec: AsrModelSpec): String? = when (spec.chunkMs) {
+    560 -> "Most accurate, lowest CPU cost. Live text refreshes about twice a second."
+    320 -> "Balanced. Live text refreshes about three times a second with almost no accuracy cost."
+    160 -> "Most responsive, lower accuracy. Live text refreshes about six times a second."
+    else -> null
+}
+
+/**
+ * The streaming family's chunk-size picker — the same segmented control as the cleanup-profile
+ * selector, plus a dot marking which variants are already on device. Picking an un-downloaded
+ * variant routes through [onPick] so the screen can offer its download instead of silently
+ * selecting a model that is not installed.
+ */
+@Composable
+private fun AsrVariantSelector(
+    variants: List<AsrModelSpec>,
+    activeId: String,
+    installedOnDevice: (AsrModelSpec) -> Boolean,
+    onPick: (AsrModelSpec) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            variants.forEach { variant ->
+                val isActive = variant.id == activeId
+                val isInstalled = installedOnDevice(variant)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(
+                            if (isActive) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        )
+                        .clickable { onPick(variant) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "${variant.chunkMs} ms",
+                            fontSize = 12.sp,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isActive) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .then(
+                                    if (isInstalled) {
+                                        Modifier.background(MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        Modifier.border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            CircleShape,
+                                        )
+                                    },
+                                ),
+                        )
+                    }
                 }
             }
         }
@@ -1258,18 +1373,6 @@ private fun DownloadProgressBlock(
 // MODEL TECHNICAL SPECIFICATIONS
 // -------------------------------------------------------------------------------------------------
 
-private data class ModelMetadata(
-    val title: String,
-    val badge: String? = null,
-    val badgeBg: Color,
-    val badgeColor: Color,
-    val description: String,
-    val latency: String,
-    val quality: String,
-    val ram: String,
-    val infoKey: String,
-)
-
 private data class ModelTechnicalSpec(
     val title: String,
     val subtitle: String,
@@ -1280,32 +1383,20 @@ private data class ModelTechnicalSpec(
 
 private fun getModelTechnicalSpec(key: String): ModelTechnicalSpec? = when (key) {
     "nemotron" -> ModelTechnicalSpec(
-        title = "Lowest Latency",
+        title = "Most Responsive",
         subtitle = "Nvidia Nemotron-3.5-ASR-Streaming-0.6B (CPU)",
-        overview = "Uses Nvidia's Nemotron-3.5-ASR-Streaming-0.6B (560ms) model under the hood, run on CPU using the sherpa-onnx backend. The model supports 40 different languages.",
+        overview = "Uses Nvidia's Nemotron-3.5-ASR-Streaming-0.6B model on CPU via the sherpa-onnx backend, and supports 40 languages. The streaming chunk size — 560 ms, 320 ms or 160 ms — is fixed by the encoder export you choose: smaller chunks refresh the live text more often, at a small accuracy and CPU cost.",
         benefits = listOf(
             "Streaming ASR: transcribes speech in real time as you speak, drastically reducing end-to-end latency.",
             "Immediate LLM handoff: by the time you stop speaking, raw transcription is already complete and sent for cleanup instantly.",
             "Broad multilingual recognition across 40 languages.",
+            "One model, three refresh rates: pick the live-text cadence that suits the dictation.",
         ),
         tradeoffs = listOf(
-            "Relatively large model footprint requiring high RAM.",
+            "Relatively large model footprint requiring high RAM — and each chunk size is its own download.",
             "Slower initial load time: larger model weights take slightly longer to initialize into memory.",
             "Lower precision on noisy audio or dense domain jargon compared to the Highest Accuracy model.",
-        ),
-    )
-    "nemotron-320" -> ModelTechnicalSpec(
-        title = "Ultra-Low Latency",
-        subtitle = "Nvidia Nemotron-3.5-ASR-Streaming-0.6B 320 ms (CPU)",
-        overview = "The same Nvidia Nemotron-3.5 streaming model as the default, using shorter 320 ms audio frames so partial transcription can update more frequently. The default 560 ms frames are processed in larger batches and often finish long dictations sooner.",
-        benefits = listOf(
-            "Finer-grained streaming: text can update more often while you speak.",
-            "Same architecture, engine and 40-language coverage as the default streaming model.",
-        ),
-        tradeoffs = listOf(
-            "Slightly lower recognition accuracy per frame than the default streaming model.",
-            "More frequent decode steps; on longer audio the default 560 ms model can still finish sooner.",
-            "High RAM requirement comparable to the default streaming model.",
+            "Finer chunks cost more CPU and see less context per step, so the smallest can be less accurate.",
         ),
     )
     "whisper" -> ModelTechnicalSpec(

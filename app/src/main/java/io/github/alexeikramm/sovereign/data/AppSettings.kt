@@ -158,10 +158,11 @@ class AppSettings(context: Context) {
     )
 
     /**
-     * Which ASR model the local tier runs (Nemotron streaming or offline Whisper/Parakeet).
+     * Which ASR model the local tier runs (a Nemotron streaming variant or offline Whisper/Parakeet).
+     * A fresh install starts on [AsrModels.DEFAULT_VARIANT_ID] — the balanced 320 ms chunk (D-145).
      */
     var asrModelId: String
-        get() = prefs.getString(KEY_ASR_MODEL, null) ?: AsrModels.DEFAULT_MODEL_ID
+        get() = prefs.getString(KEY_ASR_MODEL, null) ?: AsrModels.DEFAULT_VARIANT_ID
         set(value) = prefs.edit { putString(KEY_ASR_MODEL, value) }
 
     val asrModel: AsrModelSpec

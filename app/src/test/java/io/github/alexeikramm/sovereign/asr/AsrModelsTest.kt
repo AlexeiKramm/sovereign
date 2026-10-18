@@ -93,11 +93,13 @@ class AsrModelsTest {
     @Test
     fun `catalog contains all supported streaming and offline models`() {
         val catalog = AsrModels.CATALOG
-        assertEquals(4, catalog.size)
+        assertEquals(5, catalog.size)
         val ids = catalog.map { it.id }
         assertTrue("contains nemotron 560ms", ids.contains("nemotron-3.5-streaming"))
         // Re-listed by D-144: chosen for live-text responsiveness, which the D-090 matrix did not measure.
         assertTrue("contains nemotron 320ms", ids.contains("nemotron-3.5-streaming-320ms"))
+        // Added by D-145 as the finest streaming variant.
+        assertTrue("contains nemotron 160ms", ids.contains("nemotron-3.5-streaming-160ms"))
         assertTrue("contains parakeet-tdt-v3", ids.contains("parakeet-tdt-v3"))
         assertTrue("contains whisper-base", ids.contains("whisper-base"))
 
@@ -116,6 +118,7 @@ class AsrModelsTest {
     fun `byId finds catalog and legacy models and falls back to default`() {
         // 320 ms is listed again (D-144) and still resolves; the legacy offline models resolve too.
         assertEquals("nemotron-3.5-streaming-320ms", AsrModels.byId("nemotron-3.5-streaming-320ms").id)
+        assertEquals("nemotron-3.5-streaming-160ms", AsrModels.byId("nemotron-3.5-streaming-160ms").id)
         assertTrue("320ms is listed (D-144)", "nemotron-3.5-streaming-320ms" in AsrModels.CATALOG.map { it.id })
         assertEquals("whisper-turbo", AsrModels.byId("whisper-turbo").id)
         assertEquals("whisper-small", AsrModels.byId("whisper-small").id)
@@ -125,14 +128,64 @@ class AsrModelsTest {
 
     @Test
     fun `getTierTitle resolves ids, labels and partial names`() {
-        assertEquals("Lowest Latency", AsrModels.getTierTitle("nemotron-3.5-streaming"))
-        assertEquals("Ultra-Low Latency", AsrModels.getTierTitle("nemotron-3.5-streaming-320ms"))
-        assertEquals("Ultra-Low Latency", AsrModels.getTierTitle("Nemotron 3.5 (320ms)"))
+        // D-145: the three streaming variants are one family and share one title; the ms codenames are gone.
+        assertEquals("Most Responsive", AsrModels.getTierTitle("nemotron-3.5-streaming"))
+        assertEquals("Most Responsive", AsrModels.getTierTitle("nemotron-3.5-streaming-320ms"))
+        assertEquals("Most Responsive", AsrModels.getTierTitle("nemotron-3.5-streaming-160ms"))
+        assertEquals("Most Responsive", AsrModels.getTierTitle("Nemotron 3.5 (320ms)"))
         assertEquals("Highest Accuracy", AsrModels.getTierTitle("parakeet-tdt-v3"))
         assertEquals("Lightweight", AsrModels.getTierTitle("whisper-base"))
         assertEquals("High Performance", AsrModels.getTierTitle("whisper-turbo"))
-        assertEquals("Lowest Latency", AsrModels.getTierTitle("Nemotron"))
-        assertEquals("Lowest Latency", AsrModels.getTierTitle(null))
+        assertEquals("Most Responsive", AsrModels.getTierTitle("Nemotron"))
+        assertEquals("Most Responsive", AsrModels.getTierTitle(null))
         assertEquals("something-else", AsrModels.getTierTitle("something-else"))
+    }
+
+    @Test
+    fun `the streaming variants differ only in the encoder`() {
+        val variants = AsrModels.NEMOTRON_VARIANTS
+        assertEquals(3, variants.size)
+        assertEquals(listOf(560, 320, 160), variants.map { it.chunkMs })
+
+        // decoder/joiner/tokens are byte-identical across the family; only the encoder differs — which
+        // is exactly why they can share one card.
+        listOf("decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt").forEach { name ->
+            val digests = variants.map { spec -> spec.files.first { it.name == name }.sha256 }.toSet()
+            assertEquals("$name must be identical across variants", 1, digests.size)
+        }
+        val encoders = variants.map { spec -> spec.files.first { it.name == "encoder.int8.onnx" }.sha256 }.toSet()
+        assertEquals("each variant ships its own encoder", variants.size, encoders.size)
+    }
+
+    @Test
+    fun `the 160 ms variant is pinned to its own revision and encoder`() {
+        val spec = AsrModels.byId("nemotron-3.5-streaming-160ms")
+        assertEquals(160, spec.chunkMs)
+        assertEquals("nemotron-3.5-streaming-0.6b-160ms-int8", spec.directoryName)
+        val encoder = spec.files.first { it.name == "encoder.int8.onnx" }
+        assertEquals(657_601_518L, encoder.bytes)
+        assertEquals(
+            "e1b39e5e16bef578a54ed2fba5f031438e000cc36c3ea2ca49d55699d5baebd4",
+            encoder.sha256,
+        )
+    }
+
+    @Test
+    fun `families put the streaming variants in one card and every other model alone`() {
+        val families = AsrModels.FAMILIES
+        assertEquals(3, families.size)
+        assertEquals(AsrModels.NEMOTRON_VARIANTS.map { it.id }, families[0].map { it.id })
+        assertEquals(listOf("parakeet-tdt-v3"), families[1].map { it.id })
+        assertEquals(listOf("whisper-base"), families[2].map { it.id })
+        // Every catalog model appears exactly once across the families.
+        assertEquals(AsrModels.CATALOG.map { it.id }.toSet(), families.flatten().map { it.id }.toSet())
+    }
+
+    @Test
+    fun `the default variant is the balanced 320 ms chunk and stays in the catalog`() {
+        assertEquals("nemotron-3.5-streaming-320ms", AsrModels.DEFAULT_VARIANT_ID)
+        assertTrue(AsrModels.DEFAULT_VARIANT_ID in AsrModels.CATALOG.map { it.id })
+        // The family anchor and the default variant are deliberately different things (D-145).
+        assertTrue(AsrModels.DEFAULT_MODEL_ID != AsrModels.DEFAULT_VARIANT_ID)
     }
 }

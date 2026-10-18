@@ -17,7 +17,7 @@ data class SettingsBackup(
     val pauseSilenceSeconds: Float = AppSettings.DEFAULT_PAUSE_SILENCE_S,
     val stableSilenceSeconds: Float = AppSettings.DEFAULT_STABLE_SILENCE_S,
     val stopAfterSilenceSeconds: Float = AppSettings.DEFAULT_STOP_AFTER_SILENCE_S,
-    val asrModelId: String = AsrModels.DEFAULT_MODEL_ID,
+    val asrModelId: String = AsrModels.DEFAULT_VARIANT_ID,
     val litertModelId: String = LiteRtLmModels.DEFAULT.id,
     val litertProcessor: String = LiteRtProcessor.GPU.id,
     val litertSpeculativeDecoding: Boolean = AppSettings.DEFAULT_LITERT_SPECULATIVE_DECODING,
