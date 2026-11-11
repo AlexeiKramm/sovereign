@@ -13,12 +13,12 @@ Speech-to-text that runs on your own devices — no cloud, no account.</p>
   <img src="https://img.shields.io/github/v/release/AlexeiKramm/sovereign" alt="Latest release" />
 </p>
 
-**Sovereign** is an on-device, private speech-to-text dictation tool for Android and your desktop. A floating pill sits over any app—tap or hold to speak, and your words appear at your cursor, cleaned and formatted in real time by local AI.
+**Sovereign** is an on-device, private speech-to-text dictation tool for Android and your desktop. A floating pill sits over any app—tap or hold to speak, and your words appear at your cursor, cleaned and formatted in real time by an AI model running on your Android phone.
 
 Everything runs on your hardware. Zero cloud, zero subscriptions, zero audio leaving your devices.
 
 <p align="center">
-  <img src="assets/hero-demo.gif" alt="The Sovereign transcript card filling with live streaming text: settled words in white, in-progress words in gray" width="560" />
+  <img src="assets/hero.gif" alt="Dictating into a notes app: the floating pill streams the words as they are spoken, polishes them, and inserts the cleaned sentence at the cursor" width="380" />
 </p>
 
 ## Why Sovereign
@@ -35,7 +35,7 @@ Everything runs on your hardware. Zero cloud, zero subscriptions, zero audio lea
 
 ### Concurrent On-Device Pipeline
 
-Recognition and cleanup run natively on your phone's CPU and GPU. Rather than waiting for you to finish speaking before starting, the pipeline processes speech concurrently in chunks—transcribing and refining as you talk, so text is ready to insert at your cursor almost instantly when you finish. If you don't need AI cleanup, you can run pure transcription with zero overhead.
+Recognition and cleanup run natively on your phone's CPU and GPU. Rather than waiting for you to finish speaking before starting, the pipeline processes speech concurrently in chunks—transcribing and refining as you talk, so text is ready to insert at your cursor almost instantly when you finish. AI cleanup is optional: switch it off and Sovereign types exactly what the speech model heard, with no language model running.
 
 ```mermaid
 flowchart LR
@@ -61,16 +61,15 @@ flowchart LR
 ```
 
 <p align="center">
-  <img src="assets/phone-server.jpg" width="40%" alt="The Sovereign server dashboard: a large power control, with the connected desktop client listed at the bottom" />
-  <img src="assets/phone-home.jpg" width="40%" alt="Home dashboard: server status, voice model, cleanup profile and dictation statistics" />
+  <img src="assets/desktop-overview.png" width="100%" alt="The Windows client's control window and floating pill next to the phone's server screen, which shows the PC as connected" />
 </p>
 
 
 ## Features
 
 <p align="center">
-  <img src="assets/phone-pill-card.png" width="60%" alt="The floating pill expanded over a note, with settled text in white and in-progress speech in gray" />
-  <img src="assets/phone-history-diff.jpg" width="33%" alt="Dictation history showing the word-level diff between raw and cleaned text" />
+  <img src="assets/screens-overview.png" width="100%" alt="Three phone screens: the floating pill transcribing over a notes app, dictation history with a word-level diff of what cleanup changed, and the Home dashboard" />
+  <img src="assets/screens-features.png" width="100%" alt="Three phone screens: the shared dictionary of corrections, the model manager with storage use, and the appearance and pill settings" />
 </p>
 
 **Dictation**
@@ -87,12 +86,12 @@ flowchart LR
 
 **Cleanup & Vocabulary**
 - On-device AI cleanup with the built-in **Smart Clean** profile, plus custom user profiles
-- Personal dictionary for names, acronyms, and technical jargon that steers the prompt
+- Personal dictionary of names, acronyms, and technical jargon that the AI cleanup model uses to spell them your way (applies when cleanup is on)
 - Word-level diff viewer showing exactly what AI cleanup altered or removed
 
 **Privacy & Control**
 - Optional dictation history that can be disabled entirely for zero data retention
-- Searchable and clearable local history when enabled
+- Local history of your 50 most recent dictations when enabled, clearable at any time
 - Single-file JSON backup and restore for settings, profiles, and dictionary
 
 **Tools & Diagnostics**
@@ -119,8 +118,7 @@ When you first launch Sovereign, the setup wizard walks you through granting per
 4. **Choose Model Pack** — Select an initial bundle based on your phone's storage and speed (see [Models](#models)). Notification permission is requested so downloads complete reliably in the background without Android killing the process.
 
 <p align="center">
-  <img src="assets/wizard-mic.jpg" width="42%" alt="Setup wizard, step 1: granting the microphone permission" />
-  <img src="assets/wizard-models.jpg" width="42%" alt="Setup wizard, step 4: choosing a model pack" />
+  <img src="assets/screens-setup.png" width="72%" alt="Setup wizard: granting the microphone permission, and choosing a model pack" />
 </p>
 
 
@@ -128,13 +126,13 @@ When you first launch Sovereign, the setup wizard walks you through granting per
 
 Turn your phone into a dictation microphone for your PC:
 
-1. **Start the Phone Server:** In Sovereign on your phone, open the **Home** tab and tap the **Desktop Server** row to view the server dashboard (or toggle it on directly). The server starts listening on your local Wi-Fi.
+1. **Start the Phone Server:** In Sovereign on your phone, open the **Home** tab and tap the **Sovereign Server** card to open the server dashboard (or switch it on from the card directly). The server starts listening on your local Wi-Fi.
 2. **Launch the Desktop Client:** Download `sovereign-client.exe` from the [releases page](https://github.com/AlexeiKramm/sovereign-client/releases/latest) on your Windows PC and open it (it runs in your system tray).
-3. **One-Tap Pairing:** Click the tray icon and choose **Pair with phone…** (or let it auto-discover your phone). An authorization dialog will appear on your phone screen with your PC's name; tap **Allow**.
+3. **One-Tap Pairing:** Right-click the tray icon and choose **Pair with phone…** (the same button is in the control window's **Settings** tab). The client finds your phone on the network by itself. Your phone shows a pairing request with your PC's name and a fingerprint; check that it matches the one on your PC, then tap **Approve**.
 4. **Dictate:** Place your cursor into any app on your PC (Word, browser, code editor, chat), press `Ctrl+Alt+Space`, and speak into your phone. The transcribed, cleaned text types directly at your PC cursor.
 
 <p align="center">
-  <img src="assets/phone-pairing.jpg" width="38%" alt="The pairing request dialog on the phone, showing the fingerprint to compare against the desktop client" />
+  <img src="assets/pairing.png" width="100%" alt="Pairing: the PC shows a fingerprint, the phone shows the same fingerprint in a pairing request with Deny and Approve buttons" />
 </p>
 
 The desktop client shows the same live state as the pill on your phone, and confirms how many words landed:
@@ -156,11 +154,13 @@ Sovereign bundles **no model weights**. The setup wizard offers three ready-made
 
 **Speech recognition models:**
 
-| Model | Kind | Size | Practical Experience |
-|---|---|---|---|
-| Nemotron 3.5 Streaming (560 ms) (default) | Streaming | ~682 MB | Lowest-latency dictation; text appears live as you speak |
-| Parakeet v3 | Offline | ~670 MB | Fast and highly accurate; transcribes during natural pauses |
-| Whisper Base | Offline | ~160 MB | Minimal storage and RAM; transcribes during natural pauses |
+| In the app | Model | Kind | Size | Practical Experience |
+|---|---|---|---|---|
+| **Most Responsive** | Nemotron 3.5 Streaming, 560 / 320 / 160 ms chunks | Streaming | ~682 MB per chunk size | Text appears live as you speak; smaller chunks update the live text more often |
+| **Highest Accuracy** | Parakeet v3 | Offline | ~670 MB | Fast and highly accurate; transcribes during natural pauses |
+| **Lightweight** | Whisper Base | Offline | ~160 MB | Minimal storage and RAM; transcribes during natural pauses |
+
+The *Best for dictation* pack installs the 560 ms version of Nemotron; the other chunk sizes can be downloaded and switched under **Models**.
 
 **AI cleanup models (optional):**
 
@@ -170,7 +170,7 @@ Sovereign bundles **no model weights**. The setup wizard offers three ready-made
 
 > **Hardware & RAM:** Devices with 8 GB RAM (such as older flagships or modern mid-range phones) comfortably run both speech recognition and Gemma 4 E2B concurrently. For devices with 6 GB RAM, running speech recognition without AI cleanup (or paired with Whisper Base) is recommended. Higher-end devices run recognition and cleanup effortlessly.
 
-> **Languages:** The underlying models and pipeline support multiple languages and automatic language detection. However, development and testing have so far focused on English, so non-English transcription quality has not yet been focused on.
+> **Languages:** The underlying models and pipeline support multiple languages and automatic language detection. However, development and testing have so far focused on English, so transcription quality in other languages has not been evaluated yet.
 
 All models are downloaded directly from their original publishers (Hugging Face / Google) and verified by SHA-256 checksum. See `ATTRIBUTIONS.md` for upstream model licenses.
 
@@ -190,7 +190,7 @@ All models are downloaded directly from their original publishers (Hugging Face 
 | **Android OS** | Android 11 (API 30) or newer | Supported on essentially all modern Android devices |
 | **Device Tier** | Mid-range to flagship recommended | Older flagships (e.g. OnePlus 7 Pro) and modern mid-rangers handle live dictation and AI cleanup comfortably |
 | **Phone RAM** | 6 GB minimum; 8 GB+ recommended | 6 GB devices run transcription-only models smoothly; 8 GB+ allows concurrent on-device AI cleanup |
-| **Storage** | ~300 MB to ~3.5 GB | ~300 MB for app + compact model; ~3.5 GB for recommended pack; up to ~4 GB if storing all offered models |
+| **Storage** | ~300 MB to ~3.5 GB | ~300 MB for the app + the Low storage pack; ~3.5 GB for the recommended pack; ~5.6 GB if you download every offered model |
 | **Permissions** | Microphone, Overlay, Accessibility | Required for voice capture, floating pill UI, and inserting text at your cursor |
 | **Network** | None for phone; Local Wi-Fi for PC | Phone dictation is 100% offline. Desktop companion requires both devices on the same local network |
 | **Desktop Companion** | Windows 10 / 11 | Other desktop operating systems may follow based on community demand |
@@ -201,18 +201,19 @@ All models are downloaded directly from their original publishers (Hugging Face 
 ## FAQ & troubleshooting
 
 **The pill doesn't appear.**
-Re-enable **Sovereign Dictation Service** in Android's accessibility settings. Updating or
-force-stopping the app clears this, and Android sometimes disables accessibility services
-automatically.
+By default the pill only shows while a keyboard is open, so tap into a text field first (you can
+change this under **Settings → Floating pill**). If it still doesn't show, re-enable
+**Sovereign Dictation Service** in Android's accessibility settings. Updating or force-stopping the
+app clears this, and Android sometimes disables accessibility services automatically.
 
 **Dictation stops working after a while.**
-Some ROMs aggressively kill background services. Exempt Sovereign from battery optimisation.
+Some ROMs aggressively kill background services. Exempt Sovereign from battery optimization.
 
 **"No model" / nothing happens when I speak.**
 Open **Models** and finish the download for your selected recognition model.
 
 **Can I use it without the AI cleanup?**
-Yes — choose the compact pack, or turn cleanup off in Settings. Cleanup is always optional.
+Yes — choose the **Low storage & battery** pack, or switch **LLM Cleanup** off on the Home tab. Cleanup is always optional.
 
 **My banking or security-sensitive app refuses to open.**
 Certain high-security applications (such as mobile banking, government ID, or corporate authenticator apps) actively detect third-party accessibility services and block startup as a safeguard against malicious screen overlays. If a security-strict app refuses to open, temporarily disable **Sovereign Dictation Service** in Android's Accessibility settings while using that app, then turn it back on when finished.
@@ -257,7 +258,8 @@ app/src/main/java/io/github/alexeikramm/sovereign/
   server/     phone-as-desktop-server: wss:// endpoint, TLS identity, and pairing
   ui/         Compose screens (Home · Profiles · Models · Settings) and setup wizard
   theme/      Material 3 color, typography, and motion tokens
-  text/ audio/ device/   text finalisation, PCM audio capture, hardware info
+  engine/     choice between the on-device engine and the legacy server tier
+  text/ audio/ device/   text finalization, PCM audio capture, hardware info
 ```
 
 Unit tests mirror this layout under `app/src/test/`. The desktop companion client lives in a separate repository.
